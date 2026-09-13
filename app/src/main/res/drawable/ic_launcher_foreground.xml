@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Crisp White Dumbbell Vector centered in safe area -->
+    <group
+        android:pivotX="54"
+        android:pivotY="54"
+        android:rotation="-45">
+
+        <!-- Handle Bar -->
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M28,51h52v6h-52z" />
+
+        <!-- Left Inner Heavy Plate -->
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M37,35h8v38h-8z" />
+
+        <!-- Left Outer Secondary Plate -->
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M27,39h8v30h-8z" />
+
+        <!-- Right Inner Heavy Plate -->
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M63,35h8v38h-8z" />
+
+        <!-- Right Outer Secondary Plate -->
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M73,39h8v30h-8z" />
+    </group>
+
+</vector>
