@@ -35,9 +35,25 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
   const [servingUnit, setServingUnit] = useState<string>(initialFood?.servingUnit || 'g');
   const [barcode, setBarcode] = useState<string>(initialFood?.barcode || '');
   
-  const isOfficialTfda = isTfdaFood(initialFood || { brand });
-  const [shareToCloud, setShareToCloud] = useState<boolean>(mode === 'CUSTOM' && !isOfficialTfda);
+  const isOfficialTfda = isTfdaFood({ id: initialFood?.id, brand });
+  const [shareToCloud, setShareToCloud] = useState<boolean>(() => {
+    const initFoodObj = initialFood || { brand: brand || '' };
+    if (isTfdaFood(initFoodObj)) {
+      return false;
+    }
+    return initialFood?.isSharedToCloud !== undefined ? initialFood.isSharedToCloud : true;
+  });
   const [isSharing, setIsSharing] = useState<boolean>(false);
+
+  const handleBrandChange = (newBrand: string) => {
+    setBrand(newBrand);
+    const willBeTfda = isTfdaFood({ id: initialFood?.id, brand: newBrand });
+    if (willBeTfda) {
+      setShareToCloud(false);
+    } else {
+      setShareToCloud(true);
+    }
+  };
   
   // Duplicate check dialog state
   const [duplicateModal, setDuplicateModal] = useState<{
@@ -196,7 +212,7 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
                 type="text"
                 placeholder="例如: 自煮 / 巷口便當"
                 value={brand}
-                onChange={(e) => setBrand(e.target.value)}
+                onChange={(e) => handleBrandChange(e.target.value)}
                 className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-emerald-600 font-medium text-slate-800"
               />
               <div className="flex flex-wrap gap-1.5 mt-2">
@@ -212,7 +228,7 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
                   <button
                     key={b.key}
                     type="button"
-                    onClick={() => setBrand(b.key)}
+                    onClick={() => handleBrandChange(b.key)}
                     className={`text-[11px] px-2.5 py-1 rounded-lg font-medium border transition cursor-pointer ${
                       brand === b.key || normalizeBrandName(brand) === b.key
                         ? 'bg-emerald-700 text-white border-emerald-700 shadow-2xs'
