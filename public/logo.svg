@@ -1,15 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
-  <defs>
-    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#F3F8F5" />
-      <stop offset="100%" stop-color="#E5EFE8" />
-    </linearGradient>
-  </defs>
-  
-  <!-- Soft Light Green Background - NO borders -->
-  <rect x="0" y="0" width="512" height="512" rx="128" fill="url(#bgGrad)" />
+  <!-- Clean Solid Background with Rounded App Icon Corners -->
+  <rect x="0" y="0" width="512" height="512" rx="112" fill="#E8F2EC" />
 
-  <!-- High Contrast Rich Black FP Monogram -->
+  <!-- Crisp FP Monogram -->
   <g fill="#0F172A">
     <!-- Letter F -->
     <path d="M 125 170 H 225 C 236 170 245 179 245 190 C 245 201 236 210 225 210 H 167 V 238 H 215 C 226 238 235 247 235 258 C 235 269 226 278 215 278 H 167 V 332 C 167 343 158 352 146 352 C 134 352 125 343 125 332 V 170 Z" />
