@@ -15,7 +15,11 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
     setIsLoading(true);
     setErrorMsg(null);
     try {
-      await loginWithGoogle();
+      const result = await loginWithGoogle();
+      if (result && result.isRedirecting) {
+        // Mobile is redirecting to Google, do not call reload/onLoginSuccess
+        return;
+      }
       onLoginSuccess();
     } catch (error: any) {
       console.error('Login failed:', error);
