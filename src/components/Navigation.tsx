@@ -29,13 +29,13 @@ export const Navigation: React.FC<NavigationProps> = ({ activeTab, onChangeTab }
               onClick={() => onChangeTab(tab.id)}
               className={`flex flex-col items-center justify-center w-16 py-1 rounded-xl transition cursor-pointer ${
                 isSelected
-                  ? 'text-emerald-700 font-bold'
+                  ? 'text-sky-700 font-bold'
                   : 'text-slate-500 hover:text-slate-700 font-medium'
               }`}
             >
               <div
                 className={`p-1.5 rounded-full transition ${
-                  isSelected ? 'bg-emerald-100 text-emerald-800' : ''
+                  isSelected ? 'bg-sky-100 text-sky-800' : ''
                 }`}
               >
                 <Icon className="w-5 h-5" />

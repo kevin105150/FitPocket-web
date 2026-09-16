@@ -82,7 +82,7 @@ export const PortionModal: React.FC<PortionModalProps> = ({
         {/* Header */}
         <div className="flex items-start justify-between p-5 border-b border-slate-100">
           <div>
-            <div className="text-xs font-semibold text-emerald-700 uppercase tracking-wider mb-0.5">
+            <div className="text-xs font-semibold text-sky-700 uppercase tracking-wider mb-0.5">
               {food.brand || '一般食材'}
             </div>
             <h2 className="text-lg font-bold text-slate-900 leading-snug">{food.name}</h2>
@@ -149,7 +149,7 @@ export const PortionModal: React.FC<PortionModalProps> = ({
                   onClick={() => setAmount(quick)}
                   className={`text-xs px-2.5 py-1 rounded-lg font-medium transition cursor-pointer ${
                     amount === quick
-                      ? 'bg-emerald-600 text-white font-bold'
+                      ? 'bg-sky-600 text-white font-bold'
                       : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'
                   }`}
                 >
@@ -163,8 +163,8 @@ export const PortionModal: React.FC<PortionModalProps> = ({
           <div className="bg-slate-50 border border-slate-200 p-4 rounded-2xl">
             <div className="flex items-baseline justify-between mb-4">
               <span className="text-xs font-bold text-slate-600">實際攝取營養預覽：</span>
-              <span className="text-2xl font-black text-emerald-800">
-                {cal} <span className="text-sm font-semibold text-emerald-700">kcal</span>
+              <span className="text-2xl font-black text-sky-800">
+                {cal} <span className="text-sm font-semibold text-sky-700">kcal</span>
               </span>
             </div>
 
@@ -216,7 +216,7 @@ export const PortionModal: React.FC<PortionModalProps> = ({
           <button
             type="button"
             onClick={handleSave}
-            className="flex-2 py-3 bg-emerald-700 hover:bg-emerald-800 text-white text-sm font-bold rounded-2xl shadow-md transition flex items-center justify-center gap-1.5 cursor-pointer"
+            className="flex-2 py-3 bg-sky-600 hover:bg-sky-700 text-white text-sm font-bold rounded-2xl shadow-md transition flex items-center justify-center gap-1.5 cursor-pointer"
           >
             <Check className="w-4 h-4" />
             加入飲食日誌

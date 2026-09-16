@@ -25,13 +25,21 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
       theme: {
         extend: {
           colors: {
-            emerald: {
-              50: '#ecfdf5',
-              100: '#d1fae5',
-              600: '#059669',
-              700: '#046a42',
-              800: '#064e3b',
-              900: '#022c22',
+            sky: {
+              50: '#f0f9ff',
+              100: '#e0f2fe',
+              600: '#0284c7',
+              700: '#0369a1',
+              800: '#075985',
+              900: '#0c4a6e',
+            },
+            sky: {
+              50: '#f0f9ff',
+              100: '#e0f2fe',
+              600: '#0284c7',
+              700: '#0369a1',
+              800: '#075985',
+              900: '#0c4a6e',
             }
           }
         }
@@ -48,16 +56,16 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
     .scrollbar-none { -ms-overflow-style: none; scrollbar-width: none; }
   </style>
 </head>
-<body class="bg-[#F7FAF7] text-slate-800 antialiased min-h-screen pb-16 selection:bg-emerald-500 selection:text-white">
+<body class="bg-[#F8FAFC] text-slate-800 antialiased min-h-screen pb-16 selection:bg-sky-500 selection:text-white">
 
   <!-- Main App Header: Beautiful, spacious, uncrowded layout -->
-  <header class="bg-white/95 backdrop-blur-md border-b border-emerald-900/10 sticky top-0 z-50 shadow-2xs">
+  <header class="bg-white/95 backdrop-blur-md border-b border-sky-900/10 sticky top-0 z-50 shadow-2xs">
     <div class="max-w-2xl mx-auto px-4 py-3 sm:py-3.5 flex items-center justify-between gap-3">
       <!-- Brand & Info Area -->
       <div class="flex items-center gap-3 min-w-0 flex-1">
         <!-- Logo -->
         <svg width="40" height="40" viewBox="0 0 512 512" class="rounded-2xl shrink-0 shadow-2xs">
-          <rect x="0" y="0" width="512" height="512" rx="128" fill="#E8F2EC"/>
+          <rect x="0" y="0" width="512" height="512" rx="128" fill="#E0F2FE"/>
           <path d="M 125 170 H 225 C 236 170 245 179 245 190 C 245 201 236 210 225 210 H 167 V 238 H 215 C 226 238 235 247 235 258 C 235 269 226 278 215 278 H 167 V 332 C 167 343 158 352 146 352 C 134 352 125 343 125 332 V 170 Z" fill="#0F172A"/>
           <path d="M 270 170 H 345 C 380 170 405 192 405 224 C 405 256 380 278 345 278 H 312 V 332 C 312 343 303 352 291 352 C 279 352 270 343 270 332 V 170 Z M 312 210 V 238 H 342 C 353 238 362 232 362 224 C 362 216 353 210 342 210 H 312 Z" fill="#0F172A"/>
         </svg>
@@ -65,7 +73,7 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
         <div class="min-w-0 flex-1 space-y-0.5">
           <div class="flex items-center gap-2 flex-wrap">
             <h1 class="text-base sm:text-lg font-black text-slate-900 tracking-tight leading-none">FitPocket 離線報表</h1>
-            <span class="text-[10px] bg-emerald-100/80 text-emerald-900 font-bold px-2 py-0.5 rounded-md border border-emerald-200 shrink-0">
+            <span class="text-[10px] bg-sky-100/80 text-sky-900 font-bold px-2 py-0.5 rounded-md border border-sky-200 shrink-0">
               7日數據
             </span>
           </div>
@@ -80,7 +88,7 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
       <!-- Action -->
       <button 
         onclick="window.print()" 
-        class="no-print text-xs font-bold px-3.5 py-2 bg-emerald-50 text-emerald-800 rounded-xl hover:bg-emerald-100 transition border border-emerald-200/80 cursor-pointer flex items-center gap-1.5 shadow-2xs shrink-0"
+        class="no-print text-xs font-bold px-3.5 py-2 bg-sky-50 text-sky-800 rounded-xl hover:bg-sky-100 transition border border-sky-200/80 cursor-pointer flex items-center gap-1.5 shadow-2xs shrink-0"
       >
         <span>🖨️</span>
         <span class="hidden sm:inline">列印 / 存為 PDF</span>
@@ -93,14 +101,14 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
   <main class="max-w-2xl mx-auto px-4 py-4 space-y-4">
 
     <!-- 7-Day Quick Date Selector Pills Card -->
-    <div class="bg-white rounded-3xl shadow-xs border border-emerald-900/5 p-4 space-y-3">
+    <div class="bg-white rounded-3xl shadow-xs border border-sky-900/5 p-4 space-y-3">
       <!-- Row 1: Active Date Display + Prev/Next Controls -->
       <div class="flex items-center justify-between gap-2">
         <button
           type="button"
           id="btn-prev-day"
           onclick="prevDay()"
-          class="p-2 text-slate-600 hover:text-emerald-800 hover:bg-emerald-50 rounded-xl transition cursor-pointer disabled:opacity-30 disabled:pointer-events-none"
+          class="p-2 text-slate-600 hover:text-sky-800 hover:bg-sky-50 rounded-xl transition cursor-pointer disabled:opacity-30 disabled:pointer-events-none"
           title="前一天"
           aria-label="前一天"
         >
@@ -108,15 +116,15 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
         </button>
 
         <div class="flex items-center gap-2 min-w-0">
-          <div class="flex items-center gap-2 px-3.5 py-1.5 bg-emerald-50/70 border border-emerald-100 rounded-2xl min-w-0">
-            <svg class="w-4 h-4 text-emerald-800 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 002-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+          <div class="flex items-center gap-2 px-3.5 py-1.5 bg-sky-50/70 border border-sky-100 rounded-2xl min-w-0">
+            <svg class="w-4 h-4 text-sky-800 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 002-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
             <span id="date-display" class="font-extrabold text-slate-900 text-xs sm:text-sm tracking-tight truncate">--</span>
           </div>
 
           <button
             id="today-btn"
             onclick="todayDate()"
-            class="hidden px-2.5 py-1 bg-slate-100 text-slate-700 hover:bg-emerald-100 hover:text-emerald-900 text-xs font-bold rounded-xl transition shrink-0 cursor-pointer"
+            class="hidden px-2.5 py-1 bg-slate-100 text-slate-700 hover:bg-sky-100 hover:text-sky-900 text-xs font-bold rounded-xl transition shrink-0 cursor-pointer"
           >
             基準日
           </button>
@@ -126,7 +134,7 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
           type="button"
           id="btn-next-day"
           onclick="nextDay()"
-          class="p-2 text-slate-600 hover:text-emerald-800 hover:bg-emerald-50 rounded-xl transition cursor-pointer disabled:opacity-30 disabled:pointer-events-none"
+          class="p-2 text-slate-600 hover:text-sky-800 hover:bg-sky-50 rounded-xl transition cursor-pointer disabled:opacity-30 disabled:pointer-events-none"
           title="後一天"
           aria-label="後一天"
         >
@@ -148,8 +156,8 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
     </div>
 
     <!-- Navigation Tabs -->
-    <div class="bg-white/90 backdrop-blur-md rounded-2xl border border-emerald-900/5 p-1.5 flex items-center justify-around no-print shadow-2xs">
-      <button id="tab-diet" onclick="switchTab('diet')" class="flex-1 py-2 text-xs font-bold rounded-xl transition text-center bg-emerald-800 text-white shadow-2xs cursor-pointer">
+    <div class="bg-white/90 backdrop-blur-md rounded-2xl border border-sky-900/5 p-1.5 flex items-center justify-around no-print shadow-2xs">
+      <button id="tab-diet" onclick="switchTab('diet')" class="flex-1 py-2 text-xs font-bold rounded-xl transition text-center bg-sky-600 text-white shadow-2xs cursor-pointer">
         🥗 飲食與水分
       </button>
       <button id="tab-workout" onclick="switchTab('workout')" class="flex-1 py-2 text-xs font-bold rounded-xl transition text-center text-slate-600 hover:text-slate-900 cursor-pointer">
@@ -164,7 +172,7 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
     <section id="view-diet" class="space-y-4">
 
       <!-- Macro Summary Card -->
-      <div class="bg-white rounded-3xl border border-emerald-950/5 shadow-sm p-5 space-y-4">
+      <div class="bg-white rounded-3xl border border-sky-950/5 shadow-sm p-5 space-y-4">
         
         <!-- Carb Cycle Pills -->
         <div class="flex items-center justify-between gap-2 pb-2 border-b border-slate-100">
@@ -185,7 +193,7 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
 
           <div class="text-right">
             <div id="cal-diff-label" class="text-xs font-bold text-slate-400 uppercase tracking-wider">剩餘可攝取</div>
-            <div id="cal-diff-val" class="text-2xl font-black mt-0.5 text-emerald-700">
+            <div id="cal-diff-val" class="text-2xl font-black mt-0.5 text-sky-700">
               0 <span class="text-xs font-semibold">kcal</span>
             </div>
           </div>
@@ -194,7 +202,7 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
         <!-- Calorie Bar -->
         <div class="space-y-1">
           <div class="w-full h-3 bg-slate-100 rounded-full overflow-hidden flex">
-            <div id="cal-progress-bar" class="h-full bg-emerald-600 transition-all duration-300 rounded-full" style="width: 0%"></div>
+            <div id="cal-progress-bar" class="h-full bg-sky-600 transition-all duration-300 rounded-full" style="width: 0%"></div>
           </div>
           <div class="flex justify-between text-[11px] font-medium text-slate-400 px-0.5">
             <span>進度 <span id="cal-percent">0</span>%</span>
@@ -273,7 +281,7 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
       </div>
 
       <!-- Water Tracker Card -->
-      <div class="bg-white rounded-3xl border border-emerald-950/5 shadow-sm p-5 space-y-3">
+      <div class="bg-white rounded-3xl border border-sky-950/5 shadow-sm p-5 space-y-3">
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-2">
             <div class="p-2 bg-blue-50 text-blue-600 rounded-2xl">
@@ -303,13 +311,13 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
 
     <!-- TAB 2: WORKOUT -->
     <section id="view-workout" class="space-y-4 hidden">
-      <div class="bg-white rounded-3xl border border-emerald-950/5 shadow-sm p-5 space-y-4">
+      <div class="bg-white rounded-3xl border border-sky-950/5 shadow-sm p-5 space-y-4">
         <div class="flex items-center justify-between pb-3 border-b border-slate-100">
           <div>
             <h2 class="font-black text-base text-slate-900">🏋️ 健身訓練日誌</h2>
             <p class="text-[11px] text-slate-400 mt-0.5" id="workout-date-subtitle">當日課表與組數細節</p>
           </div>
-          <span id="workout-count-badge" class="text-xs bg-emerald-50 text-emerald-800 font-bold px-3 py-1 rounded-full border border-emerald-100">
+          <span id="workout-count-badge" class="text-xs bg-sky-50 text-sky-800 font-bold px-3 py-1 rounded-full border border-sky-100">
             0 項記錄
           </span>
         </div>
@@ -321,7 +329,7 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
 
     <!-- TAB 3: WEIGHT -->
     <section id="view-weight" class="space-y-4 hidden">
-      <div class="bg-white rounded-3xl border border-emerald-950/5 shadow-sm p-5 space-y-5">
+      <div class="bg-white rounded-3xl border border-sky-950/5 shadow-sm p-5 space-y-5">
         <div class="flex items-center justify-between pb-3 border-b border-slate-100">
           <div>
             <h2 class="font-black text-base text-slate-900">⚖️ 體重與健康目標</h2>
@@ -361,9 +369,9 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
             <p class="text-[11px] text-indigo-800 font-bold mb-1">🌙 最新晚重</p>
             <p class="text-xl font-black text-indigo-900"><span id="latest-evening-weight">--</span> <span class="text-xs font-normal">kg</span></p>
           </div>
-          <div class="bg-emerald-50/50 p-3.5 rounded-2xl border border-emerald-100">
-            <p class="text-[11px] text-emerald-700 font-bold mb-1">🎯 目標體重</p>
-            <p class="text-xl font-black text-emerald-800"><span id="target-weight">--</span> <span class="text-xs font-normal">kg</span></p>
+          <div class="bg-sky-50/50 p-3.5 rounded-2xl border border-sky-100">
+            <p class="text-[11px] text-sky-700 font-bold mb-1">🎯 目標體重</p>
+            <p class="text-xl font-black text-sky-800"><span id="target-weight">--</span> <span class="text-xs font-normal">kg</span></p>
           </div>
           <div class="bg-blue-50/50 p-3.5 rounded-2xl border border-blue-100">
             <p class="text-[11px] text-blue-700 font-bold mb-1">📐 BMI 指數</p>
@@ -384,7 +392,7 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
             </div>
             
             <div class="flex gap-1 bg-slate-100 p-1 rounded-xl">
-              <button onclick="setWeightChartDays(7)" id="w-days-7" class="px-2.5 py-1 text-xs font-bold rounded-lg transition bg-white text-emerald-800 shadow-2xs cursor-pointer">7天</button>
+              <button onclick="setWeightChartDays(7)" id="w-days-7" class="px-2.5 py-1 text-xs font-bold rounded-lg transition bg-white text-sky-800 shadow-2xs cursor-pointer">7天</button>
               <button onclick="setWeightChartDays(30)" id="w-days-30" class="px-2.5 py-1 text-xs font-bold rounded-lg transition text-slate-500 hover:text-slate-800 cursor-pointer">30天</button>
               <button onclick="setWeightChartDays(90)" id="w-days-90" class="px-2.5 py-1 text-xs font-bold rounded-lg transition text-slate-500 hover:text-slate-800 cursor-pointer">90天</button>
               <button onclick="setWeightChartDays(0)" id="w-days-0" class="px-2.5 py-1 text-xs font-bold rounded-lg transition text-slate-500 hover:text-slate-800 cursor-pointer">全部</button>
@@ -501,8 +509,8 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
         const shortDate = m + '/' + d;
 
         const cls = isSelected
-          ? 'bg-emerald-800 text-white shadow-2xs font-extrabold border-emerald-800'
-          : 'bg-slate-50 text-slate-600 hover:bg-emerald-50 hover:text-emerald-900 border-slate-200/80 font-bold';
+          ? 'bg-sky-800 text-white shadow-2xs font-extrabold border-sky-800'
+          : 'bg-slate-50 text-slate-600 hover:bg-sky-50 hover:text-sky-900 border-slate-200/80 font-bold';
 
         return '<button type="button" onclick="setDate(\\'' + dStr + '\\')" class="flex-1 min-w-[42px] py-1.5 px-1 rounded-xl text-center border transition flex flex-col items-center justify-center cursor-pointer ' + cls + '">' +
           '<span class="text-[10px] leading-tight opacity-80">' + dayLabel + '</span>' +
@@ -519,7 +527,7 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
         const info = CARB_CYCLE_INFO[c];
         const isSelected = activeCycle === c;
         const cls = isSelected
-          ? 'bg-emerald-800 text-white shadow-2xs'
+          ? 'bg-sky-800 text-white shadow-2xs'
           : 'bg-slate-100 text-slate-600 hover:bg-slate-200';
         return '<button type="button" onclick="selectCycle(\\'' + c + '\\')" class="px-3 py-1 rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer whitespace-nowrap ' + cls + '">' +
           '<span>' + info.emoji + '</span>' +
@@ -567,7 +575,7 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
         const view = document.getElementById('view-' + t);
         if (!btn || !view) return;
         if (t === tab) {
-          btn.className = "flex-1 py-2 text-xs font-bold rounded-xl transition text-center bg-emerald-800 text-white shadow-2xs cursor-pointer";
+          btn.className = "flex-1 py-2 text-xs font-bold rounded-xl transition text-center bg-sky-800 text-white shadow-2xs cursor-pointer";
           view.classList.remove('hidden');
         } else {
           btn.className = "flex-1 py-2 text-xs font-bold rounded-xl transition text-center text-slate-600 hover:text-slate-900 cursor-pointer";
@@ -664,9 +672,9 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
       if (calDiffLabel && calDiffVal && calProgressBar) {
         if (calDiff >= 0) {
           calDiffLabel.textContent = '剩餘可攝取';
-          calDiffVal.className = 'text-2xl font-black mt-0.5 text-emerald-700';
+          calDiffVal.className = 'text-2xl font-black mt-0.5 text-sky-700';
           calDiffVal.innerHTML = Math.round(calDiff) + ' <span class="text-xs font-semibold">kcal</span>';
-          calProgressBar.className = 'h-full bg-emerald-600 transition-all duration-300 rounded-full';
+          calProgressBar.className = 'h-full bg-sky-600 transition-all duration-300 rounded-full';
         } else {
           calDiffLabel.textContent = '超出預算';
           calDiffVal.className = 'text-2xl font-black mt-0.5 text-rose-600';
@@ -751,7 +759,7 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
           '<div class="px-5 py-3.5 flex items-center justify-between bg-white">' +
             '<div class="flex items-center gap-2.5 flex-1 min-w-0">' +
               '<span class="font-black text-base text-slate-900 truncate">' + meal.customName + '</span>' +
-              '<span class="text-[11px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full whitespace-nowrap">' + mCal + ' kcal</span>';
+              '<span class="text-[11px] font-bold text-sky-800 bg-sky-50 px-2 py-0.5 rounded-full whitespace-nowrap">' + mCal + ' kcal</span>';
 
         if (mRecords.length > 0) {
           html += '<div class="hidden sm:flex items-center gap-1.5 ml-2">' +
@@ -774,7 +782,7 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
                   (item.brand ? '<span class="text-xs font-medium text-slate-400 shrink-0">' + item.brand + '</span>' : '') +
                 '</div>' +
                 '<div class="flex flex-wrap items-center gap-2 text-xs text-slate-500 mt-0.5">' +
-                  '<span class="font-semibold text-emerald-800">' + item.loggedAmount + unit + ' , ' + item.calories + ' kcal</span>' +
+                  '<span class="font-semibold text-sky-800">' + item.loggedAmount + unit + ' , ' + item.calories + ' kcal</span>' +
                   '<div class="flex items-center gap-1">' +
                     '<span class="text-[10px] font-bold text-amber-700 bg-amber-50 px-1.5 py-0.25 rounded-full">C: ' + item.carbs + 'g</span>' +
                     '<span class="text-[10px] font-bold text-blue-700 bg-blue-50 px-1.5 py-0.25 rounded-full">P: ' + item.protein + 'g</span>' +
@@ -816,7 +824,7 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
         html += '<div class="bg-slate-50/80 rounded-2xl p-4 border border-slate-200/60 space-y-3">' +
           '<div class="flex items-center justify-between">' +
             '<div class="flex items-center gap-2">' +
-              '<span class="text-xs font-black px-3 py-1 bg-emerald-800 text-white rounded-xl shadow-2xs">' + (w.bodyPart || '健身訓練') + '</span>' +
+              '<span class="text-xs font-black px-3 py-1 bg-sky-800 text-white rounded-xl shadow-2xs">' + (w.bodyPart || '健身訓練') + '</span>' +
               (w.note ? '<span class="text-xs text-slate-500 font-medium">備註: ' + w.note + '</span>' : '') +
             '</div>' +
             '<span class="text-xs text-slate-400 font-medium">' + w.date + '</span>' +
@@ -862,7 +870,7 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
                 }
 
                 const setClass = isCompleted
-                  ? 'bg-emerald-50 text-emerald-800 border border-emerald-200 font-bold'
+                  ? 'bg-sky-50 text-sky-800 border border-sky-200 font-bold'
                   : 'bg-slate-100 text-slate-600 font-medium';
 
                 html += '<span class="px-2.5 py-1 rounded-lg text-xs ' + setClass + '">' +
@@ -915,7 +923,7 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
         const btn = document.getElementById('w-days-' + d);
         if (btn) {
           if (d === days) {
-            btn.className = "px-2.5 py-1 text-xs font-bold rounded-lg transition bg-white text-emerald-800 shadow-2xs cursor-pointer";
+            btn.className = "px-2.5 py-1 text-xs font-bold rounded-lg transition bg-white text-sky-800 shadow-2xs cursor-pointer";
           } else {
             btn.className = "px-2.5 py-1 text-xs font-bold rounded-lg transition text-slate-500 hover:text-slate-800 cursor-pointer";
           }
@@ -1083,12 +1091,12 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
           const ewStr = ew ? ew + ' kg' + (w.eveningTime ? ' <span class="text-[10px] text-slate-400 font-normal">(' + w.eveningTime + ')</span>' : '') : '-';
 
           const rowClass = isSelected 
-            ? 'bg-emerald-50/70 font-semibold' 
+            ? 'bg-sky-50/70 font-semibold' 
             : 'hover:bg-slate-50';
 
           return '<tr class="' + rowClass + '">' +
             '<td class="p-3 font-semibold text-slate-800">' + 
-              w.date + (isSelected ? ' <span class="text-[10px] bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded ml-1 font-bold">當前選擇</span>' : '') + 
+              w.date + (isSelected ? ' <span class="text-[10px] bg-sky-100 text-sky-800 px-1.5 py-0.5 rounded ml-1 font-bold">當前選擇</span>' : '') + 
             '</td>' +
             '<td class="p-3 font-bold text-amber-800">' + mwStr + '</td>' +
             '<td class="p-3 font-bold text-indigo-800">' + ewStr + '</td>' +

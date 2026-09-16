@@ -90,26 +90,33 @@ export const StorageService = {
   },
 
   // Helper for Google Drive
-  async saveToCloud(): Promise<void> {
-    if (!auth.currentUser) return;
+  async saveToCloud(): Promise<boolean> {
+    if (!auth.currentUser) return false;
     try {
       const json = this.exportData();
-      await DriveStorageService.saveAllData(json);
+      return await DriveStorageService.saveAllData(json);
     } catch (e) {
       console.warn('Failed to save to Drive:', e);
+      return false;
     }
   },
 
-  async syncFromCloud(): Promise<void> {
-    if (!auth.currentUser) return;
+  async syncFromCloud(): Promise<{ success: boolean; message: string }> {
+    if (!auth.currentUser) {
+      return { success: false, message: '尚未登入 Google 帳號' };
+    }
     try {
-      // Drive backup sync (loads user data from Google Drive)
       const json = await DriveStorageService.loadAllData();
       if (json) {
-        this.importData(json);
+        const ok = this.importData(json);
+        return ok
+          ? { success: true, message: '成功從 Google Drive 同步資料！' }
+          : { success: false, message: '備份檔案格式解析失敗' };
       }
-    } catch (e) {
-      console.warn('Drive sync failed (non-blocking):', e);
+      return { success: false, message: '尚未在 Google Drive 找到備份檔 (fitpocket_data.json)' };
+    } catch (e: any) {
+      console.warn('Drive sync notice:', e);
+      return { success: false, message: '連線至 Google Drive 失敗，請重新連線授權' };
     }
   },
 

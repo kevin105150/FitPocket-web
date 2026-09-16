@@ -4,8 +4,8 @@
   "description": "智慧飲食與健身追蹤系統",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#F7FAF7",
-  "theme_color": "#064e3b",
+  "background_color": "#F8FAFC",
+  "theme_color": "#0284c7",
   "icons": [
     {
       "src": "/logo.svg",

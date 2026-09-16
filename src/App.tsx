@@ -71,8 +71,8 @@ export default function App() {
 
   if (isInitializing) {
     return (
-      <div className="min-h-screen bg-[#F8FAF9] flex items-center justify-center">
-        <div className="w-10 h-10 border-4 border-emerald-100 border-t-emerald-800 rounded-full animate-spin" />
+      <div className="min-h-screen bg-[#F8FAFC] flex items-center justify-center">
+        <div className="w-10 h-10 border-4 border-sky-100 border-t-sky-600 rounded-full animate-spin" />
       </div>
     );
   }
@@ -82,9 +82,9 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[#F8FAF9] flex flex-col antialiased text-slate-800">
+    <div className="min-h-screen bg-[#F8FAFC] flex flex-col antialiased text-slate-800">
       {/* Top App Bar */}
-      <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-xl border-b border-emerald-950/5">
+      <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-xl border-b border-sky-950/5">
         <div className="max-w-2xl mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <img 
@@ -97,7 +97,7 @@ export default function App() {
               <h1 className="text-lg font-black text-slate-900 tracking-tight leading-none">
                 FitPocket
               </h1>
-              <span className="text-[10px] font-bold text-emerald-800 tracking-widest uppercase">
+              <span className="text-[10px] font-bold text-sky-700 tracking-widest uppercase">
                 AI Intelligence
               </span>
             </div>
@@ -114,7 +114,7 @@ export default function App() {
                     referrerPolicy="no-referrer"
                   />
                 ) : (
-                  <div className="w-8 h-8 rounded-xl bg-emerald-100 flex items-center justify-center text-emerald-700">
+                  <div className="w-8 h-8 rounded-xl bg-sky-100 flex items-center justify-center text-sky-700">
                     <UserIcon className="w-4 h-4" />
                   </div>
                 )}

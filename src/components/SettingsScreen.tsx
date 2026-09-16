@@ -308,14 +308,14 @@ export const SettingsScreen: React.FC = () => {
             TDEE/BMR 計算、碳循環目標、餐點管理與資料備份
           </p>
         </div>
-        <div className="p-3 bg-emerald-100 text-emerald-800 rounded-2xl">
+        <div className="p-3 bg-sky-100 text-sky-800 rounded-2xl">
           <Settings className="w-5 h-5" />
         </div>
       </div>
 
       {savedMessage && (
-        <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-2xl text-xs font-bold text-emerald-800 flex items-center gap-2 animate-in fade-in">
-          <Check className="w-4 h-4 text-emerald-600" />
+        <div className="p-3 bg-sky-50 border border-sky-200 rounded-2xl text-xs font-bold text-sky-800 flex items-center gap-2 animate-in fade-in">
+          <Check className="w-4 h-4 text-sky-600" />
           <span>{savedMessage}</span>
         </div>
       )}
@@ -368,9 +368,11 @@ export const SettingsScreen: React.FC = () => {
             <button
               onClick={async () => {
                 flashMessage('正在與 Google Drive 同步...');
-                await StorageService.syncFromCloud();
-                flashMessage('同步完成！');
-                setTimeout(() => window.location.reload(), 1000);
+                const res = await StorageService.syncFromCloud();
+                flashMessage(res.message);
+                if (res.success) {
+                  setTimeout(() => window.location.reload(), 1200);
+                }
               }}
               className="w-full py-2.5 bg-sky-50 hover:bg-sky-100 text-sky-800 text-xs font-black rounded-xl border border-sky-100 transition flex items-center justify-center gap-2 cursor-pointer"
             >
@@ -398,12 +400,12 @@ export const SettingsScreen: React.FC = () => {
       <div className="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-2xs space-y-4">
         <div className="flex items-center justify-between border-b border-slate-100 pb-3">
           <div className="flex items-center gap-2">
-            <Calculator className="w-5 h-5 text-emerald-700" />
+            <Calculator className="w-5 h-5 text-sky-600" />
             <h3 className="font-bold text-slate-900 text-sm">
               身體數值與 TDEE / BMR 試算
             </h3>
           </div>
-          <span className="text-[11px] font-semibold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-lg">
+          <span className="text-[11px] font-semibold text-sky-800 bg-sky-50 px-2 py-0.5 rounded-lg">
             Mifflin-St Jeor 公式
           </span>
         </div>
@@ -548,7 +550,7 @@ export const SettingsScreen: React.FC = () => {
                 }
                 className={`py-2 px-3 text-xs font-bold rounded-xl border transition cursor-pointer text-left ${
                   userProfile.fitnessGoal === g.id
-                    ? 'bg-emerald-800 text-white border-emerald-800'
+                    ? 'bg-sky-600 text-white border-sky-600'
                     : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
                 }`}
               >
@@ -559,7 +561,7 @@ export const SettingsScreen: React.FC = () => {
         </div>
 
         {/* Calculation Result Banner */}
-        <div className="bg-emerald-50/70 border border-emerald-200/60 p-4 rounded-2xl space-y-3">
+        <div className="bg-sky-50/70 border border-sky-200/60 p-4 rounded-2xl space-y-3">
           <div className="grid grid-cols-3 gap-2 text-center">
             <div>
               <span className="text-[10px] font-bold text-slate-400 block">基礎代謝 BMR</span>
@@ -574,14 +576,14 @@ export const SettingsScreen: React.FC = () => {
               </span>
             </div>
             <div>
-              <span className="text-[10px] font-bold text-emerald-800 block">推薦每日目標</span>
-              <span className="text-base font-black text-emerald-800">
+              <span className="text-[10px] font-bold text-sky-800 block">推薦每日目標</span>
+              <span className="text-base font-black text-sky-800">
                 {calculated.targetCal} <span className="text-xs">kcal</span>
               </span>
             </div>
           </div>
 
-          <div className="flex flex-col gap-3 pt-2 border-t border-emerald-200/50 text-xs">
+          <div className="flex flex-col gap-3 pt-2 border-t border-sky-200/50 text-xs">
             <div className="text-slate-600">
               建議分配：碳 <strong className="text-amber-800">{calculated.targetCarbs}g</strong> ·
               蛋 <strong className="text-blue-800">{calculated.targetProtein}g</strong> · 脂{' '}
@@ -591,7 +593,7 @@ export const SettingsScreen: React.FC = () => {
             <button
               type="button"
               onClick={handleApplyCalculatedToGoals}
-              className="w-full px-3 py-2.5 bg-emerald-800 hover:bg-emerald-900 text-white text-xs font-bold rounded-xl shadow-xs transition cursor-pointer flex items-center justify-center gap-1"
+              className="w-full px-3 py-2.5 bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold rounded-xl shadow-xs transition cursor-pointer flex items-center justify-center gap-1"
             >
               <Sparkles className="w-3.5 h-3.5" />
               一鍵套用至循環日
@@ -604,7 +606,7 @@ export const SettingsScreen: React.FC = () => {
       <div className="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-2xs space-y-3">
         <div className="flex items-center justify-between border-b border-slate-100 pb-2">
           <div className="flex items-center gap-2">
-            <Database className="w-4 h-4 text-emerald-700" />
+            <Database className="w-4 h-4 text-sky-600" />
             <h3 className="font-bold text-slate-900 text-sm">食品資料庫管理</h3>
           </div>
           <button
@@ -613,7 +615,7 @@ export const SettingsScreen: React.FC = () => {
               setEditingCustomFood(undefined);
               setShowCustomFoodModal(true);
             }}
-            className="text-xs font-bold text-emerald-800 hover:text-emerald-950 flex items-center gap-1"
+            className="text-xs font-bold text-sky-800 hover:text-sky-950 flex items-center gap-1"
           >
             <Plus className="w-3.5 h-3.5" /> 新增自訂食物
           </button>
@@ -626,7 +628,7 @@ export const SettingsScreen: React.FC = () => {
           </div>
           <div className="p-3 bg-slate-50 rounded-2xl flex justify-between items-center">
             <span className="text-slate-500 font-semibold">我的常用自訂</span>
-            <span className="font-bold text-emerald-800 text-sm">{customFoods.length} 筆</span>
+            <span className="font-bold text-sky-800 text-sm">{customFoods.length} 筆</span>
           </div>
           <div className="p-3 bg-slate-50 rounded-2xl flex justify-between items-center">
             <span className="text-slate-500 font-semibold">公共網路擴充資料庫</span>
@@ -644,9 +646,9 @@ export const SettingsScreen: React.FC = () => {
                 setCustomFoodsSearchQuery('');
                 setShowCustomFoodsListModal(true);
               }}
-              className="w-full py-2.5 px-4 bg-emerald-50 hover:bg-emerald-100/80 border border-emerald-100 text-emerald-800 text-xs font-bold rounded-xl shadow-2xs transition flex items-center justify-center gap-2 cursor-pointer active:scale-98"
+              className="w-full py-2.5 px-4 bg-sky-50 hover:bg-sky-100/80 border border-sky-100 text-sky-800 text-xs font-bold rounded-xl shadow-2xs transition flex items-center justify-center gap-2 cursor-pointer active:scale-98"
             >
-              <Search className="w-3.5 h-3.5 text-emerald-700" />
+              <Search className="w-3.5 h-3.5 text-sky-600" />
               <span>管理自訂食物清單 ({customFoods.length} 筆)</span>
             </button>
           </div>
@@ -662,7 +664,7 @@ export const SettingsScreen: React.FC = () => {
           </div>
           <div>
             {geminiKey ? (
-              <span className="px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full text-xs font-bold whitespace-nowrap">
+              <span className="px-2.5 py-1 bg-sky-50 text-sky-700 border border-sky-200 rounded-full text-xs font-bold whitespace-nowrap">
                 已設定
               </span>
             ) : (
@@ -727,23 +729,23 @@ export const SettingsScreen: React.FC = () => {
             <div
               className={`p-3 rounded-xl text-xs flex flex-col gap-1.5 animate-in fade-in slide-in-from-top-1 ${
                 testResult.ok
-                  ? 'bg-emerald-50 border border-emerald-200 text-emerald-800'
+                  ? 'bg-sky-50 border border-sky-200 text-sky-800'
                   : 'bg-rose-50 border border-rose-200 text-rose-800'
               }`}
             >
               <div className="flex items-center gap-1.5 font-bold">
                 {testResult.ok ? (
-                  <Check className="w-4 h-4 text-emerald-600" />
+                  <Check className="w-4 h-4 text-sky-600" />
                 ) : (
                   <AlertCircle className="w-4 h-4 text-rose-600" />
                 )}
                 <span>{testResult.ok ? 'AI 連線正常' : 'AI 連線失敗'}</span>
               </div>
               {testResult.ok ? (
-                <div className="text-[11px] text-emerald-700 space-y-0.5">
+                <div className="text-[11px] text-sky-700 space-y-0.5">
                   <p>• 運作模型：<span className="font-mono font-semibold">{testResult.modelUsed}</span></p>
                   <p>• 回應延遲：<span className="font-semibold">{testResult.latencyMs} 毫秒</span></p>
-                  <p className="text-emerald-600/90 font-medium">智慧飲食估算、照片辨識、訓練推薦等所有 AI 功能皆已就緒！</p>
+                  <p className="text-sky-600/90 font-medium">智慧飲食估算、照片辨識、訓練推薦等所有 AI 功能皆已就緒！</p>
                 </div>
               ) : (
                 <div className="text-[11px] text-rose-700">
@@ -775,12 +777,12 @@ export const SettingsScreen: React.FC = () => {
               <div
                 className={`p-3 rounded-xl text-xs flex items-start gap-2 border ${
                   firebaseStatus.success
-                    ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                    ? 'bg-sky-50 text-sky-800 border-sky-200'
                     : 'bg-rose-50 text-rose-800 border-rose-200'
                 }`}
               >
                 {firebaseStatus.success ? (
-                  <Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                  <Check className="w-4 h-4 text-sky-600 shrink-0 mt-0.5" />
                 ) : (
                   <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
                 )}
@@ -806,7 +808,7 @@ export const SettingsScreen: React.FC = () => {
         </div>
 
         {apiKeyStatus === 'saved' && (
-          <div className="mt-3 flex items-center gap-1.5 text-[11px] font-bold text-emerald-600 bg-emerald-50 py-1.5 px-3 rounded-lg animate-in fade-in slide-in-from-top-1">
+          <div className="mt-3 flex items-center gap-1.5 text-[11px] font-bold text-sky-600 bg-sky-50 py-1.5 px-3 rounded-lg animate-in fade-in slide-in-from-top-1">
             <Check className="w-3.5 h-3.5" />
             <span>API 金鑰已成功儲存並同步至雲端！</span>
           </div>
@@ -889,7 +891,7 @@ export const SettingsScreen: React.FC = () => {
             {/* Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
               <div className="flex items-center gap-2">
-                <Database className="w-5 h-5 text-emerald-800" />
+                <Database className="w-5 h-5 text-sky-800" />
                 <h3 className="text-base font-black text-slate-900">我的自訂食物清單管理</h3>
               </div>
               <button
@@ -910,7 +912,7 @@ export const SettingsScreen: React.FC = () => {
                   placeholder="搜尋自訂食物名稱或品牌..."
                   value={customFoodsSearchQuery}
                   onChange={(e) => setCustomFoodsSearchQuery(e.target.value)}
-                  className="w-full pl-9 pr-4 py-2 text-sm bg-white border border-slate-200 rounded-2xl focus:outline-none focus:border-emerald-500 text-slate-800"
+                  className="w-full pl-9 pr-4 py-2 text-sm bg-white border border-slate-200 rounded-2xl focus:outline-none focus:border-sky-500 text-slate-800"
                 />
               </div>
             </div>
@@ -1008,7 +1010,7 @@ export const SettingsScreen: React.FC = () => {
                             setEditingCustomFood(cf);
                             setShowCustomFoodModal(true);
                           }}
-                          className="p-2 text-slate-500 hover:text-emerald-700 hover:bg-emerald-50 rounded-xl transition cursor-pointer"
+                          className="p-2 text-slate-500 hover:text-sky-700 hover:bg-sky-50 rounded-xl transition cursor-pointer"
                           title="編輯"
                         >
                           <Edit2 className="w-4 h-4" />
@@ -1036,7 +1038,7 @@ export const SettingsScreen: React.FC = () => {
                   setEditingCustomFood(undefined);
                   setShowCustomFoodModal(true);
                 }}
-                className="py-2 px-3.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-xl transition flex items-center gap-1 cursor-pointer"
+                className="py-2 px-3.5 bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold rounded-xl transition flex items-center gap-1 cursor-pointer"
               >
                 <Plus className="w-3.5 h-3.5" />
                 <span>新增自訂食物</span>

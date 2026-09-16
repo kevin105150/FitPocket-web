@@ -43,10 +43,10 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
   };
 
   return (
-    <div className="min-h-screen bg-[#F8FAF9] flex flex-col items-center justify-center p-6 relative overflow-hidden">
+    <div className="min-h-screen bg-[#F8FAFC] flex flex-col items-center justify-center p-6 relative overflow-hidden">
       {/* Background Orbs */}
-      <div className="absolute top-[-10%] right-[-10%] w-64 h-64 bg-emerald-100/50 rounded-full blur-3xl" />
-      <div className="absolute bottom-[-10%] left-[-10%] w-64 h-64 bg-sky-100/50 rounded-full blur-3xl" />
+      <div className="absolute top-[-10%] right-[-10%] w-64 h-64 bg-sky-100/60 rounded-full blur-3xl" />
+      <div className="absolute bottom-[-10%] left-[-10%] w-64 h-64 bg-cyan-100/60 rounded-full blur-3xl" />
 
       <motion.div
         initial={{ opacity: 0, y: 20 }}
@@ -71,9 +71,9 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
         {/* Feature List */}
         <div className="space-y-4 mb-10 text-left">
           {[
-            { icon: Sparkles, text: 'AI 拍照辨識與飲食精準分析', color: 'text-purple-600', bg: 'bg-purple-50' },
-            { icon: CheckCircle2, text: '跨裝置雲端同步您的健康紀錄', color: 'text-emerald-600', bg: 'bg-emerald-50' },
-            { icon: Smartphone, text: '支援 Android 原生 APK 離線使用', color: 'text-sky-600', bg: 'bg-sky-50' },
+            { icon: Sparkles, text: 'AI 拍照辨識與飲食精準分析', color: 'text-sky-600', bg: 'bg-sky-50' },
+            { icon: CheckCircle2, text: '跨裝置雲端同步您的健康紀錄', color: 'text-cyan-600', bg: 'bg-cyan-50' },
+            { icon: Smartphone, text: '支援 Android 原生 APK 離線使用', color: 'text-blue-600', bg: 'bg-blue-50' },
           ].map((feature, i) => (
             <div key={i} className="flex items-center gap-3">
               <div className={`w-8 h-8 rounded-xl ${feature.bg} flex items-center justify-center flex-shrink-0`}>
@@ -120,7 +120,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
             type="button"
             onClick={() => handleLogin('popup')}
             disabled={isLoading}
-            className="hover:text-emerald-700 underline underline-offset-4 disabled:opacity-50"
+            className="hover:text-sky-700 underline underline-offset-4 disabled:opacity-50"
           >
             以彈窗方式登入
           </button>
@@ -129,7 +129,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
             type="button"
             onClick={() => handleLogin('redirect')}
             disabled={isLoading}
-            className="hover:text-emerald-700 underline underline-offset-4 disabled:opacity-50"
+            className="hover:text-sky-700 underline underline-offset-4 disabled:opacity-50"
           >
             以全螢幕跳轉登入
           </button>

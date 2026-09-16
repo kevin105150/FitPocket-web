@@ -26,13 +26,13 @@ export const MacroCalorieVerifier: React.FC<MacroCalorieVerifierProps> = ({
     <div
       className={`p-2.5 rounded-xl text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 border ${
         isMatch
-          ? 'bg-emerald-50/80 border-emerald-200 text-emerald-800'
+          ? 'bg-sky-50/80 border-sky-200 text-sky-800'
           : 'bg-amber-50/80 border-amber-200 text-amber-800'
       }`}
     >
       <div className="flex items-start gap-2">
         {isMatch ? (
-          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+          <CheckCircle2 className="w-4 h-4 text-sky-600 shrink-0 mt-0.5" />
         ) : (
           <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
         )}
@@ -59,7 +59,7 @@ export const MacroCalorieVerifier: React.FC<MacroCalorieVerifierProps> = ({
           onClick={() => onApplyCalculated(calculated)}
           className={`shrink-0 px-2.5 py-1 rounded-lg text-[11px] font-bold shadow-2xs active:scale-95 transition cursor-pointer ${
             isMatch
-              ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+              ? 'bg-sky-600 hover:bg-sky-700 text-white'
               : 'bg-amber-600 hover:bg-amber-700 text-white'
           }`}
         >

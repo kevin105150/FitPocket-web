@@ -197,14 +197,14 @@ export const WeightTracker: React.FC<WeightTrackerProps> = ({
                   placeholder="例如: 72.4"
                   value={activeTab === 'morning' ? morningWeight : eveningWeight}
                   onChange={(e) => activeTab === 'morning' ? setMorningWeight(e.target.value) : setEveningWeight(e.target.value)}
-                  className="w-full px-3 py-2 bg-white rounded-xl border border-slate-200 text-lg font-black text-slate-800 focus:outline-emerald-600"
+                  className="w-full px-3 py-2 bg-white rounded-xl border border-slate-200 text-lg font-black text-slate-800 focus:outline-sky-600"
                 />
                 <span className="text-sm font-bold text-slate-500">kg</span>
               </div>
             </div>
           <button
             type="submit"
-            className="w-full py-3 bg-emerald-800 hover:bg-emerald-900 text-white font-bold text-sm rounded-xl shadow-xs transition flex items-center justify-center gap-1.5 cursor-pointer"
+            className="w-full py-3 bg-sky-600 hover:bg-sky-700 text-white font-bold text-sm rounded-xl shadow-xs transition flex items-center justify-center gap-1.5 cursor-pointer"
           >
             <Check className="w-4 h-4" />
             <span>儲存 {activeTab === 'morning' ? '晨間' : '晚間'} 體重</span>
@@ -229,7 +229,7 @@ export const WeightTracker: React.FC<WeightTrackerProps> = ({
                 onClick={() => setChartDays(tab.val)}
                 className={`px-2.5 py-1 text-xs font-bold rounded-lg transition cursor-pointer ${
                   chartDays === tab.val
-                    ? 'bg-white text-emerald-800 shadow-2xs'
+                    ? 'bg-white text-sky-800 shadow-2xs'
                     : 'text-slate-500 hover:text-slate-800'
                 }`}
               >
@@ -249,7 +249,7 @@ export const WeightTracker: React.FC<WeightTrackerProps> = ({
                   y1={120 - ((userProfile.targetWeightKg - minW) / rangeW) * 100}
                   x2="300"
                   y2={120 - ((userProfile.targetWeightKg - minW) / rangeW) * 100}
-                  stroke="#10B981"
+                  stroke="#38bdf8"
                   strokeDasharray="4 4"
                   strokeWidth="1.5"
                 />
@@ -258,7 +258,7 @@ export const WeightTracker: React.FC<WeightTrackerProps> = ({
               {/* Trend Polyline */}
               <polyline
                 fill="none"
-                stroke="#1B6A45"
+                stroke="#0284c7"
                 strokeWidth="2.5"
                 points={validChartPoints
                   .map((p, i) => {
@@ -275,7 +275,7 @@ export const WeightTracker: React.FC<WeightTrackerProps> = ({
                 const y = 120 - ((p.weight - minW) / rangeW) * 100;
                 return (
                   <g key={i}>
-                    <circle cx={x} cy={y} r="3.5" fill="#1B6A45" />
+                    <circle cx={x} cy={y} r="3.5" fill="#0284c7" />
                     <text
                       x={x}
                       y={y - 8}

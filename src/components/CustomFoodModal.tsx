@@ -200,7 +200,7 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
                   setName(e.target.value);
                   setError('');
                 }}
-                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-emerald-600 font-medium text-slate-800"
+                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-sky-600 font-medium text-slate-800"
                 required
               />
             </div>
@@ -213,7 +213,7 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
                 placeholder="例如: 自煮 / 巷口便當"
                 value={brand}
                 onChange={(e) => handleBrandChange(e.target.value)}
-                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-emerald-600 font-medium text-slate-800"
+                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-sky-600 font-medium text-slate-800"
               />
               <div className="flex flex-wrap gap-1.5 mt-2">
                 {[
@@ -231,7 +231,7 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
                     onClick={() => handleBrandChange(b.key)}
                     className={`text-[11px] px-2.5 py-1 rounded-lg font-medium border transition cursor-pointer ${
                       brand === b.key || normalizeBrandName(brand) === b.key
-                        ? 'bg-emerald-700 text-white border-emerald-700 shadow-2xs'
+                        ? 'bg-sky-600 text-white border-sky-600 shadow-2xs'
                         : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
                     }`}
                   >
@@ -248,7 +248,7 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
               <button
                 type="button"
                 onClick={handleAutoCalcCalories}
-                className="text-xs font-semibold text-emerald-700 hover:text-emerald-800 flex items-center gap-1 cursor-pointer bg-white px-2 py-1 rounded-lg border border-slate-200 shadow-2xs"
+                className="text-xs font-semibold text-sky-700 hover:text-sky-800 flex items-center gap-1 cursor-pointer bg-white px-2 py-1 rounded-lg border border-slate-200 shadow-2xs"
               >
                 <Sparkles className="w-3.5 h-3.5" />
                 依三大營養素自動換算熱量
@@ -257,13 +257,13 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
 
             <div className="grid grid-cols-4 gap-2">
               <div>
-                <label className="block text-[11px] font-bold text-emerald-800 mb-1">熱量 (kcal)</label>
+                <label className="block text-[11px] font-bold text-sky-800 mb-1">熱量 (kcal)</label>
                 <input
                   type="number"
                   step="0.1"
                   value={calories ?? ''}
                   onChange={(e) => setCalories(e.target.value)}
-                  className="w-full p-2 text-center rounded-xl border border-emerald-300 bg-white font-bold text-slate-800"
+                  className="w-full p-2 text-center rounded-xl border border-sky-300 bg-white font-bold text-slate-800"
                   placeholder="0"
                 />
               </div>
@@ -367,7 +367,7 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
                 <div className="relative">
                   <div
                     onClick={() => setIsUnitDropdownOpen(!isUnitDropdownOpen)}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 font-medium text-slate-800 bg-white cursor-pointer flex items-center justify-between shadow-sm hover:border-emerald-500 transition-colors"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 font-medium text-slate-800 bg-white cursor-pointer flex items-center justify-between shadow-sm hover:border-sky-500 transition-colors"
                   >
                     <span>{unitOptions.find(o => o.value === servingUnit)?.label || servingUnit}</span>
                     <ChevronDown className="w-4 h-4 text-slate-400" />
@@ -389,7 +389,7 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
                             }}
                             className={`px-3 py-2 cursor-pointer text-sm font-medium transition-colors ${
                               servingUnit === option.value 
-                                ? 'bg-emerald-50 text-emerald-700' 
+                                ? 'bg-sky-50 text-sky-700' 
                                 : 'text-slate-700 hover:bg-slate-50'
                             }`}
                           >
@@ -404,15 +404,15 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
             </div>
             
             <div className="pt-2">
-              <label className="block text-xs font-semibold text-emerald-700 mb-1">
-                實際食用份量 (將以此數值加入紀錄) <span className="text-emerald-500">*</span>
+              <label className="block text-xs font-semibold text-sky-700 mb-1">
+                實際食用份量 (將以此數值加入紀錄) <span className="text-sky-500">*</span>
               </label>
               <div className="grid grid-cols-2 gap-3">
                 <input
                   type="number"
                   value={consumedAmount}
                   onChange={(e) => setConsumedAmount(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-emerald-200 font-bold text-emerald-800 bg-emerald-50 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-colors"
+                  className="w-full px-3 py-2 rounded-xl border border-sky-200 font-bold text-sky-800 bg-sky-50 focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500 transition-colors"
                 />
                 <div className="flex items-center px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-slate-500 font-medium">
                   {unitOptions.find(o => o.value === servingUnit)?.label || servingUnit}
@@ -536,7 +536,7 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
             <button
               type="submit"
               disabled={isSharing}
-              className="flex items-center gap-1.5 px-5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white text-sm font-semibold rounded-xl shadow-xs transition cursor-pointer disabled:opacity-50"
+              className="flex items-center gap-1.5 px-5 py-2 bg-sky-600 hover:bg-sky-700 text-white text-sm font-semibold rounded-xl shadow-xs transition cursor-pointer disabled:opacity-50"
             >
               <Save className="w-4 h-4" />
               {isSharing ? '檢查中...' : mode === 'AI_REVIEW' || mode === 'ADD_RECORD' ? '確認並新增至紀錄' : mode === 'EDIT_RECORD' ? '儲存修改' : '儲存自訂飲食'}
@@ -574,13 +574,13 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
                 </div>
               </div>
 
-              <div className="p-3 bg-emerald-50 rounded-2xl border border-emerald-200">
-                <div className="font-bold text-emerald-800 mb-1">您本次輸入數據</div>
-                <div className="font-extrabold text-emerald-950">{duplicateModal.pendingFood.calories} kcal</div>
-                <div className="text-[11px] text-emerald-700 mt-1">
+              <div className="p-3 bg-sky-50 rounded-2xl border border-sky-200">
+                <div className="font-bold text-sky-800 mb-1">您本次輸入數據</div>
+                <div className="font-extrabold text-sky-950">{duplicateModal.pendingFood.calories} kcal</div>
+                <div className="text-[11px] text-sky-700 mt-1">
                   C: {duplicateModal.pendingFood.carbs}g | P: {duplicateModal.pendingFood.protein}g | F: {duplicateModal.pendingFood.fat}g
                 </div>
-                <div className="text-[10px] text-emerald-600 mt-1">
+                <div className="text-[10px] text-sky-600 mt-1">
                   每份 {duplicateModal.pendingFood.servingAmount}{duplicateModal.pendingFood.servingUnit}
                 </div>
               </div>
@@ -596,7 +596,7 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
                   setDuplicateModal(null);
                   executeSave(food, consumed, true);
                 }}
-                className="w-full py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs rounded-xl transition shadow-xs cursor-pointer flex items-center justify-center gap-1.5"
+                className="w-full py-2.5 bg-sky-600 hover:bg-sky-700 text-white font-bold text-xs rounded-xl transition shadow-xs cursor-pointer flex items-center justify-center gap-1.5"
               >
                 <Save className="w-3.5 h-3.5" />
                 以我輸入的數值覆蓋更新雲端資料庫（背景執行）

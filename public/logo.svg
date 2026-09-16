@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
   <!-- Clean Solid Background with Rounded App Icon Corners -->
-  <rect x="0" y="0" width="512" height="512" rx="112" fill="#E8F2EC" />
+  <rect x="0" y="0" width="512" height="512" rx="112" fill="#E0F2FE" />
 
   <!-- Crisp FP Monogram -->
   <g fill="#0F172A">

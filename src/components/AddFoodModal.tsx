@@ -384,7 +384,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
               <h2 className="text-lg font-bold text-slate-900">記錄飲食</h2>
               <button
                 onClick={() => setShowMealSelector(!showMealSelector)}
-                className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-xs font-bold flex items-center gap-1 hover:bg-emerald-200 transition cursor-pointer"
+                className="px-2.5 py-0.5 rounded-full bg-sky-100 text-sky-800 text-xs font-bold flex items-center gap-1 hover:bg-sky-200 transition cursor-pointer"
               >
                 {selectedMealName}
                 <ChevronDown className="w-3 h-3" />
@@ -402,7 +402,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                     }}
                     className={`w-full text-left px-3 py-2 rounded-xl text-xs font-bold transition ${
                       selectedMealType === m.type
-                        ? 'bg-emerald-800 text-white'
+                        ? 'bg-sky-600 text-white'
                         : 'text-slate-600 hover:bg-slate-50'
                     }`}
                   >
@@ -426,7 +426,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
             onClick={() => setActiveTab('ALL')}
             className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition cursor-pointer ${
               activeTab === 'ALL' || activeTab === 'OFFICIAL' || activeTab === 'CUSTOM' || activeTab === 'CLOUD'
-                ? 'bg-emerald-700 text-white'
+                ? 'bg-sky-600 text-white'
                 : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
             }`}
           >
@@ -457,7 +457,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                 placeholder={activeTab === 'CLOUD' ? '搜尋公共網路食品資料庫...' : '搜尋衛福部官方資料庫或自訂飲食...'}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-10 pr-10 py-2.5 bg-slate-100/80 rounded-2xl text-sm font-medium text-slate-800 placeholder-slate-400 focus:outline-emerald-600 focus:bg-white border border-transparent focus:border-emerald-200 transition"
+                className="w-full pl-10 pr-10 py-2.5 bg-slate-100/80 rounded-2xl text-sm font-medium text-slate-800 placeholder-slate-400 focus:outline-sky-600 focus:bg-white border border-transparent focus:border-sky-200 transition"
               />
               {searchQuery && (
                 <button
@@ -761,7 +761,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
             <div className="space-y-2">
               {filteredFoods.length > 0 ? (
                 filteredFoods.map((food) => (
-                    <div key={food.id} onClick={() => onSelectFood(food, selectedMealType)} className="p-3 bg-white border border-slate-100 hover:border-emerald-300 rounded-2xl hover:shadow-sm transition cursor-pointer flex items-center justify-between gap-3 group">
+                    <div key={food.id} onClick={() => onSelectFood(food, selectedMealType)} className="p-3 bg-white border border-slate-100 hover:border-sky-300 rounded-2xl hover:shadow-sm transition cursor-pointer flex items-center justify-between gap-3 group">
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-1.5 mb-0.5 font-sans flex-wrap">
                           {(() => {
@@ -798,11 +798,11 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                             </span>
                           )}
                         </div>
-                        <h4 className="font-bold text-sm text-slate-900 truncate group-hover:text-emerald-800">
+                        <h4 className="font-bold text-sm text-slate-900 truncate group-hover:text-sky-800">
                           {food.name}
                         </h4>
                         <div className="flex items-center gap-2 text-xs text-slate-500 mt-1">
-                          <span className="font-semibold text-emerald-800">
+                          <span className="font-semibold text-sky-800">
                             每份 ({food.servingAmount}{food.servingUnit}), {food.calories} kcal
                           </span>
                           <div className="flex items-center gap-1.5">
@@ -813,7 +813,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                         </div>
                       </div>
 
-                    <div className="p-2 text-slate-400 group-hover:text-emerald-700 group-hover:bg-emerald-50 rounded-xl transition">
+                    <div className="p-2 text-slate-400 group-hover:text-sky-700 group-hover:bg-sky-50 rounded-xl transition">
                       <Plus className="w-5 h-5" />
                     </div>
                   </div>
@@ -877,7 +877,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
           <button
             type="button"
             onClick={onOpenCustomFoodModal}
-            className="flex items-center gap-1.5 text-xs font-bold text-emerald-800 hover:text-emerald-950 px-3 py-2 rounded-xl hover:bg-emerald-100 transition cursor-pointer"
+            className="flex items-center gap-1.5 text-xs font-bold text-sky-800 hover:text-sky-950 px-3 py-2 rounded-xl hover:bg-sky-100 transition cursor-pointer"
           >
             <Plus className="w-4 h-4" />
             自行建立自訂飲食

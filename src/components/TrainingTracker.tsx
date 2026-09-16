@@ -288,13 +288,13 @@ export const TrainingTracker: React.FC<TrainingTrackerProps> = ({
       <DateNavigator currentDate={currentDate} onDateChange={onDateChange} />
 
       {/* Top Banner with Rest Timer CTA */}
-      <div className="bg-gradient-to-r from-emerald-800 to-teal-800 text-white rounded-3xl p-4 shadow-sm flex items-center justify-between">
+      <div className="bg-gradient-to-r from-sky-700 to-cyan-700 text-white rounded-3xl p-4 shadow-sm flex items-center justify-between">
         <div>
           <div className="flex items-center gap-2">
-            <Dumbbell className="w-5 h-5 text-emerald-200" />
+            <Dumbbell className="w-5 h-5 text-sky-200" />
             <h2 className="font-bold text-base">訓練日誌</h2>
           </div>
-          <p className="text-xs text-emerald-100/80 mt-0.5">
+          <p className="text-xs text-sky-100/80 mt-0.5">
             記錄組數、重量、組間休息計時與有氧訓練
           </p>
         </div>
@@ -304,7 +304,7 @@ export const TrainingTracker: React.FC<TrainingTrackerProps> = ({
           onClick={() => setShowTimerModal(true)}
           className="flex items-center gap-1.5 px-3.5 py-2 bg-white/15 hover:bg-white/25 active:scale-95 text-white font-bold text-xs rounded-xl backdrop-blur-xs transition cursor-pointer border border-white/20"
         >
-          <Timer className="w-4 h-4 text-emerald-300" />
+          <Timer className="w-4 h-4 text-sky-200" />
           <span>休息碼錶</span>
         </button>
       </div>
@@ -320,7 +320,7 @@ export const TrainingTracker: React.FC<TrainingTrackerProps> = ({
               {/* Workout Header */}
               <div className="px-5 py-4 bg-slate-50/70 border-b border-slate-100 flex items-center justify-between">
                 <div className="flex items-center gap-2.5">
-                  <span className="text-sm font-black px-2.5 py-1 bg-emerald-800 text-white rounded-xl shadow-2xs">
+                  <span className="text-sm font-black px-2.5 py-1 bg-sky-600 text-white rounded-xl shadow-2xs">
                     {workout.bodyPart}
                   </span>
                   <span className="text-xs text-slate-500 font-medium">
@@ -337,7 +337,7 @@ export const TrainingTracker: React.FC<TrainingTrackerProps> = ({
                       setSelectedMuscle(workout.bodyPart || '胸');
                       setShowAddExerciseModal(true);
                     }}
-                    className="flex items-center gap-1 px-3 py-1.5 bg-emerald-100/80 hover:bg-emerald-200 text-emerald-900 rounded-xl text-xs font-bold transition cursor-pointer"
+                    className="flex items-center gap-1 px-3 py-1.5 bg-sky-100/80 hover:bg-sky-200 text-sky-900 rounded-xl text-xs font-bold transition cursor-pointer"
                   >
                     <Plus className="w-3.5 h-3.5" />
                     <span>加動作</span>
@@ -442,10 +442,10 @@ export const TrainingTracker: React.FC<TrainingTrackerProps> = ({
                       setSelectedMuscle(workout.bodyPart || '胸');
                       setShowAddExerciseModal(true);
                     }}
-                    className="py-10 text-center space-y-2 border-2 border-dashed border-slate-200 rounded-3xl hover:border-emerald-400 hover:bg-emerald-50/30 group cursor-pointer transition-all"
+                    className="py-10 text-center space-y-2 border-2 border-dashed border-slate-200 rounded-3xl hover:border-sky-400 hover:bg-sky-50/30 group cursor-pointer transition-all"
                   >
-                    <Plus className="w-8 h-8 text-slate-300 group-hover:text-emerald-500 mx-auto" />
-                    <div className="text-sm font-bold text-slate-400 group-hover:text-emerald-800">
+                    <Plus className="w-8 h-8 text-slate-300 group-hover:text-sky-500 mx-auto" />
+                    <div className="text-sm font-bold text-slate-400 group-hover:text-sky-800">
                       點擊新增「{workout.bodyPart || '此部位'}」訓練動作
                     </div>
                   </div>
@@ -464,7 +464,7 @@ export const TrainingTracker: React.FC<TrainingTrackerProps> = ({
           <button
             type="button"
             onClick={() => setShowAddWorkoutModal(true)}
-            className="px-5 py-2.5 bg-emerald-800 hover:bg-emerald-900 text-white font-bold text-xs rounded-xl shadow-xs transition inline-flex items-center gap-1.5 cursor-pointer"
+            className="px-5 py-2.5 bg-sky-600 hover:bg-sky-700 text-white font-bold text-xs rounded-xl shadow-xs transition inline-flex items-center gap-1.5 cursor-pointer"
           >
             <Plus className="w-4 h-4" />
             <span>開始記錄訓練</span>
@@ -477,7 +477,7 @@ export const TrainingTracker: React.FC<TrainingTrackerProps> = ({
         <button
           type="button"
           onClick={() => setShowAddWorkoutModal(true)}
-          className="fixed bottom-20 right-5 z-30 flex items-center gap-2 px-5 py-3.5 bg-emerald-800 hover:bg-emerald-900 active:scale-95 text-white font-bold text-sm rounded-full shadow-lg transition cursor-pointer"
+          className="fixed bottom-20 right-5 z-30 flex items-center gap-2 px-5 py-3.5 bg-sky-600 hover:bg-sky-700 active:scale-95 text-white font-bold text-sm rounded-full shadow-lg transition cursor-pointer"
         >
           <Plus className="w-5 h-5" />
           <span>新增訓練部位</span>
@@ -503,7 +503,7 @@ export const TrainingTracker: React.FC<TrainingTrackerProps> = ({
                 <button
                   key={mg}
                   onClick={() => handleCreateWorkout(mg)}
-                  className="py-3 px-2 text-center rounded-2xl border border-slate-200 hover:border-emerald-500 hover:bg-emerald-50 text-sm font-bold text-slate-800 hover:text-emerald-900 transition cursor-pointer"
+                  className="py-3 px-2 text-center rounded-2xl border border-slate-200 hover:border-sky-500 hover:bg-sky-50 text-sm font-bold text-slate-800 hover:text-sky-900 transition cursor-pointer"
                 >
                   {mg}
                 </button>
@@ -538,7 +538,7 @@ export const TrainingTracker: React.FC<TrainingTrackerProps> = ({
                   onClick={() => setSelectedMuscle(mg)}
                   className={`px-3 py-1 rounded-xl text-xs font-bold transition cursor-pointer whitespace-nowrap ${
                     selectedMuscle === mg
-                      ? 'bg-emerald-800 text-white'
+                      ? 'bg-sky-600 text-white'
                       : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                   }`}
                 >
@@ -554,7 +554,7 @@ export const TrainingTracker: React.FC<TrainingTrackerProps> = ({
                 placeholder="搜尋動作名稱..."
                 value={exerciseSearchQuery}
                 onChange={(e) => setExerciseSearchQuery(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-emerald-600"
+                className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-sky-600"
               />
 
               <div className="flex items-center justify-between gap-2 pt-1">
@@ -615,10 +615,10 @@ export const TrainingTracker: React.FC<TrainingTrackerProps> = ({
                 <div
                   key={ex.name}
                   onClick={() => handleAddExerciseToWorkout(ex.name, ex.bodyPart)}
-                  className="py-2.5 px-2 flex items-center justify-between hover:bg-emerald-50 rounded-xl transition cursor-pointer group"
+                  className="py-2.5 px-2 flex items-center justify-between hover:bg-sky-50 rounded-xl transition cursor-pointer group"
                 >
                   <div>
-                    <span className="font-bold text-sm text-slate-800 group-hover:text-emerald-900">
+                    <span className="font-bold text-sm text-slate-800 group-hover:text-sky-900">
                       {ex.name}
                     </span>
                     {isCardioExercise(ex.name, ex.bodyPart) && (
@@ -627,7 +627,7 @@ export const TrainingTracker: React.FC<TrainingTrackerProps> = ({
                       </span>
                     )}
                   </div>
-                  <Plus className="w-4 h-4 text-slate-300 group-hover:text-emerald-700" />
+                  <Plus className="w-4 h-4 text-slate-300 group-hover:text-sky-700" />
                 </div>
               ))}
             </div>
@@ -736,7 +736,7 @@ const ExerciseCard: React.FC<ExerciseCardProps> = ({
             key={set.id}
             className={`grid grid-cols-12 gap-2 items-center p-2 rounded-xl border transition ${
               set.isCompleted
-                ? 'bg-emerald-50/70 border-emerald-200/80 text-emerald-900'
+                ? 'bg-sky-50/70 border-sky-200/80 text-sky-900'
                 : 'bg-slate-50 border-slate-100 text-slate-700'
             }`}
           >
@@ -758,7 +758,7 @@ const ExerciseCard: React.FC<ExerciseCardProps> = ({
                       e.target.value
                     )
                   }
-                  className="w-16 py-1 px-2 text-center font-bold bg-white rounded-lg border border-slate-200 focus:outline-emerald-600"
+                  className="w-16 py-1 px-2 text-center font-bold bg-white rounded-lg border border-slate-200 focus:outline-sky-600"
                 />
                 <span className="text-slate-500 font-medium">分</span>
               </div>
@@ -778,7 +778,7 @@ const ExerciseCard: React.FC<ExerciseCardProps> = ({
                         e.target.value
                       )
                     }
-                    className="w-16 py-1 px-1 text-center font-bold bg-white rounded-lg border border-slate-200 focus:outline-emerald-600"
+                    className="w-16 py-1 px-1 text-center font-bold bg-white rounded-lg border border-slate-200 focus:outline-sky-600"
                   />
                   <span className="text-slate-400 text-[10px]">kg</span>
                 </div>
@@ -796,7 +796,7 @@ const ExerciseCard: React.FC<ExerciseCardProps> = ({
                         e.target.value
                       )
                     }
-                    className="w-12 py-1 px-1 text-center font-bold bg-white rounded-lg border border-slate-200 focus:outline-emerald-600"
+                    className="w-12 py-1 px-1 text-center font-bold bg-white rounded-lg border border-slate-200 focus:outline-sky-600"
                   />
                   <span className="text-slate-400 text-[10px]">次</span>
                 </div>
@@ -815,8 +815,8 @@ const ExerciseCard: React.FC<ExerciseCardProps> = ({
                 }}
                 className={`p-1.5 rounded-lg transition cursor-pointer ${
                   set.isCompleted
-                    ? 'text-emerald-700 bg-emerald-100 hover:bg-emerald-200'
-                    : 'text-slate-400 hover:text-emerald-600 hover:bg-slate-200'
+                    ? 'text-sky-700 bg-sky-100 hover:bg-sky-200'
+                    : 'text-slate-400 hover:text-sky-600 hover:bg-slate-200'
                 }`}
                 title="標記為已完成（自動啟動組間休息碼錶）"
               >
@@ -846,7 +846,7 @@ const ExerciseCard: React.FC<ExerciseCardProps> = ({
       <button
         type="button"
         onClick={() => onAddSet(workoutId, exercise.id)}
-        className="mt-2.5 w-full py-1.5 text-center text-xs font-semibold text-emerald-800 hover:bg-emerald-50 border border-dashed border-emerald-300 rounded-xl transition cursor-pointer"
+        className="mt-2.5 w-full py-1.5 text-center text-xs font-semibold text-sky-800 hover:bg-sky-50 border border-dashed border-sky-300 rounded-xl transition cursor-pointer"
       >
         + 新增一組
       </button>

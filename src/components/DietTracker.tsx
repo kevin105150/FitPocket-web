@@ -90,7 +90,7 @@ const MealSection: React.FC<{
             <div className="flex items-center gap-1.5">
               <span 
                 onClick={onEditName}
-                className="font-black text-base text-slate-900 truncate cursor-pointer hover:text-emerald-700 transition-colors"
+                className="font-black text-base text-slate-900 truncate cursor-pointer hover:text-sky-700 transition-colors"
                 title="點擊修改餐別名稱"
               >
                 {meal.customName}
@@ -101,12 +101,12 @@ const MealSection: React.FC<{
                   e.stopPropagation();
                   onEditName();
                 }}
-                className="p-1 text-slate-400 hover:text-emerald-600 transition-colors cursor-pointer"
+                className="p-1 text-slate-400 hover:text-sky-600 transition-colors cursor-pointer"
                 title="修改名稱"
               >
                 <Edit2 className="w-3.5 h-3.5" />
               </button>
-              <span className="text-[11px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full whitespace-nowrap">
+              <span className="text-[11px] font-bold text-sky-800 bg-sky-50 px-2 py-0.5 rounded-full whitespace-nowrap">
                 {mealCals} kcal
               </span>
             </div>
@@ -135,7 +135,7 @@ const MealSection: React.FC<{
               e.stopPropagation();
               onAddFood();
             }}
-            className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-xl transition cursor-pointer"
+            className="p-2 text-slate-400 hover:text-sky-600 hover:bg-sky-50 rounded-xl transition cursor-pointer"
             title="新增飲食"
           >
             <Plus className="w-4 h-4" />
@@ -178,7 +178,7 @@ const MealSection: React.FC<{
                       {item.brand && <span className="text-xs font-medium text-slate-400 shrink-0">{item.brand}</span>}
                     </div>
                     <div className="flex items-center gap-2 text-xs text-slate-500 mt-0.5">
-                      <span className="font-semibold text-emerald-800">
+                      <span className="font-semibold text-sky-800">
                         {item.loggedAmount}{item.loggedUnit} , {item.calories} kcal
                       </span>
                       <div className="flex items-center gap-1.5 mt-0.5">
@@ -193,7 +193,7 @@ const MealSection: React.FC<{
                     <button
                       type="button"
                       onClick={() => onEditRecord(item)}
-                      className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition cursor-pointer"
+                      className="p-1.5 text-slate-400 hover:text-sky-600 hover:bg-sky-50 rounded-lg transition cursor-pointer"
                       title="修改飲食內容"
                     >
                       <Edit2 className="w-4 h-4" />
@@ -213,7 +213,7 @@ const MealSection: React.FC<{
           ) : (
             <div
               onClick={() => onAddFood()}
-              className="py-4 text-center text-xs font-semibold text-slate-400 hover:text-emerald-700 cursor-pointer border-2 border-dashed border-slate-100 hover:border-emerald-200 rounded-2xl mt-1 transition-all"
+              className="py-4 text-center text-xs font-semibold text-slate-400 hover:text-sky-700 cursor-pointer border-2 border-dashed border-slate-100 hover:border-sky-200 rounded-2xl mt-1 transition-all"
             >
               + 點擊記錄 {meal.customName}
             </div>
@@ -572,14 +572,14 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
       {/* Primary Smart Entry Bar */}
       <div className="relative group">
         <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none">
-          <Search className="w-5 h-5 text-slate-400 group-focus-within:text-emerald-500 transition-colors" />
+          <Search className="w-5 h-5 text-slate-400 group-focus-within:text-sky-500 transition-colors" />
         </div>
         <input
           type="text"
           readOnly
           onClick={() => handleOpenAddFood('BREAKFAST')}
           placeholder="點擊搜尋、拍照或 AI 智慧辨識..."
-          className="w-full pl-12 pr-4 py-4 bg-white border border-slate-200/80 rounded-2xl shadow-sm text-sm font-bold text-slate-700 focus:outline-none cursor-pointer hover:border-emerald-400 hover:shadow-md transition-all"
+          className="w-full pl-12 pr-4 py-4 bg-white border border-slate-200/80 rounded-2xl shadow-sm text-sm font-bold text-slate-700 focus:outline-none cursor-pointer hover:border-sky-400 hover:shadow-md transition-all"
         />
         <div className="absolute inset-y-0 right-3 flex items-center">
           <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-100 p-1 rounded-xl">
@@ -628,7 +628,7 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
       )}
 
       {/* Calorie & 7 Nutrients Summary Card */}
-      <div className="bg-white rounded-3xl border border-emerald-950/5 shadow-sm p-5 space-y-4">
+      <div className="bg-white rounded-3xl border border-sky-950/5 shadow-sm p-5 space-y-4">
         {/* Top Carb Cycle Switcher Pills */}
         <div className="flex items-center justify-between gap-2 pb-2 border-b border-slate-100">
           <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none py-0.5">
@@ -642,7 +642,7 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
                   onClick={() => handleSelectCycle(c)}
                   className={`px-3 py-1 rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer whitespace-nowrap ${
                     isSelected
-                      ? 'bg-emerald-800 text-white shadow-2xs'
+                      ? 'bg-sky-600 text-white shadow-2xs'
                       : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                   }`}
                 >
@@ -656,7 +656,7 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
           <button
             type="button"
             onClick={() => setShowGoalModal(true)}
-            className="p-1.5 text-slate-400 hover:text-emerald-700 hover:bg-emerald-50 rounded-xl transition cursor-pointer"
+            className="p-1.5 text-slate-400 hover:text-sky-700 hover:bg-sky-50 rounded-xl transition cursor-pointer"
             title="設定熱量與營養素目標"
           >
             <Sliders className="w-4 h-4" />
@@ -679,7 +679,7 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
             </div>
             <div
               className={`text-2xl font-black mt-0.5 ${
-                calDiff >= 0 ? 'text-emerald-700' : 'text-rose-600'
+                calDiff >= 0 ? 'text-sky-700' : 'text-rose-600'
               }`}
             >
               {Math.abs(Math.round(calDiff))}{' '}
@@ -693,7 +693,7 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
           <div className="w-full h-3 bg-slate-100 rounded-full overflow-hidden flex">
             <div
               className={`h-full transition-all duration-300 rounded-full ${
-                calDiff >= 0 ? 'bg-emerald-600' : 'bg-rose-500'
+                calDiff >= 0 ? 'bg-sky-500' : 'bg-rose-500'
               }`}
               style={{ width: `${Math.min(100, calPercent)}%` }}
             />
@@ -827,7 +827,7 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
         <button
           type="button"
           onClick={handleOpenAddMealModal}
-          className="w-full py-5 border-2 border-dashed border-slate-200 rounded-3xl text-sm font-black text-slate-400 hover:border-emerald-400 hover:text-emerald-800 hover:bg-emerald-50/30 transition flex items-center justify-center gap-2 cursor-pointer group"
+          className="w-full py-5 border-2 border-dashed border-slate-200 rounded-3xl text-sm font-black text-slate-400 hover:border-sky-400 hover:text-sky-800 hover:bg-sky-50/30 transition flex items-center justify-center gap-2 cursor-pointer group"
         >
           <Plus className="w-5 h-5 group-hover:scale-110 transition" />
           <span>新增自訂餐次 (最多 10 個)</span>
@@ -1024,7 +1024,7 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
               type="text"
               value={newMealNameInput}
               onChange={(e) => setNewMealNameInput(e.target.value)}
-              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold text-slate-800 focus:outline-none focus:border-emerald-500"
+              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold text-slate-800 focus:outline-none focus:border-sky-500"
               placeholder="請輸入餐次名稱"
               autoFocus
               onKeyDown={(e) => { if (e.key === 'Enter') handleConfirmAddMeal(); }}
@@ -1040,7 +1040,7 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
               <button
                 type="button"
                 onClick={handleConfirmAddMeal}
-                className="flex-1 py-3 bg-emerald-800 hover:bg-emerald-900 text-white font-bold text-sm rounded-2xl transition cursor-pointer shadow-sm"
+                className="flex-1 py-3 bg-sky-600 hover:bg-sky-700 text-white font-bold text-sm rounded-2xl transition cursor-pointer shadow-sm"
               >
                 確認新增
               </button>
@@ -1059,7 +1059,7 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
               type="text"
               value={editingMealState.customName}
               onChange={(e) => setEditingMealState({ ...editingMealState, customName: e.target.value })}
-              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold text-slate-800 focus:outline-none focus:border-emerald-500"
+              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold text-slate-800 focus:outline-none focus:border-sky-500"
               placeholder="餐次名稱"
               autoFocus
               onKeyDown={(e) => { if (e.key === 'Enter') handleConfirmEditMeal(); }}
@@ -1075,7 +1075,7 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
               <button
                 type="button"
                 onClick={handleConfirmEditMeal}
-                className="flex-1 py-3 bg-emerald-800 hover:bg-emerald-900 text-white font-bold text-sm rounded-2xl transition cursor-pointer shadow-sm"
+                className="flex-1 py-3 bg-sky-600 hover:bg-sky-700 text-white font-bold text-sm rounded-2xl transition cursor-pointer shadow-sm"
               >
                 儲存修改
               </button>

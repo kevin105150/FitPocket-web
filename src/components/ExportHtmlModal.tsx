@@ -76,7 +76,7 @@ export const ExportHtmlModal: React.FC<ExportHtmlModalProps> = ({
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-white">
           <div className="flex items-center gap-2.5">
-            <div className="p-2 bg-emerald-50 text-emerald-800 rounded-2xl">
+            <div className="p-2 bg-sky-50 text-sky-800 rounded-2xl">
               <FileText className="w-5 h-5" />
             </div>
             <div>
@@ -96,12 +96,12 @@ export const ExportHtmlModal: React.FC<ExportHtmlModalProps> = ({
         {/* Content */}
         <div className="p-6 space-y-4">
           {/* Prompt / Hint Notice */}
-          <div className="p-3.5 bg-emerald-50/80 border border-emerald-200/80 rounded-2xl flex items-start gap-3 text-emerald-900">
-            <Info className="w-4 h-4 text-emerald-700 shrink-0 mt-0.5" />
+          <div className="p-3.5 bg-sky-50/80 border border-sky-200/80 rounded-2xl flex items-start gap-3 text-sky-900">
+            <Info className="w-4 h-4 text-sky-700 shrink-0 mt-0.5" />
             <div className="text-xs leading-relaxed space-y-1">
               <div className="font-bold">匯出範圍說明</div>
-              <p className="text-emerald-800">
-                系統將自動擷取您所選基準日（含）往前推算 <strong className="font-bold text-emerald-950">7 天</strong> 之每日飲食、水分、健身訓練及體重數據，產生單一便攜的 HTML 檔案，支援離線瀏覽、圖表分析與列印。
+              <p className="text-sky-800">
+                系統將自動擷取您所選基準日（含）往前推算 <strong className="font-bold text-sky-950">7 天</strong> 之每日飲食、水分、健身訓練及體重數據，產生單一便攜的 HTML 檔案，支援離線瀏覽、圖表分析與列印。
               </p>
             </div>
           </div>
@@ -125,7 +125,7 @@ export const ExportHtmlModal: React.FC<ExportHtmlModalProps> = ({
                     setSelectedDate(val || today);
                   }
                 }}
-                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold text-slate-800 focus:outline-none focus:border-emerald-500 focus:bg-white transition"
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold text-slate-800 focus:outline-none focus:border-sky-500 focus:bg-white transition"
               />
               <Calendar className="w-4 h-4 text-slate-400 absolute right-4 pointer-events-none" />
             </div>
@@ -144,7 +144,7 @@ export const ExportHtmlModal: React.FC<ExportHtmlModalProps> = ({
                 {startDate}
               </span>
               <span className="text-slate-400 font-normal">至</span>
-              <span className="bg-emerald-100 text-emerald-900 px-2.5 py-1 rounded-lg border border-emerald-200 shadow-2xs">
+              <span className="bg-sky-100 text-sky-900 px-2.5 py-1 rounded-lg border border-sky-200 shadow-2xs">
                 {endDate}
               </span>
             </div>
@@ -164,7 +164,7 @@ export const ExportHtmlModal: React.FC<ExportHtmlModalProps> = ({
           <button
             type="button"
             onClick={handleExecuteExport}
-            className="px-5 py-2.5 bg-emerald-800 hover:bg-emerald-900 text-white text-xs font-bold rounded-xl transition flex items-center gap-2 shadow-sm cursor-pointer"
+            className="px-5 py-2.5 bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold rounded-xl transition flex items-center gap-2 shadow-sm cursor-pointer"
           >
             <Download className="w-4 h-4" />
             <span>立即匯出 7 日 HTML 報表</span>

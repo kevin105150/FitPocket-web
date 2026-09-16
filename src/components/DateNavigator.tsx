@@ -29,11 +29,11 @@ export const DateNavigator: React.FC<DateNavigatorProps> = ({
   const formattedDisplay = formatChineseDisplayDate(currentDate);
 
   return (
-    <div className="bg-white rounded-2xl shadow-xs border border-emerald-900/5 p-3 flex items-center justify-between gap-2">
+    <div className="bg-white rounded-2xl shadow-xs border border-sky-900/5 p-3 flex items-center justify-between gap-2">
       <button
         type="button"
         onClick={handlePrevDay}
-        className="p-2 text-slate-600 hover:text-emerald-700 hover:bg-emerald-50 rounded-xl transition cursor-pointer"
+        className="p-2 text-slate-600 hover:text-sky-700 hover:bg-sky-50 rounded-xl transition cursor-pointer"
         aria-label="前一天"
       >
         <ChevronLeft className="w-5 h-5" />
@@ -41,7 +41,7 @@ export const DateNavigator: React.FC<DateNavigatorProps> = ({
 
       <div className="flex items-center gap-2">
         <label className="relative flex items-center gap-2 px-3 py-1.5 rounded-xl hover:bg-slate-50 transition cursor-pointer">
-          <CalendarIcon className="w-4 h-4 text-emerald-700" />
+          <CalendarIcon className="w-4 h-4 text-sky-700" />
           <span className="font-semibold text-slate-800 text-sm sm:text-base">
             {formattedDisplay}
           </span>
@@ -59,7 +59,7 @@ export const DateNavigator: React.FC<DateNavigatorProps> = ({
           <button
             type="button"
             onClick={handleToday}
-            className="px-2.5 py-1 text-xs font-semibold bg-emerald-100 text-emerald-800 rounded-lg hover:bg-emerald-200 transition cursor-pointer"
+            className="px-2.5 py-1 text-xs font-semibold bg-sky-100 text-sky-800 rounded-lg hover:bg-sky-200 transition cursor-pointer"
           >
             回到今天
           </button>
@@ -69,7 +69,7 @@ export const DateNavigator: React.FC<DateNavigatorProps> = ({
       <button
         type="button"
         onClick={handleNextDay}
-        className="p-2 text-slate-600 hover:text-emerald-700 hover:bg-emerald-50 rounded-xl transition cursor-pointer"
+        className="p-2 text-slate-600 hover:text-sky-700 hover:bg-sky-50 rounded-xl transition cursor-pointer"
         aria-label="後一天"
       >
         <ChevronRight className="w-5 h-5" />

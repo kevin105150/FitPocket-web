@@ -91,7 +91,7 @@ export const GoalSettingModal: React.FC<GoalSettingModalProps> = ({
                   onClick={() => setSelectedCycle(c)}
                   className={`py-2 px-1 text-center rounded-xl text-xs font-bold transition cursor-pointer flex flex-col items-center gap-0.5 ${
                     isSelected
-                      ? 'bg-white text-emerald-800 shadow-xs'
+                      ? 'bg-white text-sky-800 shadow-xs'
                       : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
@@ -116,7 +116,7 @@ export const GoalSettingModal: React.FC<GoalSettingModalProps> = ({
               type="number"
               value={activePreset.calories}
               onChange={(e) => updateField('calories', e.target.value)}
-              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-emerald-600 font-semibold text-slate-800"
+              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-sky-600 font-semibold text-slate-800"
             />
           </div>
 
@@ -224,7 +224,7 @@ export const GoalSettingModal: React.FC<GoalSettingModalProps> = ({
             <button
               type="button"
               onClick={handleSave}
-              className="flex items-center gap-1.5 px-5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white text-sm font-semibold rounded-xl shadow-xs transition cursor-pointer"
+              className="flex items-center gap-1.5 px-5 py-2 bg-sky-600 hover:bg-sky-700 text-white text-sm font-semibold rounded-xl shadow-xs transition cursor-pointer"
             >
               <Save className="w-4 h-4" />
               儲存目標

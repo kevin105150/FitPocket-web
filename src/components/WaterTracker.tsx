@@ -117,7 +117,7 @@ export const WaterTracker: React.FC<WaterTrackerProps> = ({
         {/* Status text */}
         <div className="text-center mt-1">
           {remaining === 0 ? (
-            <div className="flex items-center gap-1 text-emerald-700 font-bold text-sm bg-emerald-50 px-3 py-1 rounded-full">
+            <div className="flex items-center gap-1 text-sky-700 font-bold text-sm bg-sky-50 px-3 py-1 rounded-full">
               <CheckCircle2 className="w-4 h-4" />
               <span>今日飲水目標已達成！</span>
             </div>

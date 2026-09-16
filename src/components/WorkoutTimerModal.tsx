@@ -114,7 +114,7 @@ export const WorkoutTimerModal: React.FC<WorkoutTimerModalProps> = ({ isOpen, on
         {/* Header */}
         <div className="flex items-center justify-between pb-3 border-b border-slate-100">
           <div className="flex items-center gap-2">
-            <Clock className="w-5 h-5 text-emerald-700" />
+            <Clock className="w-5 h-5 text-sky-600" />
             <h3 className="font-bold text-slate-900 text-base">訓練組間休息碼錶</h3>
           </div>
           <button
@@ -131,7 +131,7 @@ export const WorkoutTimerModal: React.FC<WorkoutTimerModalProps> = ({ isOpen, on
             onClick={() => setMode('TIMER')}
             className={`py-1.5 text-xs font-bold rounded-xl transition cursor-pointer ${
               mode === 'TIMER'
-                ? 'bg-white text-emerald-800 shadow-xs'
+                ? 'bg-white text-sky-800 shadow-xs'
                 : 'text-slate-600 hover:text-slate-800'
             }`}
           >
@@ -141,7 +141,7 @@ export const WorkoutTimerModal: React.FC<WorkoutTimerModalProps> = ({ isOpen, on
             onClick={() => setMode('STOPWATCH')}
             className={`py-1.5 text-xs font-bold rounded-xl transition cursor-pointer ${
               mode === 'STOPWATCH'
-                ? 'bg-white text-emerald-800 shadow-xs'
+                ? 'bg-white text-sky-800 shadow-xs'
                 : 'text-slate-600 hover:text-slate-800'
             }`}
           >
@@ -167,7 +167,7 @@ export const WorkoutTimerModal: React.FC<WorkoutTimerModalProps> = ({ isOpen, on
                   cx="50"
                   cy="50"
                   r="44"
-                  className="text-emerald-700 stroke-current transition-all duration-300"
+                  className="text-sky-600 stroke-current transition-all duration-300"
                   strokeWidth="8"
                   strokeDasharray="276"
                   strokeDashoffset={276 - (276 * progressPercent) / 100}
@@ -197,7 +197,7 @@ export const WorkoutTimerModal: React.FC<WorkoutTimerModalProps> = ({ isOpen, on
                       }}
                       className={`w-full py-2 text-xs font-bold rounded-xl border transition cursor-pointer ${
                         timerDuration === sec
-                          ? 'bg-emerald-50 border-emerald-500 text-emerald-800'
+                          ? 'bg-sky-50 border-sky-500 text-sky-800'
                           : 'border-slate-200 text-slate-700 hover:bg-slate-50'
                       }`}
                     >
@@ -220,11 +220,11 @@ export const WorkoutTimerModal: React.FC<WorkoutTimerModalProps> = ({ isOpen, on
                   placeholder="秒"
                   value={newPreset}
                   onChange={(e) => setNewPreset(e.target.value)}
-                  className="w-full text-center font-bold text-sm text-slate-900 bg-transparent focus:outline-emerald-600 rounded-lg p-1"
+                  className="w-full text-center font-bold text-sm text-slate-900 bg-transparent focus:outline-sky-600 rounded-lg p-1"
                 />
                 <button
                   onClick={handleAddPreset}
-                  className="px-3 py-1 bg-emerald-700 text-white text-xs font-bold rounded-lg cursor-pointer hover:bg-emerald-800 whitespace-nowrap shrink-0"
+                  className="px-3 py-1 bg-sky-600 text-white text-xs font-bold rounded-lg cursor-pointer hover:bg-sky-700 whitespace-nowrap shrink-0"
                 >
                   新增
                 </button>
@@ -245,7 +245,7 @@ export const WorkoutTimerModal: React.FC<WorkoutTimerModalProps> = ({ isOpen, on
                         setTimerDuration(total);
                         setTimeLeft(total);
                       }}
-                      className="w-10 text-center font-bold text-sm text-slate-900 bg-transparent focus:outline-emerald-600 rounded-lg"
+                      className="w-10 text-center font-bold text-sm text-slate-900 bg-transparent focus:outline-sky-600 rounded-lg"
                     />
                     <span className="text-xs font-bold text-slate-500">分</span>
                     <input
@@ -260,7 +260,7 @@ export const WorkoutTimerModal: React.FC<WorkoutTimerModalProps> = ({ isOpen, on
                         setTimerDuration(total);
                         setTimeLeft(total);
                       }}
-                      className="w-10 text-center font-bold text-sm text-slate-900 bg-transparent focus:outline-emerald-600 rounded-lg"
+                      className="w-10 text-center font-bold text-sm text-slate-900 bg-transparent focus:outline-sky-600 rounded-lg"
                     />
                     <span className="text-xs font-bold text-slate-500">秒</span>
                   </div>
@@ -275,7 +275,7 @@ export const WorkoutTimerModal: React.FC<WorkoutTimerModalProps> = ({ isOpen, on
                     setTimerDuration(val);
                     setTimeLeft(val);
                   }}
-                  className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-emerald-700"
+                  className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-sky-600"
                 />
               </div>
             </div>
@@ -297,7 +297,7 @@ export const WorkoutTimerModal: React.FC<WorkoutTimerModalProps> = ({ isOpen, on
               <button
                 type="button"
                 onClick={() => setIsRunning(!isRunning)}
-                className="w-14 h-14 flex items-center justify-center rounded-2xl bg-emerald-800 text-white shadow-md hover:bg-emerald-900 active:scale-95 transition cursor-pointer"
+                className="w-14 h-14 flex items-center justify-center rounded-2xl bg-sky-600 text-white shadow-md hover:bg-sky-700 active:scale-95 transition cursor-pointer"
               >
                 {isRunning ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6 ml-0.5" />}
               </button>
@@ -339,7 +339,7 @@ export const WorkoutTimerModal: React.FC<WorkoutTimerModalProps> = ({ isOpen, on
                 <button
                   type="button"
                   onClick={() => setIsStopwatchRunning(true)}
-                  className="w-14 h-14 flex items-center justify-center rounded-2xl bg-emerald-800 text-white shadow-md hover:bg-emerald-900 active:scale-95 transition cursor-pointer"
+                  className="w-14 h-14 flex items-center justify-center rounded-2xl bg-sky-600 text-white shadow-md hover:bg-sky-700 active:scale-95 transition cursor-pointer"
                   title="開始"
                 >
                   <Play className="w-6 h-6 ml-0.5" />
