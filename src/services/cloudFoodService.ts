@@ -90,5 +90,19 @@ export const CloudFoodService = {
       console.warn('Failed to fetch cloud foods from Firestore:', err);
       return [];
     }
+  },
+
+  /**
+   * Get total count of cloud foods in global database.
+   */
+  async getCloudFoodsCount(): Promise<number> {
+    try {
+      const colRef = collection(db, COLLECTION_NAME);
+      const querySnapshot = await getDocs(colRef);
+      return querySnapshot.size;
+    } catch (err) {
+      console.warn('Failed to get cloud foods count:', err);
+      return 0;
+    }
   }
 };

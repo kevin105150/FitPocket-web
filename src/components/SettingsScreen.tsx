@@ -28,6 +28,7 @@ import {
   UserProfile,
 } from '../types';
 import { StorageService } from '../services/storage';
+import { CloudFoodService } from '../services/cloudFoodService';
 import { GoalSettingModal } from './GoalSettingModal';
 import { CustomFoodModal } from './CustomFoodModal';
 import { auth, loginWithGoogle, logout } from '../lib/firebase';
@@ -71,6 +72,11 @@ export const SettingsScreen: React.FC = () => {
   const [aiModel, setAiModel] = useState<string>(
     StorageService.getSelectedAiModel()
   );
+  const [cloudFoodCount, setCloudFoodCount] = useState<number | null>(null);
+
+  useEffect(() => {
+    CloudFoodService.getCloudFoodsCount().then((count) => setCloudFoodCount(count));
+  }, []);
 
   // Modals
   const [showCustomFoodModal, setShowCustomFoodModal] = useState(false);
@@ -614,7 +620,7 @@ ${workouts
 
         <div className="grid grid-cols-1 gap-2 text-center text-xs">
           <div className="p-3 bg-slate-50 rounded-2xl flex justify-between items-center">
-            <span className="text-slate-500 font-semibold">台灣官方與超商預載</span>
+            <span className="text-slate-500 font-semibold">衛福部官方基礎食材庫</span>
             <span className="font-bold text-slate-800 text-sm">{presetFoodCount} 筆</span>
           </div>
           <div className="p-3 bg-slate-50 rounded-2xl flex justify-between items-center">
@@ -622,8 +628,10 @@ ${workouts
             <span className="font-bold text-emerald-800 text-sm">{customFoods.length} 筆</span>
           </div>
           <div className="p-3 bg-slate-50 rounded-2xl flex justify-between items-center">
-            <span className="text-slate-500 font-semibold">Open Food Facts</span>
-            <span className="font-bold text-sky-800 text-sm">全球雲端</span>
+            <span className="text-slate-500 font-semibold">公共網路擴充資料庫</span>
+            <span className="font-bold text-sky-800 text-sm">
+              {cloudFoodCount !== null ? `${cloudFoodCount} 筆` : '讀取中...'}
+            </span>
           </div>
         </div>
 

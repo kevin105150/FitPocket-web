@@ -87,9 +87,12 @@ export default function App() {
       <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-xl border-b border-emerald-950/5">
         <div className="max-w-2xl mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-emerald-800 text-white flex items-center justify-center font-black text-lg shadow-sm">
-              FP
-            </div>
+            <img 
+              src="/src/assets/images/fitpocket_app_icon_1789552937313.jpg" 
+              alt="FitPocket Logo" 
+              className="w-10 h-10 rounded-2xl object-cover shadow-xs border border-emerald-800/20"
+              referrerPolicy="no-referrer"
+            />
             <div>
               <h1 className="text-lg font-black text-slate-900 tracking-tight leading-none">
                 FitPocket
