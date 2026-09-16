@@ -11,27 +11,31 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const handleLogin = async () => {
+  const handleLogin = async (forcedMethod?: 'popup' | 'redirect') => {
     setIsLoading(true);
     setErrorMsg(null);
     try {
-      const result = await loginWithGoogle();
+      const result = await loginWithGoogle(false, forcedMethod);
       if (result && result.isRedirecting) {
-        // Mobile is redirecting to Google, do not call reload/onLoginSuccess
+        // Mobile is redirecting to Google
         return;
       }
       onLoginSuccess();
     } catch (error: any) {
       console.error('Login failed:', error);
+      const code = error?.code || '';
+      const message = error?.message || '';
       
-      if (error?.code === 'auth/popup-closed-by-user') {
-        setErrorMsg('登入視窗已關閉，請再試一次。');
-      } else if (error?.code === 'auth/popup-blocked') {
-        setErrorMsg('登入彈窗被瀏覽器攔截，請允許此網頁顯示彈窗後再試。');
-      } else if (error?.code === 'auth/network-request-failed') {
-        setErrorMsg('網路連接失敗，請檢查您的網路狀態。');
+      if (code === 'auth/popup-closed-by-user') {
+        setErrorMsg('登入視窗已關閉。若在手機上遇到彈窗限制，系統將為您自動切換至跳轉模式，或點選下方「跳轉登入」。');
+      } else if (code === 'auth/popup-blocked') {
+        setErrorMsg('登入彈窗被瀏覽器攔截，請允許此網頁彈窗，或使用下方「跳轉模式」。');
+      } else if (code === 'auth/unauthorized-domain') {
+        setErrorMsg(`網域未授權 (${window.location.hostname})，請在 Firebase 控制台新增 Authorized Domain。`);
+      } else if (code === 'auth/network-request-failed') {
+        setErrorMsg('網路連接失敗，請檢查網路狀態。');
       } else {
-        setErrorMsg('登入過程中發生預料之外的錯誤，請稍後再試。');
+        setErrorMsg(`登入失敗 (${code || 'Error'}): ${message || '請稍後再試'}`);
       }
     } finally {
       setIsLoading(false);
@@ -93,7 +97,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
 
         {/* Login Button */}
         <button
-          onClick={handleLogin}
+          onClick={() => handleLogin()}
           disabled={isLoading}
           className="w-full py-4 bg-slate-900 hover:bg-slate-800 text-white rounded-3xl font-black text-sm flex items-center justify-center gap-3 transition-all active:scale-95 shadow-lg disabled:opacity-50 disabled:pointer-events-none group"
         >
@@ -106,6 +110,27 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
             </>
           )}
         </button>
+
+        {/* Alternative login modes if needed */}
+        <div className="mt-4 flex items-center justify-center gap-4 text-xs font-semibold text-slate-500">
+          <button
+            type="button"
+            onClick={() => handleLogin('popup')}
+            disabled={isLoading}
+            className="hover:text-emerald-700 underline underline-offset-4 disabled:opacity-50"
+          >
+            以彈窗方式登入
+          </button>
+          <span className="text-slate-300">•</span>
+          <button
+            type="button"
+            onClick={() => handleLogin('redirect')}
+            disabled={isLoading}
+            className="hover:text-emerald-700 underline underline-offset-4 disabled:opacity-50"
+          >
+            以全螢幕跳轉登入
+          </button>
+        </div>
 
         <p className="mt-8 text-[10px] text-slate-400 font-medium leading-relaxed">
           登入即代表您同意我們的服務條款與隱私權政策。<br />

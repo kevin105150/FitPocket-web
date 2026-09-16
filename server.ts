@@ -9,7 +9,7 @@ const PORT = 3000;
 
 // First-party Firebase OAuth proxy (bypasses mobile browser third-party cookie restrictions)
 app.use('/__/auth', createProxyMiddleware({
-  target: 'https://quirky-gear-l0w9t.firebaseapp.com',
+  target: 'https://quirky-gear-l0w9t.firebaseapp.com/__/auth',
   changeOrigin: true,
 }));
 

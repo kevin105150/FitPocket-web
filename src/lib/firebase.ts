@@ -41,26 +41,27 @@ export const handleRedirectResult = async () => {
   }
 };
 
-export const loginWithGoogle = async (forceSelectAccount = false) => {
+export const loginWithGoogle = async (forceSelectAccount = false, forceMethod?: 'popup' | 'redirect') => {
   try {
     googleProvider.setCustomParameters({ prompt: 'select_account' }); // Always force select account to ensure we can switch
     
     // Detect mobile browser to automatically switch to redirect mode (bypasses third-party popup cookie blocks)
     const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    const useRedirect = forceMethod === 'redirect' || (forceMethod !== 'popup' && isMobile);
     
-    if (isMobile) {
-      console.log("Mobile device detected. Launching Google Sign-In with Redirect...");
+    if (useRedirect) {
+      console.log("Launching Google Sign-In with Redirect...");
       await signInWithRedirect(auth, googleProvider);
       return { user: null, accessToken: null, isRedirecting: true };
     } else {
-      console.log("Desktop device detected. Launching Google Sign-In with Popup...");
+      console.log("Launching Google Sign-In with Popup...");
       const result = await signInWithPopup(auth, googleProvider);
       const credential = GAuthProvider.credentialFromResult(result);
       if (credential?.accessToken) {
         cachedAccessToken = credential.accessToken;
         localStorage.setItem('fitpocket_google_access_token', credential.accessToken);
       }
-      return { user: result.user, accessToken: cachedAccessToken };
+      return { user: result.user, accessToken: cachedAccessToken, isRedirecting: false };
     }
   } catch (error) {
     console.error("Login failed:", error);
