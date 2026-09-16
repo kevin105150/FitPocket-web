@@ -55,9 +55,9 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
       >
         {/* App Logo */}
         <img
-          src="/src/assets/images/fitpocket_app_icon_1789552937313.jpg"
+          src="/src/assets/images/fitpocket_blue_icon_1789553139930.jpg"
           alt="FitPocket Logo"
-          className="w-20 h-20 rounded-[28px] object-cover shadow-xl mx-auto mb-8 border border-emerald-800/20"
+          className="w-20 h-20 rounded-[28px] object-cover shadow-xl mx-auto mb-8 border border-blue-600/20"
           referrerPolicy="no-referrer"
         />
 
