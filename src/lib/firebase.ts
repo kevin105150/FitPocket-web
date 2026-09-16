@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getFirestore } from 'firebase/firestore';
+import { initializeFirestore } from 'firebase/firestore';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signOut, onAuthStateChanged, User, GoogleAuthProvider as GAuthProvider } from 'firebase/auth';
 import firebaseConfig from '../../firebase-applet-config.json';
 
@@ -16,13 +16,19 @@ const dynamicFirebaseConfig = {
 
 const app = initializeApp(dynamicFirebaseConfig);
 
-// Initialize Firestore with fallback support:
-// If firestoreDatabaseId is set, test/use it; if empty or if default is preferred, fall back gracefully
-export const db = firebaseConfig.firestoreDatabaseId 
-  ? getFirestore(app, firebaseConfig.firestoreDatabaseId)
-  : getFirestore(app);
+// Initialize Firestore with robust long-polling settings
+// When running in container/Cloud Run/mobile proxies, WebChannel streaming (gRPC-web) frequently gets 
+// hung or blocked, causing 6s/10s timeout. experimentalForceLongPolling forces reliable HTTP long-polling.
+const firestoreSettings = {
+  experimentalForceLongPolling: true,
+  useFetchStreams: false,
+};
 
-export const defaultDb = getFirestore(app);
+export const db = firebaseConfig.firestoreDatabaseId 
+  ? initializeFirestore(app, firestoreSettings, firebaseConfig.firestoreDatabaseId)
+  : initializeFirestore(app, firestoreSettings);
+
+export const defaultDb = initializeFirestore(app, firestoreSettings);
 
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
@@ -45,10 +51,15 @@ export const testFirebaseConnection = async (): Promise<{
     const testDocId = `ping_${Date.now()}`;
     const testRef = doc(targetDb, '_connection_test', testDocId);
     
-    // Test write with 6 second timeout
-    const writePromise = setDoc(testRef, { timestamp: Date.now(), ping: 'pong', target: dbLabel });
+    // Test write with 8 second timeout
+    let writeError: any = null;
+    const writePromise = setDoc(testRef, { timestamp: Date.now(), ping: 'pong', target: dbLabel })
+      .catch((e) => {
+        writeError = e;
+        throw e;
+      });
     const timeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error(`連線逾時 (6秒)：無法連線至 Firestore [${dbLabel}]`)), 6000)
+      setTimeout(() => reject(new Error(`連線逾時 (8秒)：無法在限定時間內完成寫入 [${dbLabel}]`)), 8000)
     );
     await Promise.race([writePromise, timeoutPromise]);
     
