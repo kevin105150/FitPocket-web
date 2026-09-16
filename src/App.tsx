@@ -31,34 +31,41 @@ export default function App() {
 
   useEffect(() => {
     let active = true;
-    const initAuth = async () => {
-      // First, check and resolve any OAuth redirect result (saves Google token to localStorage)
-      await handleRedirectResult();
-      
-      if (!active) return;
 
-      const unsubscribe = onAuthStateChanged(auth, async (u) => {
+    // 1. Register the auth observer immediately to restore login state instantly
+    const unsubscribe = onAuthStateChanged(auth, async (u) => {
+      if (!active) return;
+      setUser(u);
+      setIsInitializing(false);
+      
+      if (u) {
+        const token = await getAccessToken();
+        if (token) {
+          setNeedsDriveAuth(false);
+          StorageService.syncFromCloud().catch(err => console.warn("Sync error (non-blocking):", err));
+        }
+      }
+    });
+
+    // 2. Concurrently resolve any pending Google OAuth redirects in the background
+    handleRedirectResult()
+      .then(async () => {
         if (!active) return;
-        setUser(u);
-        setIsInitializing(false);
-        if (u) {
+        // If we successfully resolved a redirected token and have a user, trigger a background sync
+        if (auth.currentUser) {
           const token = await getAccessToken();
-          if (!token) {
-            // If no token, we still allow access, but Drive sync might fail gracefully
-            setNeedsDriveAuth(false);
-          } else {
-            setNeedsDriveAuth(false);
+          if (token) {
             StorageService.syncFromCloud().catch(err => console.warn("Sync error (non-blocking):", err));
           }
         }
+      })
+      .catch(err => {
+        console.error("Background redirect handling error:", err);
       });
-      return unsubscribe;
-    };
 
-    const unsubPromise = initAuth();
     return () => {
       active = false;
-      unsubPromise.then(unsub => unsub && unsub());
+      unsubscribe();
     };
   }, []);
 
