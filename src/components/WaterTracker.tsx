@@ -15,9 +15,9 @@ export const WaterTracker: React.FC<WaterTrackerProps> = ({
 }) => {
   const [waterRecords, setWaterRecords] = useState<WaterRecord[]>([]);
   const [waterGoal, setWaterGoal] = useState<number>(2500);
-  const [customMl, setCustomMl] = useState<number>(300);
+  const [customMl, setCustomMl] = useState<number | string>(300);
   const [showGoalModal, setShowGoalModal] = useState<boolean>(false);
-  const [tempGoal, setTempGoal] = useState<number>(2500);
+  const [tempGoal, setTempGoal] = useState<number | string>(2500);
 
   const refreshWater = () => {
     setWaterRecords(StorageService.getWaterRecordsByDate(currentDate));
@@ -52,9 +52,10 @@ export const WaterTracker: React.FC<WaterTrackerProps> = ({
   };
 
   const handleSaveGoal = () => {
-    if (tempGoal > 0) {
-      StorageService.setWaterGoal(tempGoal);
-      setWaterGoal(tempGoal);
+    const numericGoal = typeof tempGoal === 'number' ? tempGoal : (parseInt(tempGoal) || 0);
+    if (numericGoal > 0) {
+      StorageService.setWaterGoal(numericGoal);
+      setWaterGoal(numericGoal);
       setShowGoalModal(false);
     }
   };
@@ -151,7 +152,7 @@ export const WaterTracker: React.FC<WaterTrackerProps> = ({
             <input
               type="number"
               value={customMl}
-              onChange={(e) => setCustomMl(parseInt(e.target.value) || 0)}
+              onChange={(e) => setCustomMl(e.target.value)}
               className="flex-1 px-3 py-1.5 bg-white rounded-xl border border-slate-200 text-sm font-bold text-slate-800 focus:outline-sky-600"
               placeholder="自訂毫升數"
               min="10"
@@ -160,7 +161,7 @@ export const WaterTracker: React.FC<WaterTrackerProps> = ({
             <span className="text-xs font-semibold text-slate-500">ml</span>
             <button
               type="button"
-              onClick={() => handleAddWater(customMl)}
+              onClick={() => handleAddWater(typeof customMl === 'number' ? customMl : (parseInt(customMl) || 0))}
               className="px-4 py-2 bg-sky-600 hover:bg-sky-700 active:scale-95 text-white text-xs font-bold rounded-xl shadow-xs transition cursor-pointer"
             >
               記錄
@@ -222,7 +223,7 @@ export const WaterTracker: React.FC<WaterTrackerProps> = ({
               <input
                 type="number"
                 value={tempGoal}
-                onChange={(e) => setTempGoal(parseInt(e.target.value) || 0)}
+                onChange={(e) => setTempGoal(e.target.value)}
                 className="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-center text-xl font-black text-slate-900 focus:outline-sky-600"
                 step="100"
               />

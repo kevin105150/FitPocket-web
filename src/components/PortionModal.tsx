@@ -17,20 +17,22 @@ export const PortionModal: React.FC<PortionModalProps> = ({
   onClose,
   onConfirm,
 }) => {
-  const [amount, setAmount] = useState<number>(food.servingAmount || 100);
+  const [amount, setAmount] = useState<number | string>(food.servingAmount || 100);
   const [unit, setUnit] = useState<string>(food.servingUnit || 'g');
+
+  const numericAmount = typeof amount === 'number' ? amount : (parseFloat(amount) || 0);
 
   // Multiplier logic
   let multiplier = 1.0;
   if (unit === '份') {
-    multiplier = amount;
+    multiplier = numericAmount;
   } else if (unit === food.servingUnit) {
-    multiplier = amount / (food.servingAmount || 1);
+    multiplier = numericAmount / (food.servingAmount || 1);
   } else {
     if (unit === 'g' || unit === 'ml') {
-      multiplier = amount / (food.servingAmount || 100);
+      multiplier = numericAmount / (food.servingAmount || 100);
     } else {
-      multiplier = amount;
+      multiplier = numericAmount;
     }
   }
 
@@ -44,7 +46,10 @@ export const PortionModal: React.FC<PortionModalProps> = ({
   const potassium = Math.round((food.potassium || 0) * multiplier * 10) / 10;
 
   const handleAdjust = (delta: number) => {
-    setAmount((prev) => Math.max(5, Math.round((prev + delta) * 10) / 10));
+    setAmount((prev) => {
+      const current = typeof prev === 'number' ? prev : (parseFloat(prev) || 0);
+      return Math.max(5, Math.round((current + delta) * 10) / 10);
+    });
   };
 
   const handleSave = () => {
@@ -61,7 +66,7 @@ export const PortionModal: React.FC<PortionModalProps> = ({
       fiber,
       sodium,
       potassium,
-      loggedAmount: amount,
+      loggedAmount: numericAmount,
       loggedUnit: unit,
       brand: food.brand,
       barcode: food.barcode,
@@ -110,7 +115,7 @@ export const PortionModal: React.FC<PortionModalProps> = ({
                 <input
                   type="number"
                   value={amount}
-                  onChange={(e) => setAmount(parseFloat(e.target.value) || 0)}
+                  onChange={(e) => setAmount(e.target.value)}
                   className="w-24 text-center text-xl font-black text-slate-900 focus:outline-none"
                   min="1"
                 />

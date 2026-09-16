@@ -167,7 +167,7 @@ export const TrainingTracker: React.FC<TrainingTrackerProps> = ({
     exerciseId: string,
     setId: string,
     field: 'weight' | 'reps' | 'durationMinutes',
-    val: number
+    val: number | string
   ) => {
     const workout = workouts.find((w) => w.id === workoutId);
     if (!workout) return;
@@ -177,7 +177,7 @@ export const TrainingTracker: React.FC<TrainingTrackerProps> = ({
 
     const setItem = ex.exerciseSets.find((s) => s.id === setId);
     if (setItem) {
-      setItem[field] = val;
+      setItem[field] = val as any;
       StorageService.saveWorkoutRecord(workout);
       refreshWorkouts();
     }
@@ -645,7 +645,7 @@ interface ExerciseCardProps {
   onToggleSuperset: (workoutId: string, exerciseId: string) => void;
   onDeleteExercise: (workoutId: string, exerciseId: string) => void;
   onToggleSetComplete: (workoutId: string, exerciseId: string, setId: string) => void;
-  onUpdateSet: (workoutId: string, exerciseId: string, setId: string, field: 'weight' | 'reps' | 'durationMinutes', val: number) => void;
+  onUpdateSet: (workoutId: string, exerciseId: string, setId: string, field: 'weight' | 'reps' | 'durationMinutes', val: number | string) => void;
   onAddSet: (workoutId: string, exerciseId: string) => void;
   onRemoveSet: (workoutId: string, exerciseId: string, setId: string) => void;
   setShowTimerModal: (show: boolean) => void;
@@ -746,14 +746,14 @@ const ExerciseCard: React.FC<ExerciseCardProps> = ({
               <div className="col-span-6 flex items-center justify-center gap-1">
                 <input
                   type="number"
-                  value={set.durationMinutes || 0}
+                  value={set.durationMinutes ?? ''}
                   onChange={(e) =>
                     onUpdateSet(
                       workoutId,
                       exercise.id,
                       set.id,
                       'durationMinutes',
-                      parseFloat(e.target.value) || 0
+                      e.target.value
                     )
                   }
                   className="w-16 py-1 px-2 text-center font-bold bg-white rounded-lg border border-slate-200 focus:outline-emerald-600"
@@ -766,14 +766,14 @@ const ExerciseCard: React.FC<ExerciseCardProps> = ({
                   <input
                     type="number"
                     step="0.5"
-                    value={set.weight}
+                    value={set.weight ?? ''}
                     onChange={(e) =>
                       onUpdateSet(
                         workoutId,
                         exercise.id,
                         set.id,
                         'weight',
-                        parseFloat(e.target.value) || 0
+                        e.target.value
                       )
                     }
                     className="w-16 py-1 px-1 text-center font-bold bg-white rounded-lg border border-slate-200 focus:outline-emerald-600"
@@ -784,14 +784,14 @@ const ExerciseCard: React.FC<ExerciseCardProps> = ({
                 <div className="col-span-3 flex items-center justify-center gap-1">
                   <input
                     type="number"
-                    value={set.reps}
+                    value={set.reps ?? ''}
                     onChange={(e) =>
                       onUpdateSet(
                         workoutId,
                         exercise.id,
                         set.id,
                         'reps',
-                        parseInt(e.target.value) || 0
+                        e.target.value
                       )
                     }
                     className="w-12 py-1 px-1 text-center font-bold bg-white rounded-lg border border-slate-200 focus:outline-emerald-600"

@@ -18,13 +18,13 @@ export const GoalSettingModal: React.FC<GoalSettingModalProps> = ({
   onSave,
 }) => {
   const [selectedCycle, setSelectedCycle] = useState<CarbCycleType>(currentCycle);
-  const [editingPresets, setEditingPresets] = useState<Record<CarbCycleType, NutritionGoalPreset>>(
+  const [editingPresets, setEditingPresets] = useState<Record<CarbCycleType, Record<keyof NutritionGoalPreset, number | string>>>(
     JSON.parse(JSON.stringify(presets))
   );
 
   const activePreset = editingPresets[selectedCycle];
 
-  const updateField = (field: keyof NutritionGoalPreset, val: number) => {
+  const updateField = (field: keyof NutritionGoalPreset, val: number | string) => {
     setEditingPresets((prev) => ({
       ...prev,
       [selectedCycle]: {
@@ -42,7 +42,20 @@ export const GoalSettingModal: React.FC<GoalSettingModalProps> = ({
   };
 
   const handleSave = () => {
-    onSave(editingPresets);
+    const finalPresets = {} as Record<CarbCycleType, NutritionGoalPreset>;
+    const keys: CarbCycleType[] = ['HIGH', 'MEDIUM', 'LOW', 'CUSTOM'];
+    for (const c of keys) {
+      const p = editingPresets[c];
+      finalPresets[c] = {
+        calories: Number(p.calories) || 0,
+        carbs: Number(p.carbs) || 0,
+        protein: Number(p.protein) || 0,
+        fat: Number(p.fat) || 0,
+        sodium: Number(p.sodium) || 0,
+        potassium: Number(p.potassium) || 0,
+      };
+    }
+    onSave(finalPresets);
     onClose();
   };
 
@@ -101,7 +114,7 @@ export const GoalSettingModal: React.FC<GoalSettingModalProps> = ({
             <input
               type="number"
               value={activePreset.calories}
-              onChange={(e) => updateField('calories', parseInt(e.target.value) || 0)}
+              onChange={(e) => updateField('calories', e.target.value)}
               className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-emerald-600 font-semibold text-slate-800"
             />
           </div>
@@ -114,11 +127,11 @@ export const GoalSettingModal: React.FC<GoalSettingModalProps> = ({
               <input
                 type="number"
                 value={activePreset.carbs}
-                onChange={(e) => updateField('carbs', parseFloat(e.target.value) || 0)}
+                onChange={(e) => updateField('carbs', e.target.value)}
                 className="w-full px-3.5 py-2 rounded-xl border border-amber-200 focus:outline-amber-600 font-semibold text-slate-800"
               />
               <span className="text-[11px] text-slate-400 mt-1 block">
-                約 {Math.round(activePreset.carbs * 4)} kcal
+                約 {Math.round((Number(activePreset.carbs) || 0) * 4)} kcal
               </span>
             </div>
 
@@ -129,11 +142,11 @@ export const GoalSettingModal: React.FC<GoalSettingModalProps> = ({
               <input
                 type="number"
                 value={activePreset.protein}
-                onChange={(e) => updateField('protein', parseFloat(e.target.value) || 0)}
+                onChange={(e) => updateField('protein', e.target.value)}
                 className="w-full px-3.5 py-2 rounded-xl border border-blue-200 focus:outline-blue-600 font-semibold text-slate-800"
               />
               <span className="text-[11px] text-slate-400 mt-1 block">
-                約 {Math.round(activePreset.protein * 4)} kcal
+                約 {Math.round((Number(activePreset.protein) || 0) * 4)} kcal
               </span>
             </div>
 
@@ -144,20 +157,20 @@ export const GoalSettingModal: React.FC<GoalSettingModalProps> = ({
               <input
                 type="number"
                 value={activePreset.fat}
-                onChange={(e) => updateField('fat', parseFloat(e.target.value) || 0)}
+                onChange={(e) => updateField('fat', e.target.value)}
                 className="w-full px-3.5 py-2 rounded-xl border border-rose-200 focus:outline-rose-600 font-semibold text-slate-800"
               />
               <span className="text-[11px] text-slate-400 mt-1 block">
-                約 {Math.round(activePreset.fat * 9)} kcal
+                約 {Math.round((Number(activePreset.fat) || 0) * 9)} kcal
               </span>
             </div>
           </div>
 
           <MacroCalorieVerifier
-            calories={activePreset.calories}
-            carbs={activePreset.carbs}
-            protein={activePreset.protein}
-            fat={activePreset.fat}
+            calories={Number(activePreset.calories) || 0}
+            carbs={Number(activePreset.carbs) || 0}
+            protein={Number(activePreset.protein) || 0}
+            fat={Number(activePreset.fat) || 0}
             onApplyCalculated={(val) => updateField('calories', val)}
           />
 
@@ -169,7 +182,7 @@ export const GoalSettingModal: React.FC<GoalSettingModalProps> = ({
               <input
                 type="number"
                 value={activePreset.sodium}
-                onChange={(e) => updateField('sodium', parseFloat(e.target.value) || 0)}
+                onChange={(e) => updateField('sodium', e.target.value)}
                 className="w-full px-3.5 py-2 rounded-xl border border-slate-200 font-semibold text-slate-800"
               />
             </div>
@@ -181,7 +194,7 @@ export const GoalSettingModal: React.FC<GoalSettingModalProps> = ({
               <input
                 type="number"
                 value={activePreset.potassium}
-                onChange={(e) => updateField('potassium', parseFloat(e.target.value) || 0)}
+                onChange={(e) => updateField('potassium', e.target.value)}
                 className="w-full px-3.5 py-2 rounded-xl border border-slate-200 font-semibold text-slate-800"
               />
             </div>

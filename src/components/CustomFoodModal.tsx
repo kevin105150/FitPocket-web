@@ -197,7 +197,7 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
                 <input
                   type="number"
                   step="0.1"
-                  value={calories || ''}
+                  value={calories ?? ''}
                   onChange={(e) => setCalories(e.target.value)}
                   className="w-full p-2 text-center rounded-xl border border-emerald-300 bg-white font-bold text-slate-800"
                   placeholder="0"
@@ -208,7 +208,7 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
                 <input
                   type="number"
                   step="0.1"
-                  value={carbs || ''}
+                  value={carbs ?? ''}
                   onChange={(e) => setCarbs(e.target.value)}
                   className="w-full p-2 text-center rounded-xl border border-amber-300 bg-white font-bold text-slate-800"
                   placeholder="0"
@@ -219,7 +219,7 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
                 <input
                   type="number"
                   step="0.1"
-                  value={protein || ''}
+                  value={protein ?? ''}
                   onChange={(e) => setProtein(e.target.value)}
                   className="w-full p-2 text-center rounded-xl border border-blue-300 bg-white font-bold text-slate-800"
                   placeholder="0"
@@ -230,7 +230,7 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
                 <input
                   type="number"
                   step="0.1"
-                  value={fat || ''}
+                  value={fat ?? ''}
                   onChange={(e) => setFat(e.target.value)}
                   className="w-full p-2 text-center rounded-xl border border-rose-300 bg-white font-bold text-slate-800"
                   placeholder="0"
@@ -252,7 +252,7 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
                 <input
                   type="number"
                   step="0.1"
-                  value={sugars || ''}
+                  value={sugars ?? ''}
                   onChange={(e) => setSugars(e.target.value)}
                   className="w-full p-1.5 rounded-lg border border-slate-200 bg-white text-slate-800 text-center"
                 />
@@ -262,7 +262,7 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
                 <input
                   type="number"
                   step="0.1"
-                  value={fiber || ''}
+                  value={fiber ?? ''}
                   onChange={(e) => setFiber(e.target.value)}
                   className="w-full p-1.5 rounded-lg border border-slate-200 bg-white text-slate-800 text-center"
                 />
@@ -272,7 +272,7 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
                 <input
                   type="number"
                   step="1"
-                  value={sodium || ''}
+                  value={sodium ?? ''}
                   onChange={(e) => setSodium(e.target.value)}
                   className="w-full p-1.5 rounded-lg border border-slate-200 bg-white text-slate-800 text-center"
                 />
@@ -282,7 +282,7 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
                 <input
                   type="number"
                   step="1"
-                  value={potassium || ''}
+                  value={potassium ?? ''}
                   onChange={(e) => setPotassium(e.target.value)}
                   className="w-full p-1.5 rounded-lg border border-slate-200 bg-white text-slate-800 text-center"
                 />

@@ -99,8 +99,12 @@ export const SettingsScreen: React.FC = () => {
 
   // Profile calculations
   const calculateBmrTdee = () => {
-    const { gender, age, heightCm, currentWeightKg, activityLevel, fitnessGoal } =
-      userProfile;
+    const gender = userProfile.gender;
+    const age = Number(userProfile.age) || 20;
+    const heightCm = Number(userProfile.heightCm) || 170;
+    const currentWeightKg = Number(userProfile.currentWeightKg) || 70;
+    const activityLevel = userProfile.activityLevel;
+    const fitnessGoal = userProfile.fitnessGoal;
 
     // Mifflin-St Jeor formula
     let bmr = 10 * currentWeightKg + 6.25 * heightCm - 5 * age;
@@ -141,14 +145,20 @@ export const SettingsScreen: React.FC = () => {
 
   // Apply BMR results to Carb Cycle Goals
   const handleApplyCalculatedToGoals = () => {
-    const { targetCal, targetProtein, targetFat, targetCarbs } = calculated;
     flashMessage('已成功將計算之營養數據套用！(請注意：碳循環目標設定已移除)');
   };
 
   // Save profile
-  const handleSaveProfile = (newProf: UserProfile) => {
+  const handleSaveProfile = (newProf: any) => {
     setUserProfile(newProf);
-    StorageService.saveUserProfile(newProf);
+    const cleanedProf: UserProfile = {
+      ...newProf,
+      age: Number(newProf.age) || 20,
+      heightCm: Number(newProf.heightCm) || 170,
+      currentWeightKg: Number(newProf.currentWeightKg) || 70,
+      targetWeightKg: Number(newProf.targetWeightKg) || 65,
+    };
+    StorageService.saveUserProfile(cleanedProf);
     flashMessage('個人基本身體資料已更新！');
   };
 
@@ -407,7 +417,7 @@ export const SettingsScreen: React.FC = () => {
                   onChange={(e) =>
                     handleSaveProfile({
                       ...userProfile,
-                      age: parseInt(e.target.value) || 20,
+                      age: e.target.value,
                     })
                   }
                   className="w-full px-3 py-2 bg-slate-50 rounded-xl border border-slate-200 font-bold"
@@ -422,7 +432,7 @@ export const SettingsScreen: React.FC = () => {
                   onChange={(e) =>
                     handleSaveProfile({
                       ...userProfile,
-                      heightCm: parseFloat(e.target.value) || 170,
+                      heightCm: e.target.value,
                     })
                   }
                   className="w-full px-3 py-2 bg-slate-50 rounded-xl border border-slate-200 font-bold"
@@ -438,7 +448,7 @@ export const SettingsScreen: React.FC = () => {
                   onChange={(e) =>
                     handleSaveProfile({
                       ...userProfile,
-                      currentWeightKg: parseFloat(e.target.value) || 70,
+                      currentWeightKg: e.target.value,
                     })
                   }
                   className="w-full px-3 py-2 bg-slate-50 rounded-xl border border-slate-200 font-bold"
@@ -454,7 +464,7 @@ export const SettingsScreen: React.FC = () => {
                   onChange={(e) =>
                     handleSaveProfile({
                       ...userProfile,
-                      targetWeightKg: parseFloat(e.target.value) || 65,
+                      targetWeightKg: e.target.value,
                     })
                   }
                   className="w-full px-3 py-2 bg-slate-50 rounded-xl border border-slate-200 font-bold"
