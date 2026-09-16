@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { getTodayString } from '../utils/dateUtils';
+import { generateFullAppExportHtml } from '../utils/htmlExporter';
 import {
   Settings,
   Calculator,
@@ -223,59 +224,19 @@ export const SettingsScreen: React.FC = () => {
 
   // HTML Export Report
   const handleExportHtml = () => {
-    const records = StorageService.getAllFoodRecords();
-    const workouts = StorageService.getAllWorkoutRecords();
-    const htmlContent = `<!DOCTYPE html>
-<html lang="zh-TW">
-<head>
-<meta charset="utf-8">
-<title>FitPocket 飲食與訓練備份報表</title>
-<style>
-body { font-family: -apple-system, sans-serif; padding: 24px; color: #1e293b; background: #f8fafc; }
-h1 { color: #15803d; }
-table { width: 100%; border-collapse: collapse; margin-top: 16px; background: #fff; border-radius: 8px; overflow: hidden; }
-th, td { border: 1px solid #e2e8f0; padding: 10px; text-align: left; font-size: 13px; }
-th { background: #f1f5f9; font-weight: 600; }
-</style>
-</head>
-<body>
-<h1>FitPocket 歷史紀錄報告</h1>
-<p>匯出時間：${new Date().toLocaleString()}</p>
-<h2>每日飲食記錄 (${records.length} 筆)</h2>
-<table>
-<thead><tr><th>日期</th><th>餐點</th><th>食物</th><th>份量</th><th>熱量</th><th>碳水</th><th>蛋白</th><th>脂肪</th></tr></thead>
-<tbody>
-${records
-  .map(
-    (r) =>
-      `<tr><td>${r.date}</td><td>${r.mealType}</td><td>${r.name}</td><td>${r.loggedAmount}${r.loggedUnit}</td><td>${r.calories}</td><td>${r.carbs}g</td><td>${r.protein}g</td><td>${r.fat}g</td></tr>`
-  )
-  .join('')}
-</tbody>
-</table>
-<h2>訓練紀錄 (${workouts.length} 筆)</h2>
-<table>
-<thead><tr><th>日期</th><th>部位</th><th>動作數量</th></tr></thead>
-<tbody>
-${workouts
-  .map(
-    (w) =>
-      `<tr><td>${w.date}</td><td>${w.bodyPart}</td><td>${w.exercises.length}</td></tr>`
-  )
-  .join('')}
-</tbody>
-</table>
-</body>
-</html>`;
+    const rawDataJson = StorageService.exportData();
+    const parsedData = JSON.parse(rawDataJson);
+    const htmlContent = generateFullAppExportHtml(parsedData);
     const blob = new Blob([htmlContent], { type: 'text/html; charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `fitpocket_report_${getTodayString()}.html`;
+    a.download = `fitpocket_full_report_${getTodayString()}.html`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+    flashMessage('已成功匯出全頁面互動式 HTML 備份檔！');
   };
 
   // JSON Import
