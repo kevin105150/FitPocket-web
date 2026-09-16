@@ -19,41 +19,9 @@ import {
   DEFAULT_PRESETS,
   DEFAULT_USER_PROFILE,
 } from '../data/defaults';
-import { db, auth, handleFirestoreError, OperationType } from '../lib/firebase';
-import {
-  collection,
-  doc,
-  setDoc,
-  getDoc,
-  getDocs,
-  deleteDoc,
-} from 'firebase/firestore';
+import { auth } from '../lib/firebase';
 import { DriveStorageService } from './driveStorage';
 import { encryptApiKey, decryptApiKey } from '../utils/encryption';
-
-const getUserId = () => auth.currentUser?.uid;
-
-async function firestoreSetDoc(subpath: string, docId: string, data: any) {
-  const uid = getUserId();
-  if (!uid) return;
-  const fullPath = `users/${uid}/${subpath}`;
-  try {
-    await setDoc(doc(db, fullPath, docId), data);
-  } catch (error) {
-    handleFirestoreError(error, OperationType.WRITE, `${fullPath}/${docId}`);
-  }
-}
-
-async function firestoreDeleteDoc(subpath: string, docId: string) {
-  const uid = getUserId();
-  if (!uid) return;
-  const fullPath = `users/${uid}/${subpath}`;
-  try {
-    await deleteDoc(doc(db, fullPath, docId));
-  } catch (error) {
-    handleFirestoreError(error, OperationType.DELETE, `${fullPath}/${docId}`);
-  }
-}
 
 const STORAGE_KEYS = {
   FOOD_RECORDS: 'fitpocket_food_records',
@@ -132,97 +100,16 @@ export const StorageService = {
     }
   },
 
-  async syncFromFirestore(): Promise<void> {
-    const uid = getUserId();
-    if (!uid) return;
-    try {
-      // 1. Diet Records
-      const dietPath = `users/${uid}/diet_records`;
-      const dietSnap = await getDocs(collection(db, dietPath));
-      const dietRecords: FoodRecord[] = [];
-      dietSnap.forEach((doc) => {
-        dietRecords.push(doc.data() as FoodRecord);
-      });
-      if (dietRecords.length > 0) {
-        setItem(STORAGE_KEYS.FOOD_RECORDS, dietRecords);
-      }
-
-      // 2. Custom Foods
-      const customPath = `users/${uid}/custom_foods`;
-      const customSnap = await getDocs(collection(db, customPath));
-      const customFoods: CustomFood[] = [];
-      customSnap.forEach((doc) => {
-        customFoods.push(doc.data() as CustomFood);
-      });
-      if (customFoods.length > 0) {
-        setItem(STORAGE_KEYS.CUSTOM_FOODS, customFoods);
-      }
-
-      // 3. Weight Records
-      const weightPath = `users/${uid}/weight_records`;
-      const weightSnap = await getDocs(collection(db, weightPath));
-      const weightRecords: WeightRecord[] = [];
-      weightSnap.forEach((doc) => {
-        weightRecords.push(doc.data() as WeightRecord);
-      });
-      if (weightRecords.length > 0) {
-        setItem(STORAGE_KEYS.WEIGHT_RECORDS, weightRecords);
-      }
-
-      // 4. Water Records
-      const waterPath = `users/${uid}/water_records`;
-      const waterSnap = await getDocs(collection(db, waterPath));
-      const waterRecords: WaterRecord[] = [];
-      waterSnap.forEach((doc) => {
-        waterRecords.push(doc.data() as WaterRecord);
-      });
-      if (waterRecords.length > 0) {
-        setItem(STORAGE_KEYS.WATER_RECORDS, waterRecords);
-      }
-
-      // 5. Workout Records
-      const workoutPath = `users/${uid}/workout_records`;
-      const workoutSnap = await getDocs(collection(db, workoutPath));
-      const workoutRecords: WorkoutRecord[] = [];
-      workoutSnap.forEach((doc) => {
-        workoutRecords.push(doc.data() as WorkoutRecord);
-      });
-      if (workoutRecords.length > 0) {
-        setItem(STORAGE_KEYS.WORKOUT_RECORDS, workoutRecords);
-      }
-
-      // 6. User Profile
-      const profileDoc = await getDoc(doc(db, `users/${uid}/settings`, 'profile'));
-      if (profileDoc.exists()) {
-        setItem(STORAGE_KEYS.USER_PROFILE, profileDoc.data() as UserProfile);
-      }
-
-      // 7. Meals
-      const mealsDoc = await getDoc(doc(db, `users/${uid}/settings`, 'meals'));
-      if (mealsDoc.exists()) {
-        const mealsData = mealsDoc.data();
-        if (mealsData.activeMeals) {
-          setItem(STORAGE_KEYS.ACTIVE_MEALS, mealsData.activeMeals);
-        }
-      }
-    } catch (error) {
-      console.warn("Failed to sync from Firestore:", error);
-    }
-  },
-
   async syncFromCloud(): Promise<void> {
     if (!auth.currentUser) return;
     try {
-      // Direct Firestore sync first (no external drive permission required)
-      await this.syncFromFirestore();
-
-      // Drive backup sync second (if drive token / permission exists)
+      // Drive backup sync (loads user data from Google Drive)
       const json = await DriveStorageService.loadAllData();
       if (json) {
         this.importData(json);
       }
     } catch (e) {
-      console.warn('Initial sync failed (non-blocking):', e);
+      console.warn('Drive sync failed (non-blocking):', e);
     }
   },
 
@@ -244,27 +131,19 @@ export const StorageService = {
     }
     setItem(STORAGE_KEYS.FOOD_RECORDS, all);
     this.saveToCloud();
-    firestoreSetDoc('diet_records', record.id, record);
     return record;
   },
   deleteFoodRecord(id: string): void {
     const all = this.getAllFoodRecords().filter((r) => r.id !== id);
     setItem(STORAGE_KEYS.FOOD_RECORDS, all);
     this.saveToCloud();
-    firestoreDeleteDoc('diet_records', id);
   },
   deleteFoodRecordsByMeal(date: string, mealType: string): void {
-    const toDelete = this.getAllFoodRecords().filter(
-      (r) => r.date === date && r.mealType === mealType
-    );
     const all = this.getAllFoodRecords().filter(
       (r) => !(r.date === date && r.mealType === mealType)
     );
     setItem(STORAGE_KEYS.FOOD_RECORDS, all);
     this.saveToCloud();
-    toDelete.forEach((r) => {
-      firestoreDeleteDoc('diet_records', r.id);
-    });
   },
 
   // Custom foods
@@ -316,14 +195,12 @@ export const StorageService = {
     }
     setItem(STORAGE_KEYS.CUSTOM_FOODS, all);
     this.saveToCloud();
-    firestoreSetDoc('custom_foods', food.id, updatedFood);
     return updatedFood;
   },
   deleteCustomFood(id: string): void {
     const all = this.getCustomFoods().filter((f) => f.id !== id);
     setItem(STORAGE_KEYS.CUSTOM_FOODS, all);
     this.saveToCloud();
-    firestoreDeleteDoc('custom_foods', id);
   },
 
   // Search local and custom foods
@@ -385,14 +262,12 @@ export const StorageService = {
     all.push(record);
     setItem(STORAGE_KEYS.WATER_RECORDS, all);
     this.saveToCloud();
-    firestoreSetDoc('water_records', record.id, record);
     return record;
   },
   deleteWaterRecord(id: string): void {
     const all = this.getAllWaterRecords().filter((r) => r.id !== id);
     setItem(STORAGE_KEYS.WATER_RECORDS, all);
     this.saveToCloud();
-    firestoreDeleteDoc('water_records', id);
   },
   getWaterGoal(): number {
     return getItem<number>(STORAGE_KEYS.WATER_GOAL, 2500);
@@ -429,14 +304,12 @@ export const StorageService = {
     }
     setItem(STORAGE_KEYS.WEIGHT_RECORDS, all);
     this.saveToCloud();
-    firestoreSetDoc('weight_records', record.id, updatedRecord);
     return updatedRecord;
   },
   deleteWeightRecord(id: string): void {
     const all = this.getAllWeightRecords().filter((r) => r.id !== id);
     setItem(STORAGE_KEYS.WEIGHT_RECORDS, all);
     this.saveToCloud();
-    firestoreDeleteDoc('weight_records', id);
   },
 
   // Workouts
@@ -456,14 +329,12 @@ export const StorageService = {
     }
     setItem(STORAGE_KEYS.WORKOUT_RECORDS, all);
     this.saveToCloud();
-    firestoreSetDoc('workout_records', record.id, record);
     return record;
   },
   deleteWorkoutRecord(id: string): void {
     const all = this.getAllWorkoutRecords().filter((w) => w.id !== id);
     setItem(STORAGE_KEYS.WORKOUT_RECORDS, all);
     this.saveToCloud();
-    firestoreDeleteDoc('workout_records', id);
   },
 
   // Carb cycle presets
@@ -500,7 +371,6 @@ export const StorageService = {
   saveActiveMeals(meals: MealConfig[]): void {
     setItem(STORAGE_KEYS.ACTIVE_MEALS, meals);
     this.saveToCloud();
-    firestoreSetDoc('settings', 'meals', { activeMeals: meals });
   },
 
   // Exercises & Muscle Groups
@@ -527,7 +397,6 @@ export const StorageService = {
   saveUserProfile(profile: UserProfile): void {
     setItem(STORAGE_KEYS.USER_PROFILE, profile);
     this.saveToCloud();
-    firestoreSetDoc('settings', 'profile', profile);
   },
 
   // Custom Gemini Key
