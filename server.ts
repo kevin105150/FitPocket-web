@@ -6,7 +6,8 @@ import { createServer as createViteServer } from 'vite';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 
 const app = express();
-const PORT = 3000;
+app.set('trust proxy', 1);
+const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
 // First-party Firebase OAuth proxy (bypasses mobile browser third-party cookie restrictions)
 app.use('/__/auth', createProxyMiddleware({

@@ -1,31 +1,30 @@
-import { initializeApp } from 'firebase/app';
+import { initializeApp, getApps, getApp } from 'firebase/app';
 import { initializeFirestore, getFirestore } from 'firebase/firestore';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signOut, onAuthStateChanged, User, GoogleAuthProvider as GAuthProvider } from 'firebase/auth';
-import firebaseConfig from '../../firebase-applet-config.json';
+import rawFirebaseConfig from '../../firebase-applet-config.json';
 
-const isProduction = typeof window !== 'undefined' && 
-  !window.location.hostname.includes('localhost') && 
-  !window.location.hostname.includes('127.0.0.1') && 
-  !window.location.hostname.includes('ais-dev-') && 
-  !window.location.hostname.includes('ais-pre-');
+// Guaranteed fallback config for standalone deployments (Render / Vercel / Cloud Run / GitHub Actions)
+export const FIREBASE_PROJECT_ID = rawFirebaseConfig?.projectId || 'quirky-gear-l0w9t';
+export const FIRESTORE_DATABASE_ID = rawFirebaseConfig?.firestoreDatabaseId || 'ai-studio-aidiettrackerapp-767063f9-4fee-46bc-9161-8aaabc23bda9';
+export const FIREBASE_API_KEY = rawFirebaseConfig?.apiKey || '';
 
-const dynamicFirebaseConfig = {
-  ...firebaseConfig,
-  authDomain: isProduction ? window.location.host : firebaseConfig.authDomain
+export const firebaseConfig = {
+  ...rawFirebaseConfig,
+  projectId: FIREBASE_PROJECT_ID,
+  firestoreDatabaseId: FIRESTORE_DATABASE_ID,
+  authDomain: rawFirebaseConfig?.authDomain || `${FIREBASE_PROJECT_ID}.firebaseapp.com`,
 };
 
-const app = initializeApp(dynamicFirebaseConfig);
+const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 
-// Initialize Firestore with auto-detect long polling to prevent mobile 4G/5G proxy hangs
+// Initialize Firestore targeting the exact database instance
 let firestoreInstance;
 try {
   firestoreInstance = initializeFirestore(app, {
     experimentalAutoDetectLongPolling: true,
-  }, firebaseConfig.firestoreDatabaseId || undefined);
+  }, FIRESTORE_DATABASE_ID);
 } catch {
-  firestoreInstance = firebaseConfig.firestoreDatabaseId
-    ? getFirestore(app, firebaseConfig.firestoreDatabaseId)
-    : getFirestore(app);
+  firestoreInstance = getFirestore(app, FIRESTORE_DATABASE_ID);
 }
 
 export const db = firestoreInstance;
