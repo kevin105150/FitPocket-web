@@ -1,5 +1,6 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
 import { GoogleGenAI } from '@google/genai';
 import { createServer as createViteServer } from 'vite';
 import { createProxyMiddleware } from 'http-proxy-middleware';
@@ -129,7 +130,65 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: Date.now() });
 });
 
-// 1.1 Test AI Connection & Model Latency
+// 1.2 Test Firebase Firestore Connection
+app.all('/api/firebase/test-connection', async (req, res) => {
+  const startTime = Date.now();
+  try {
+    const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
+    const fsConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    const dbId = fsConfig.firestoreDatabaseId || '(default)';
+    const testDocId = `srv_diag_${Date.now()}`;
+    const restUrl = `https://firestore.googleapis.com/v1/projects/${fsConfig.projectId}/databases/${dbId}/documents/_connection_test/${testDocId}?key=${fsConfig.apiKey}`;
+
+    // Write test
+    const writeRes = await fetch(restUrl, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        fields: {
+          ping: { stringValue: 'server_pong' },
+          timestamp: { integerValue: String(Date.now()) },
+          target: { stringValue: dbId },
+        },
+      }),
+    });
+
+    if (!writeRes.ok) {
+      const err = await writeRes.json().catch(() => ({}));
+      throw new Error(err?.error?.message || `HTTP ${writeRes.status}: 寫入測試失敗`);
+    }
+
+    // Read test
+    const readRes = await fetch(restUrl);
+    if (!readRes.ok) {
+      const err = await readRes.json().catch(() => ({}));
+      throw new Error(err?.error?.message || `HTTP ${readRes.status}: 讀取測試失敗`);
+    }
+
+    // Delete test
+    fetch(restUrl, { method: 'DELETE' }).catch(() => {});
+
+    const latencyMs = Date.now() - startTime;
+    res.json({
+      success: true,
+      latencyMs,
+      message: `Firebase Firestore 伺服器與雲端通訊正常！反應時間: ${latencyMs}ms`,
+      details: {
+        projectId: fsConfig.projectId,
+        databaseId: dbId,
+        protocol: 'HTTPS REST / Firestore v1 API',
+      },
+    });
+  } catch (error: any) {
+    console.error('Firebase test connection error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Firebase 連線失敗',
+      latencyMs: Date.now() - startTime,
+    });
+  }
+});
+
 app.all('/api/ai/test-connection', async (req, res) => {
   const startTime = Date.now();
   try {

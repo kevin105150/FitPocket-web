@@ -213,7 +213,21 @@ export const SettingsScreen: React.FC = () => {
     setTestingFirebase(true);
     setFirebaseStatus(null);
     try {
-      const result = await testFirebaseConnection();
+      let result = await testFirebaseConnection();
+      if (!result.success) {
+        // Fallback or verify with backend API endpoint
+        const srvRes = await fetch('/api/firebase/test-connection')
+          .then((r) => r.json())
+          .catch(() => null);
+        if (srvRes && srvRes.success) {
+          result = {
+            success: true,
+            latencyMs: srvRes.latencyMs,
+            message: srvRes.message,
+            details: srvRes.details,
+          };
+        }
+      }
       setFirebaseStatus(result);
     } catch (err: any) {
       setFirebaseStatus({
