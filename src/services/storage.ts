@@ -567,6 +567,7 @@ export const StorageService = {
       userProfile: this.getUserProfile(),
       exercises: this.getExercises(),
       muscleGroups: this.getMuscleGroups(),
+      workoutPresets: this.getTimerPresets(),
       geminiApiKey: rawKey, // already encrypted in storage
       geminiModel: this.getSelectedAiModel(),
     };
@@ -587,6 +588,9 @@ export const StorageService = {
       if (data.activeCarbCycle) setItem(STORAGE_KEYS.ACTIVE_CARB_CYCLE, data.activeCarbCycle);
       if (data.activeMeals) setItem(STORAGE_KEYS.ACTIVE_MEALS, data.activeMeals);
       if (data.userProfile) setItem(STORAGE_KEYS.USER_PROFILE, data.userProfile);
+      if (data.exercises) setItem(STORAGE_KEYS.EXERCISES, data.exercises);
+      if (data.muscleGroups) setItem(STORAGE_KEYS.MUSCLE_GROUPS, data.muscleGroups);
+      if (data.workoutPresets) setItem(STORAGE_KEYS.WORKOUT_PRESETS, data.workoutPresets);
       if (data.geminiApiKey) setItem(STORAGE_KEYS.GEMINI_KEY, data.geminiApiKey);
       if (data.geminiModel) setItem(STORAGE_KEYS.GEMINI_MODEL, data.geminiModel);
       return true;
