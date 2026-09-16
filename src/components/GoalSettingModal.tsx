@@ -158,6 +158,7 @@ export const GoalSettingModal: React.FC<GoalSettingModalProps> = ({
             carbs={activePreset.carbs}
             protein={activePreset.protein}
             fat={activePreset.fat}
+            onApplyCalculated={(val) => updateField('calories', val)}
           />
 
           <div className="grid grid-cols-2 gap-3 pt-2">

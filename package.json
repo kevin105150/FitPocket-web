@@ -6,13 +6,17 @@
   "scripts": {
     "dev": "tsx server.ts",
     "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
-    "start": "node dist/server.cjs"
+    "start": "node dist/server.cjs",
+    "lint": "tsc --noEmit"
   },
   "dependencies": {
-    "@google/genai": "^0.2.0",
+    "@google/genai": "^2.22.0",
+    "@google/generative-ai": "^0.24.1",
     "clsx": "^2.1.1",
     "express": "^4.21.2",
+    "firebase": "^12.19.0",
     "lucide-react": "^1.16.0",
+    "motion": "^13.2.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "tailwind-merge": "^3.0.2"

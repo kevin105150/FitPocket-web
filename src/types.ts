@@ -18,9 +18,14 @@ export interface MealConfig {
 
 export interface FoodRecord {
   id: string;
-  name: string;
-  mealType: MealType;
   date: string; // YYYY-MM-DD
+  mealType: MealType;
+  sourceFoodId?: string;
+  barcode?: string;
+  brand?: string;
+  loggedAmount: number; // actual amount consumed (e.g. 1.5 or 200)
+  loggedUnit: string;   // actual unit used (e.g. "份", "g", "ml")
+  name: string;
   calories: number;
   carbs: number;
   sugars: number;
@@ -29,10 +34,6 @@ export interface FoodRecord {
   fat: number;
   sodium: number;
   potassium: number;
-  amount: number;
-  unit: string;
-  barcode?: string;
-  imageUrl?: string;
   note?: string;
   createdAt: number;
 }
@@ -41,17 +42,16 @@ export interface CustomFood {
   id: string;
   name: string;
   brand: string;
-  caloriesPer100g: number;
-  carbsPer100g: number;
-  sugarsPer100g: number;
-  fiberPer100g: number;
-  proteinPer100g: number;
-  fatPer100g: number;
-  sodiumPer100g: number;
-  potassiumPer100g: number;
-  defaultServingAmount: number;
+  servingAmount: number;
   servingUnit: string;
-  servingSizeText?: string;
+  calories: number;
+  carbs: number;
+  sugars: number;
+  fiber: number;
+  protein: number;
+  fat: number;
+  sodium: number;
+  potassium: number;
   imageUrl?: string;
   barcode?: string;
   updatedAt: number;
@@ -61,15 +61,15 @@ export interface FoodSearchResult {
   id: string;
   name: string;
   brand: string;
-  caloriesPer100g: number;
-  carbsPer100g: number;
-  sugarsPer100g: number;
-  fiberPer100g: number;
-  proteinPer100g: number;
-  fatPer100g: number;
-  sodiumPer100g: number;
-  potassiumPer100g: number;
-  defaultServingAmount: number;
+  calories: number;
+  carbs: number;
+  sugars: number;
+  fiber: number;
+  protein: number;
+  fat: number;
+  sodium: number;
+  potassium: number;
+  servingAmount: number;
   servingUnit: string;
   servingSizeText?: string;
   imageUrl?: string;

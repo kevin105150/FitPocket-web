@@ -19,6 +19,41 @@ import {
   DEFAULT_PRESETS,
   DEFAULT_USER_PROFILE,
 } from '../data/defaults';
+import { db, auth, handleFirestoreError, OperationType } from '../lib/firebase';
+import {
+  collection,
+  doc,
+  setDoc,
+  getDoc,
+  getDocs,
+  deleteDoc,
+} from 'firebase/firestore';
+import { DriveStorageService } from './driveStorage';
+import { encryptApiKey, decryptApiKey } from '../utils/encryption';
+
+const getUserId = () => auth.currentUser?.uid;
+
+async function firestoreSetDoc(subpath: string, docId: string, data: any) {
+  const uid = getUserId();
+  if (!uid) return;
+  const fullPath = `users/${uid}/${subpath}`;
+  try {
+    await setDoc(doc(db, fullPath, docId), data);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, `${fullPath}/${docId}`);
+  }
+}
+
+async function firestoreDeleteDoc(subpath: string, docId: string) {
+  const uid = getUserId();
+  if (!uid) return;
+  const fullPath = `users/${uid}/${subpath}`;
+  try {
+    await deleteDoc(doc(db, fullPath, docId));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, `${fullPath}/${docId}`);
+  }
+}
 
 const STORAGE_KEYS = {
   FOOD_RECORDS: 'fitpocket_food_records',
@@ -34,6 +69,8 @@ const STORAGE_KEYS = {
   EXERCISES: 'fitpocket_exercises',
   MUSCLE_GROUPS: 'fitpocket_muscle_groups',
   GEMINI_KEY: 'fitpocket_gemini_key',
+  GEMINI_MODEL: 'fitpocket_gemini_model',
+  WORKOUT_PRESETS: 'fitpocket_workout_presets',
 };
 
 // Safe storage access
@@ -58,7 +95,135 @@ function setItem<T>(key: string, value: T): void {
 export const StorageService = {
   // Preset foods
   getPresetFoods(): FoodSearchResult[] {
-    return presetFoodsData as FoodSearchResult[];
+    return (presetFoodsData as any[]).map((item) => {
+      const defaultAmount = item.defaultServingAmount || 100;
+      const ratio = defaultAmount / 100;
+      return {
+        id: item.id,
+        name: item.name,
+        brand: item.brand || '一般食材',
+        calories: Math.round(item.caloriesPer100g * ratio * 10) / 10,
+        carbs: Math.round(item.carbsPer100g * ratio * 10) / 10,
+        sugars: Math.round((item.sugarsPer100g || 0) * ratio * 10) / 10,
+        fiber: Math.round((item.fiberPer100g || 0) * ratio * 10) / 10,
+        protein: Math.round(item.proteinPer100g * ratio * 10) / 10,
+        fat: Math.round(item.fatPer100g * ratio * 10) / 10,
+        sodium: Math.round((item.sodiumPer100g || 0) * ratio * 10) / 10,
+        potassium: Math.round((item.potassiumPer100g || 0) * ratio * 10) / 10,
+        servingAmount: defaultAmount,
+        servingUnit: item.servingUnit || 'g',
+        servingSizeText: item.servingSizeText,
+        imageUrl: item.imageUrl,
+        isLocalPreset: true,
+        isUserCustom: false,
+        barcode: item.barcode,
+      };
+    });
+  },
+
+  // Helper for Google Drive
+  async saveToCloud(): Promise<void> {
+    if (!auth.currentUser) return;
+    try {
+      const json = this.exportData();
+      await DriveStorageService.saveAllData(json);
+    } catch (e) {
+      console.warn('Failed to save to Drive:', e);
+    }
+  },
+
+  async syncFromFirestore(): Promise<void> {
+    const uid = getUserId();
+    if (!uid) return;
+    try {
+      // 1. Diet Records
+      const dietPath = `users/${uid}/diet_records`;
+      const dietSnap = await getDocs(collection(db, dietPath));
+      const dietRecords: FoodRecord[] = [];
+      dietSnap.forEach((doc) => {
+        dietRecords.push(doc.data() as FoodRecord);
+      });
+      if (dietRecords.length > 0) {
+        setItem(STORAGE_KEYS.FOOD_RECORDS, dietRecords);
+      }
+
+      // 2. Custom Foods
+      const customPath = `users/${uid}/custom_foods`;
+      const customSnap = await getDocs(collection(db, customPath));
+      const customFoods: CustomFood[] = [];
+      customSnap.forEach((doc) => {
+        customFoods.push(doc.data() as CustomFood);
+      });
+      if (customFoods.length > 0) {
+        setItem(STORAGE_KEYS.CUSTOM_FOODS, customFoods);
+      }
+
+      // 3. Weight Records
+      const weightPath = `users/${uid}/weight_records`;
+      const weightSnap = await getDocs(collection(db, weightPath));
+      const weightRecords: WeightRecord[] = [];
+      weightSnap.forEach((doc) => {
+        weightRecords.push(doc.data() as WeightRecord);
+      });
+      if (weightRecords.length > 0) {
+        setItem(STORAGE_KEYS.WEIGHT_RECORDS, weightRecords);
+      }
+
+      // 4. Water Records
+      const waterPath = `users/${uid}/water_records`;
+      const waterSnap = await getDocs(collection(db, waterPath));
+      const waterRecords: WaterRecord[] = [];
+      waterSnap.forEach((doc) => {
+        waterRecords.push(doc.data() as WaterRecord);
+      });
+      if (waterRecords.length > 0) {
+        setItem(STORAGE_KEYS.WATER_RECORDS, waterRecords);
+      }
+
+      // 5. Workout Records
+      const workoutPath = `users/${uid}/workout_records`;
+      const workoutSnap = await getDocs(collection(db, workoutPath));
+      const workoutRecords: WorkoutRecord[] = [];
+      workoutSnap.forEach((doc) => {
+        workoutRecords.push(doc.data() as WorkoutRecord);
+      });
+      if (workoutRecords.length > 0) {
+        setItem(STORAGE_KEYS.WORKOUT_RECORDS, workoutRecords);
+      }
+
+      // 6. User Profile
+      const profileDoc = await getDoc(doc(db, `users/${uid}/settings`, 'profile'));
+      if (profileDoc.exists()) {
+        setItem(STORAGE_KEYS.USER_PROFILE, profileDoc.data() as UserProfile);
+      }
+
+      // 7. Meals
+      const mealsDoc = await getDoc(doc(db, `users/${uid}/settings`, 'meals'));
+      if (mealsDoc.exists()) {
+        const mealsData = mealsDoc.data();
+        if (mealsData.activeMeals) {
+          setItem(STORAGE_KEYS.ACTIVE_MEALS, mealsData.activeMeals);
+        }
+      }
+    } catch (error) {
+      console.warn("Failed to sync from Firestore:", error);
+    }
+  },
+
+  async syncFromCloud(): Promise<void> {
+    if (!auth.currentUser) return;
+    try {
+      // Direct Firestore sync first (no external drive permission required)
+      await this.syncFromFirestore();
+
+      // Drive backup sync second (if drive token / permission exists)
+      const json = await DriveStorageService.loadAllData();
+      if (json) {
+        this.importData(json);
+      }
+    } catch (e) {
+      console.warn('Initial sync failed (non-blocking):', e);
+    }
   },
 
   // Food records
@@ -78,63 +243,124 @@ export const StorageService = {
       all.push(record);
     }
     setItem(STORAGE_KEYS.FOOD_RECORDS, all);
+    this.saveToCloud();
+    firestoreSetDoc('diet_records', record.id, record);
     return record;
   },
   deleteFoodRecord(id: string): void {
     const all = this.getAllFoodRecords().filter((r) => r.id !== id);
     setItem(STORAGE_KEYS.FOOD_RECORDS, all);
+    this.saveToCloud();
+    firestoreDeleteDoc('diet_records', id);
   },
   deleteFoodRecordsByMeal(date: string, mealType: string): void {
+    const toDelete = this.getAllFoodRecords().filter(
+      (r) => r.date === date && r.mealType === mealType
+    );
     const all = this.getAllFoodRecords().filter(
       (r) => !(r.date === date && r.mealType === mealType)
     );
     setItem(STORAGE_KEYS.FOOD_RECORDS, all);
+    this.saveToCloud();
+    toDelete.forEach((r) => {
+      firestoreDeleteDoc('diet_records', r.id);
+    });
   },
 
   // Custom foods
   getCustomFoods(): CustomFood[] {
-    return getItem<CustomFood[]>(STORAGE_KEYS.CUSTOM_FOODS, []);
+    const raw = getItem<any[]>(STORAGE_KEYS.CUSTOM_FOODS, []);
+    return raw.map((cf) => {
+      const calories = cf.calories !== undefined ? cf.calories : (cf.caloriesPer100g !== undefined ? cf.caloriesPer100g : 0);
+      const carbs = cf.carbs !== undefined ? cf.carbs : (cf.carbsPer100g !== undefined ? cf.carbsPer100g : 0);
+      const protein = cf.protein !== undefined ? cf.protein : (cf.proteinPer100g !== undefined ? cf.proteinPer100g : 0);
+      const fat = cf.fat !== undefined ? cf.fat : (cf.fatPer100g !== undefined ? cf.fatPer100g : 0);
+      const sugars = cf.sugars !== undefined ? cf.sugars : (cf.sugarsPer100g !== undefined ? cf.sugarsPer100g : 0);
+      const fiber = cf.fiber !== undefined ? cf.fiber : (cf.fiberPer100g !== undefined ? cf.fiberPer100g : 0);
+      const sodium = cf.sodium !== undefined ? cf.sodium : (cf.sodiumPer100g !== undefined ? cf.sodiumPer100g : 0);
+      const potassium = cf.potassium !== undefined ? cf.potassium : (cf.potassiumPer100g !== undefined ? cf.potassiumPer100g : 0);
+      const servingAmount = cf.servingAmount !== undefined ? cf.servingAmount : (cf.defaultServingAmount !== undefined ? cf.defaultServingAmount : 100);
+
+      return {
+        ...cf,
+        calories,
+        carbs,
+        protein,
+        fat,
+        sugars,
+        fiber,
+        sodium,
+        potassium,
+        servingAmount,
+        // Also keep deprecated keys so that old UI elements still get the values if accessed
+        caloriesPer100g: calories,
+        carbsPer100g: carbs,
+        proteinPer100g: protein,
+        fatPer100g: fat,
+        sugarsPer100g: sugars,
+        fiberPer100g: fiber,
+        sodiumPer100g: sodium,
+        potassiumPer100g: potassium,
+        defaultServingAmount: servingAmount,
+      };
+    });
   },
   saveCustomFood(food: CustomFood): CustomFood {
     const all = this.getCustomFoods();
+    const updatedFood = { ...food, updatedAt: Date.now() };
     const index = all.findIndex((f) => f.id === food.id);
     if (index >= 0) {
-      all[index] = { ...food, updatedAt: Date.now() };
+      all[index] = updatedFood;
     } else {
-      all.unshift({ ...food, updatedAt: Date.now() });
+      all.unshift(updatedFood);
     }
     setItem(STORAGE_KEYS.CUSTOM_FOODS, all);
-    return food;
+    this.saveToCloud();
+    firestoreSetDoc('custom_foods', food.id, updatedFood);
+    return updatedFood;
   },
   deleteCustomFood(id: string): void {
     const all = this.getCustomFoods().filter((f) => f.id !== id);
     setItem(STORAGE_KEYS.CUSTOM_FOODS, all);
+    this.saveToCloud();
+    firestoreDeleteDoc('custom_foods', id);
   },
 
   // Search local and custom foods
   searchFoods(query: string = ''): FoodSearchResult[] {
     const trimmed = query.trim().toLowerCase();
     const presets = this.getPresetFoods();
-    const custom = this.getCustomFoods().map((cf) => ({
-      id: `custom_${cf.id}`,
-      name: cf.name,
-      brand: cf.brand || '我的常用自訂',
-      caloriesPer100g: cf.caloriesPer100g,
-      carbsPer100g: cf.carbsPer100g,
-      sugarsPer100g: cf.sugarsPer100g,
-      fiberPer100g: cf.fiberPer100g,
-      proteinPer100g: cf.proteinPer100g,
-      fatPer100g: cf.fatPer100g,
-      sodiumPer100g: cf.sodiumPer100g,
-      potassiumPer100g: cf.potassiumPer100g,
-      defaultServingAmount: cf.defaultServingAmount,
-      servingUnit: cf.servingUnit,
-      servingSizeText: cf.servingSizeText,
-      imageUrl: cf.imageUrl,
-      isLocalPreset: false,
-      isUserCustom: true,
-      barcode: cf.barcode,
-    }));
+    const custom = this.getCustomFoods().map((cf: any) => {
+      const calories = cf.calories !== undefined ? cf.calories : (cf.caloriesPer100g !== undefined ? cf.caloriesPer100g : 0);
+      const carbs = cf.carbs !== undefined ? cf.carbs : (cf.carbsPer100g !== undefined ? cf.carbsPer100g : 0);
+      const protein = cf.protein !== undefined ? cf.protein : (cf.proteinPer100g !== undefined ? cf.proteinPer100g : 0);
+      const fat = cf.fat !== undefined ? cf.fat : (cf.fatPer100g !== undefined ? cf.fatPer100g : 0);
+      const sugars = cf.sugars !== undefined ? cf.sugars : (cf.sugarsPer100g !== undefined ? cf.sugarsPer100g : 0);
+      const fiber = cf.fiber !== undefined ? cf.fiber : (cf.fiberPer100g !== undefined ? cf.fiberPer100g : 0);
+      const sodium = cf.sodium !== undefined ? cf.sodium : (cf.sodiumPer100g !== undefined ? cf.sodiumPer100g : 0);
+      const potassium = cf.potassium !== undefined ? cf.potassium : (cf.potassiumPer100g !== undefined ? cf.potassiumPer100g : 0);
+      const servingAmount = cf.servingAmount !== undefined ? cf.servingAmount : (cf.defaultServingAmount !== undefined ? cf.defaultServingAmount : 100);
+
+      return {
+        id: `custom_${cf.id}`,
+        name: cf.name,
+        brand: cf.brand || '我的常用自訂',
+        calories,
+        carbs,
+        sugars,
+        fiber,
+        protein,
+        fat,
+        sodium,
+        potassium,
+        servingAmount,
+        servingUnit: cf.servingUnit || 'g',
+        imageUrl: cf.imageUrl,
+        isLocalPreset: false,
+        isUserCustom: true,
+        barcode: cf.barcode,
+      };
+    });
 
     const all = [...custom, ...presets];
     if (!trimmed) return all;
@@ -158,11 +384,15 @@ export const StorageService = {
     const all = this.getAllWaterRecords();
     all.push(record);
     setItem(STORAGE_KEYS.WATER_RECORDS, all);
+    this.saveToCloud();
+    firestoreSetDoc('water_records', record.id, record);
     return record;
   },
   deleteWaterRecord(id: string): void {
     const all = this.getAllWaterRecords().filter((r) => r.id !== id);
     setItem(STORAGE_KEYS.WATER_RECORDS, all);
+    this.saveToCloud();
+    firestoreDeleteDoc('water_records', id);
   },
   getWaterGoal(): number {
     return getItem<number>(STORAGE_KEYS.WATER_GOAL, 2500);
@@ -190,18 +420,23 @@ export const StorageService = {
   },
   saveWeightRecord(record: WeightRecord): WeightRecord {
     const all = this.getAllWeightRecords();
+    const updatedRecord = { ...record, createdAt: Date.now() };
     const index = all.findIndex((r) => r.date === record.date);
     if (index >= 0) {
-      all[index] = { ...record, createdAt: Date.now() };
+      all[index] = updatedRecord;
     } else {
-      all.push({ ...record, createdAt: Date.now() });
+      all.push(updatedRecord);
     }
     setItem(STORAGE_KEYS.WEIGHT_RECORDS, all);
-    return record;
+    this.saveToCloud();
+    firestoreSetDoc('weight_records', record.id, updatedRecord);
+    return updatedRecord;
   },
   deleteWeightRecord(id: string): void {
     const all = this.getAllWeightRecords().filter((r) => r.id !== id);
     setItem(STORAGE_KEYS.WEIGHT_RECORDS, all);
+    this.saveToCloud();
+    firestoreDeleteDoc('weight_records', id);
   },
 
   // Workouts
@@ -220,11 +455,15 @@ export const StorageService = {
       all.push(record);
     }
     setItem(STORAGE_KEYS.WORKOUT_RECORDS, all);
+    this.saveToCloud();
+    firestoreSetDoc('workout_records', record.id, record);
     return record;
   },
   deleteWorkoutRecord(id: string): void {
     const all = this.getAllWorkoutRecords().filter((w) => w.id !== id);
     setItem(STORAGE_KEYS.WORKOUT_RECORDS, all);
+    this.saveToCloud();
+    firestoreDeleteDoc('workout_records', id);
   },
 
   // Carb cycle presets
@@ -236,6 +475,16 @@ export const StorageService = {
   },
   savePresets(presets: Record<CarbCycleType, NutritionGoalPreset>): void {
     setItem(STORAGE_KEYS.CARB_PRESETS, presets);
+    this.saveToCloud();
+  },
+  
+  // Timer presets
+  getTimerPresets(): number[] {
+    return getItem<number[]>(STORAGE_KEYS.WORKOUT_PRESETS, [30, 60, 90, 120]);
+  },
+  saveTimerPresets(presets: number[]): void {
+    setItem(STORAGE_KEYS.WORKOUT_PRESETS, presets);
+    this.saveToCloud();
   },
   getActiveCarbCycle(): CarbCycleType {
     return getItem<CarbCycleType>(STORAGE_KEYS.ACTIVE_CARB_CYCLE, 'MEDIUM');
@@ -250,6 +499,8 @@ export const StorageService = {
   },
   saveActiveMeals(meals: MealConfig[]): void {
     setItem(STORAGE_KEYS.ACTIVE_MEALS, meals);
+    this.saveToCloud();
+    firestoreSetDoc('settings', 'meals', { activeMeals: meals });
   },
 
   // Exercises & Muscle Groups
@@ -275,18 +526,32 @@ export const StorageService = {
   },
   saveUserProfile(profile: UserProfile): void {
     setItem(STORAGE_KEYS.USER_PROFILE, profile);
+    this.saveToCloud();
+    firestoreSetDoc('settings', 'profile', profile);
   },
 
   // Custom Gemini Key
   getGeminiApiKey(): string {
-    return getItem<string>(STORAGE_KEYS.GEMINI_KEY, '');
+    const raw = getItem<string>(STORAGE_KEYS.GEMINI_KEY, '');
+    return decryptApiKey(raw);
   },
   saveGeminiApiKey(key: string): void {
-    setItem(STORAGE_KEYS.GEMINI_KEY, key);
+    const encrypted = encryptApiKey(key);
+    setItem(STORAGE_KEYS.GEMINI_KEY, encrypted);
+    this.saveToCloud();
+  },
+
+  // Gemini Model Selection
+  getSelectedAiModel(): string {
+    return getItem<string>(STORAGE_KEYS.GEMINI_MODEL, 'gemini-3.8-flash');
+  },
+  saveSelectedAiModel(model: string): void {
+    setItem(STORAGE_KEYS.GEMINI_MODEL, model);
   },
 
   // Export / Backup all data
   exportData(): string {
+    const rawKey = getItem<string>(STORAGE_KEYS.GEMINI_KEY, '');
     const data = {
       version: '1.0',
       exportedAt: new Date().toISOString(),
@@ -302,6 +567,8 @@ export const StorageService = {
       userProfile: this.getUserProfile(),
       exercises: this.getExercises(),
       muscleGroups: this.getMuscleGroups(),
+      geminiApiKey: rawKey, // already encrypted in storage
+      geminiModel: this.getSelectedAiModel(),
     };
     return JSON.stringify(data, null, 2);
   },
@@ -320,6 +587,8 @@ export const StorageService = {
       if (data.activeCarbCycle) setItem(STORAGE_KEYS.ACTIVE_CARB_CYCLE, data.activeCarbCycle);
       if (data.activeMeals) setItem(STORAGE_KEYS.ACTIVE_MEALS, data.activeMeals);
       if (data.userProfile) setItem(STORAGE_KEYS.USER_PROFILE, data.userProfile);
+      if (data.geminiApiKey) setItem(STORAGE_KEYS.GEMINI_KEY, data.geminiApiKey);
+      if (data.geminiModel) setItem(STORAGE_KEYS.GEMINI_MODEL, data.geminiModel);
       return true;
     } catch (e) {
       console.error('Failed to parse import data:', e);

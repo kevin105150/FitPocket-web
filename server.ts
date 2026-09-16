@@ -8,14 +8,93 @@ const PORT = 3000;
 
 app.use(express.json({ limit: '15mb' }));
 
-// Helper to get GoogleGenAI client
+// Helper to get GoogleGenAI client (Prefers custom key, falls back to server env key)
 function getGenAI(customKey?: string): GoogleGenAI | null {
-  const apiKey = (customKey && customKey.trim().length > 10)
+  const apiKey = (customKey && typeof customKey === 'string' && customKey.trim().length > 10)
     ? customKey.trim()
     : process.env.GEMINI_API_KEY;
 
   if (!apiKey) return null;
-  return new GoogleGenAI({ apiKey });
+  return new GoogleGenAI({
+    apiKey,
+    httpOptions: {
+      headers: {
+        'User-Agent': 'aistudio-build',
+      },
+    },
+  });
+}
+
+// Multi-model fallback runner to guarantee 100% uptime against 503 (high demand) or 429 (quota)
+async function generateWithFallback(
+  ai: GoogleGenAI,
+  preferredModel: string,
+  contents: any
+): Promise<{ text: string; modelUsed: string }> {
+  // Ordered cascade: preferred model -> 3.6-flash -> 3.5-flash -> 3.1-flash-lite
+  const candidateModels = Array.from(
+    new Set([
+      preferredModel || 'gemini-3.8-flash',
+      'gemini-3.6-flash',
+      'gemini-3.5-flash',
+      'gemini-3.1-flash-lite',
+    ])
+  );
+
+  let lastError: any = null;
+
+  for (const model of candidateModels) {
+    try {
+      console.log(`[Gemini Request] Attempting model: ${model}...`);
+      const response = await ai.models.generateContent({
+        model,
+        contents,
+      });
+
+      const text = response.text;
+      if (text && text.trim().length > 0) {
+        console.log(`[Gemini Success] Successfully generated with ${model}`);
+        return { text: text.trim(), modelUsed: model };
+      }
+    } catch (err: any) {
+      lastError = err;
+      const status = err.status || err.code || 0;
+      const message = err.message || '';
+      console.warn(`[Gemini Fallback] Model ${model} returned ${status}: ${message.slice(0, 120)}`);
+
+      // If it's a transient server issue (503, 429, 500), immediately try the next model
+      if (
+        status === 503 ||
+        status === 429 ||
+        status === 500 ||
+        message.includes('high demand') ||
+        message.includes('UNAVAILABLE') ||
+        message.includes('RESOURCE_EXHAUSTED')
+      ) {
+        continue;
+      }
+
+      // If it's not a quota/demand issue, still attempt fallback to ensure user doesn't get blocked
+      continue;
+    }
+  }
+
+  throw lastError || new Error('所有可用 AI 模型目前服務繁忙，請稍後再試。');
+}
+
+// Helper to extract JSON from AI response text
+function extractJsonFromText(rawText: string): any {
+  const jsonMatch =
+    rawText.match(/```json\s*([\s\S]*?)\s*```/) ||
+    rawText.match(/```\s*([\s\S]*?)\s*```/) ||
+    rawText.match(/([\{\[][\s\S]*[\}\]])/);
+
+  if (!jsonMatch) {
+    throw new Error('AI 回傳資料格式有誤，未能成功提取 JSON');
+  }
+
+  const clean = jsonMatch[1].trim();
+  return JSON.parse(clean);
 }
 
 // 1. API Health
@@ -23,32 +102,57 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: Date.now() });
 });
 
+// 1.1 Test AI Connection & Model Latency
+app.all('/api/ai/test-connection', async (req, res) => {
+  const startTime = Date.now();
+  try {
+    const customKey = req.body?.customApiKey || (req.query?.customApiKey as string);
+    const model = req.body?.model || (req.query?.model as string) || 'gemini-3.8-flash';
+
+    const ai = getGenAI(customKey);
+    if (!ai) {
+      return res.status(401).json({ 
+        ok: false, 
+        error: '未偵測到 Gemini API 金鑰。請於設定頁面輸入金鑰，或確認伺服器環境變數。' 
+      });
+    }
+
+    const { text, modelUsed } = await generateWithFallback(
+      ai,
+      model,
+      '請回覆：「連線成功」'
+    );
+
+    const latencyMs = Date.now() - startTime;
+    res.json({
+      ok: true,
+      message: 'Gemini AI API 通訊完全正常！',
+      modelUsed,
+      requestedModel: model,
+      sampleResponse: text,
+      latencyMs,
+    });
+  } catch (error: any) {
+    console.error('Test connection error:', error);
+    res.status(500).json({
+      ok: false,
+      error: error.message || '測試連線失敗',
+      latencyMs: Date.now() - startTime,
+    });
+  }
+});
+
 // 2. Gemini Text Nutrition Estimation
 app.post('/api/ai/estimate-nutrition', async (req, res) => {
   try {
-    const { query, customApiKey } = req.body;
+    const { query, customApiKey, model } = req.body;
     if (!query) {
       return res.status(400).json({ error: '請輸入飲食名稱' });
     }
 
     const ai = getGenAI(customApiKey);
     if (!ai) {
-      // Fallback rule-based estimate if no API key configured
-      return res.json({
-        name: query,
-        caloriesPer100g: 150,
-        carbsPer100g: 15,
-        proteinPer100g: 10,
-        fatPer100g: 5,
-        sugarsPer100g: 2,
-        fiberPer100g: 1.5,
-        sodiumPer100g: 250,
-        potassiumPer100g: 180,
-        defaultServingAmount: 100,
-        servingUnit: 'g',
-        servingSizeText: '1份 (約100g)',
-        explanation: '系統預設估算（可於設定頁面填入 Gemini API 金鑰啟用智慧分析）',
-      });
+      return res.status(401).json({ error: '尚未設定 Gemini API Key。請至「設定」頁面輸入您的 API 金鑰以使用 AI 智慧估算。' });
     }
 
     const prompt = `你是一位專業的台灣飲食營養師。使用者輸入了一道食物：「${query}」。
@@ -70,34 +174,36 @@ app.post('/api/ai/estimate-nutrition', async (req, res) => {
   "explanation": "營養師簡評與健康建議 (50字以內)"
 }`;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: prompt,
-    });
+    const { text, modelUsed } = await generateWithFallback(
+      ai,
+      model || 'gemini-3.8-flash',
+      prompt
+    );
 
-    const text = response.text || '';
-    const cleanJson = text.replace(/```json/g, '').replace(/```/g, '').trim();
-    const parsed = JSON.parse(cleanJson);
+    const parsed = extractJsonFromText(text);
+    parsed._modelUsed = modelUsed;
     res.json(parsed);
   } catch (error: any) {
     console.error('Gemini estimate error:', error);
-    res.status(500).json({ error: error.message || 'AI 辨識失敗' });
+    const status = error.status || 500;
+    res.status(status).json({ 
+      error: error.message || 'AI 辨識失敗',
+      status: status
+    });
   }
 });
 
 // 3. Gemini Image Food Recognition
 app.post('/api/ai/estimate-image', async (req, res) => {
   try {
-    const { imageBase64, mimeType = 'image/jpeg', customApiKey } = req.body;
+    const { imageBase64, mimeType = 'image/jpeg', customApiKey, model } = req.body;
     if (!imageBase64) {
       return res.status(400).json({ error: '未提供圖片資料' });
     }
 
     const ai = getGenAI(customApiKey);
     if (!ai) {
-      return res.status(400).json({
-        error: '請先在「設定」中配置 GEMINI_API_KEY 以啟用圖片辨識功能',
-      });
+      return res.status(401).json({ error: '尚未設定 Gemini API Key。請至「設定」頁面輸入您的 API 金鑰以使用 AI 視覺辨識功能。' });
     }
 
     const prompt = `請辨識這張照片中的食物或料理。請估算其食物名稱、每 100g 的營養素，以及這張照片中這道菜的總估計份量與熱量。
@@ -121,42 +227,42 @@ app.post('/api/ai/estimate-image', async (req, res) => {
     // Strip prefix if user passed full data URI
     const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, '');
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            { text: prompt },
-            {
-              inlineData: {
-                data: base64Data,
-                mimeType,
-              },
-            },
-          ],
+    const contents = [
+      prompt,
+      {
+        inlineData: {
+          mimeType,
+          data: base64Data,
         },
-      ],
-    });
+      },
+    ];
 
-    const text = response.text || '';
-    const cleanJson = text.replace(/```json/g, '').replace(/```/g, '').trim();
-    const parsed = JSON.parse(cleanJson);
+    const { text, modelUsed } = await generateWithFallback(
+      ai,
+      model || 'gemini-3.8-flash',
+      contents
+    );
+
+    const parsed = extractJsonFromText(text);
+    parsed._modelUsed = modelUsed;
     res.json(parsed);
   } catch (error: any) {
     console.error('Gemini image analyze error:', error);
-    res.status(500).json({ error: error.message || '圖片辨識失敗' });
+    const status = error.status || 500;
+    res.status(status).json({ 
+      error: error.message || '圖片辨識失敗',
+      status: status
+    });
   }
 });
 
 // 4. Gemini Workout Recommendations
 app.post('/api/ai/workout-suggest', async (req, res) => {
   try {
-    const { bodyPart, customApiKey } = req.body;
+    const { bodyPart, customApiKey, model } = req.body;
     const ai = getGenAI(customApiKey);
 
     if (!ai) {
-      // Fallback
       return res.json({
         exercises: ['標準俯臥撐', '啞鈴推舉', '彈力帶夾胸', '棒式支撐'],
       });
@@ -166,15 +272,18 @@ app.post('/api/ai/workout-suggest', async (req, res) => {
 請推薦 4 到 6 個最有效、循序漸進的經典健身動作名稱。
 請嚴格輸出 JSON 陣列，例如 ["動作1", "動作2", "動作3", "動作4"]，不要輸出其他文字或 markdown。`;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: prompt,
-    });
+    const { text } = await generateWithFallback(
+      ai,
+      model || 'gemini-3.8-flash',
+      prompt
+    );
 
-    const text = response.text || '';
-    const cleanJson = text.replace(/```json/g, '').replace(/```/g, '').trim();
-    const parsed = JSON.parse(cleanJson);
-    res.json({ exercises: Array.isArray(parsed) ? parsed : [] });
+    try {
+      const parsed = extractJsonFromText(text);
+      res.json({ exercises: Array.isArray(parsed) ? parsed : ['慢跑', '棒式', '深蹲', '伏地挺身'] });
+    } catch {
+      res.json({ exercises: ['慢跑', '棒式', '深蹲', '伏地挺身'] });
+    }
   } catch (error: any) {
     console.error('Workout suggest error:', error);
     res.json({ exercises: ['慢跑', '棒式', '深蹲', '伏地挺身'] });

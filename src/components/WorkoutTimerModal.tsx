@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, Play, Pause, RotateCcw, Volume2, Bell, Clock } from 'lucide-react';
+import { StorageService } from '../services/storage';
 
 interface WorkoutTimerModalProps {
   isOpen: boolean;
@@ -11,6 +12,8 @@ export const WorkoutTimerModal: React.FC<WorkoutTimerModalProps> = ({ isOpen, on
   const [timerDuration, setTimerDuration] = useState<number>(60);
   const [timeLeft, setTimeLeft] = useState<number>(60);
   const [isRunning, setIsRunning] = useState<boolean>(false);
+  const [timerPresets, setTimerPresets] = useState<number[]>(StorageService.getTimerPresets());
+  const [newPreset, setNewPreset] = useState<string>('');
 
   // Stopwatch state
   const [stopwatchSeconds, setStopwatchSeconds] = useState<number>(0);
@@ -78,6 +81,22 @@ export const WorkoutTimerModal: React.FC<WorkoutTimerModalProps> = ({ isOpen, on
     setTimerDuration(sec);
     setTimeLeft(sec);
     setIsRunning(true);
+  };
+
+  const handleAddPreset = () => {
+    const val = parseInt(newPreset);
+    if (!isNaN(val) && val > 0 && !timerPresets.includes(val)) {
+      const updated = [...timerPresets, val].sort((a, b) => a - b);
+      setTimerPresets(updated);
+      StorageService.saveTimerPresets(updated);
+      setNewPreset('');
+    }
+  };
+
+  const handleDeletePreset = (sec: number) => {
+    const updated = timerPresets.filter(p => p !== sec);
+    setTimerPresets(updated);
+    StorageService.saveTimerPresets(updated);
   };
 
   const formatTime = (totalSecs: number) => {
@@ -166,21 +185,99 @@ export const WorkoutTimerModal: React.FC<WorkoutTimerModalProps> = ({ isOpen, on
               </div>
             </div>
 
-            {/* Presets */}
-            <div className="grid grid-cols-4 gap-2 w-full">
-              {[30, 60, 90, 120].map((sec) => (
+            {/* Presets + Custom Scroll */}
+            <div className="flex flex-col gap-3 w-full">
+              <div className="grid grid-cols-4 gap-2">
+                {timerPresets.map((sec) => (
+                  <div key={sec} className="relative group">
+                    <button
+                      onClick={() => {
+                        handleSetPreset(sec);
+                        setTimeLeft(sec);
+                      }}
+                      className={`w-full py-2 text-xs font-bold rounded-xl border transition cursor-pointer ${
+                        timerDuration === sec
+                          ? 'bg-emerald-50 border-emerald-500 text-emerald-800'
+                          : 'border-slate-200 text-slate-700 hover:bg-slate-50'
+                      }`}
+                    >
+                      {sec}s
+                    </button>
+                    <button
+                      onClick={() => handleDeletePreset(sec)}
+                      className="absolute -top-1 -right-1 bg-white rounded-full shadow-xs text-slate-400 hover:text-red-500"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <div className="flex items-center gap-2 border border-slate-200 rounded-xl p-2 bg-slate-50">
+                <span className="text-xs font-bold text-slate-500 whitespace-nowrap">新增預設：</span>
+                <input
+                  type="number"
+                  min="1"
+                  placeholder="秒"
+                  value={newPreset}
+                  onChange={(e) => setNewPreset(e.target.value)}
+                  className="w-full text-center font-bold text-sm text-slate-900 bg-transparent focus:outline-emerald-600 rounded-lg p-1"
+                />
                 <button
-                  key={sec}
-                  onClick={() => handleSetPreset(sec)}
-                  className={`py-2 text-xs font-bold rounded-xl border transition cursor-pointer ${
-                    timerDuration === sec
-                      ? 'bg-emerald-50 border-emerald-500 text-emerald-800'
-                      : 'border-slate-200 text-slate-700 hover:bg-slate-50'
-                  }`}
+                  onClick={handleAddPreset}
+                  className="px-3 py-1 bg-emerald-700 text-white text-xs font-bold rounded-lg cursor-pointer hover:bg-emerald-800 whitespace-nowrap shrink-0"
                 >
-                  {sec}秒
+                  新增
                 </button>
-              ))}
+              </div>
+              <div className="flex flex-col gap-1 border border-slate-200 rounded-xl p-3 bg-slate-50">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-500">自訂計時：</span>
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="number"
+                      min="0"
+                      max="60"
+                      value={Math.floor(timerDuration / 60)}
+                      onChange={(e) => {
+                        const mins = Math.max(0, Math.min(60, parseInt(e.target.value) || 0));
+                        const secs = timerDuration % 60;
+                        const total = mins * 60 + secs;
+                        setTimerDuration(total);
+                        setTimeLeft(total);
+                      }}
+                      className="w-10 text-center font-bold text-sm text-slate-900 bg-transparent focus:outline-emerald-600 rounded-lg"
+                    />
+                    <span className="text-xs font-bold text-slate-500">分</span>
+                    <input
+                      type="number"
+                      min="0"
+                      max="59"
+                      value={timerDuration % 60}
+                      onChange={(e) => {
+                        const mins = Math.floor(timerDuration / 60);
+                        const secs = Math.max(0, Math.min(59, parseInt(e.target.value) || 0));
+                        const total = mins * 60 + secs;
+                        setTimerDuration(total);
+                        setTimeLeft(total);
+                      }}
+                      className="w-10 text-center font-bold text-sm text-slate-900 bg-transparent focus:outline-emerald-600 rounded-lg"
+                    />
+                    <span className="text-xs font-bold text-slate-500">秒</span>
+                  </div>
+                </div>
+                <input
+                  type="range"
+                  min="1"
+                  max="3600"
+                  value={timerDuration}
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value);
+                    setTimerDuration(val);
+                    setTimeLeft(val);
+                  }}
+                  className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-emerald-700"
+                />
+              </div>
             </div>
 
             {/* Controls */}
@@ -237,17 +334,26 @@ export const WorkoutTimerModal: React.FC<WorkoutTimerModalProps> = ({ isOpen, on
                 <RotateCcw className="w-5 h-5" />
               </button>
 
-              <button
-                type="button"
-                onClick={() => setIsStopwatchRunning(!isStopwatchRunning)}
-                className="w-14 h-14 flex items-center justify-center rounded-2xl bg-emerald-800 text-white shadow-md hover:bg-emerald-900 active:scale-95 transition cursor-pointer"
-              >
-                {isStopwatchRunning ? (
-                  <Pause className="w-6 h-6" />
-                ) : (
+              {/* Play/Pause buttons */}
+              {!isStopwatchRunning ? (
+                <button
+                  type="button"
+                  onClick={() => setIsStopwatchRunning(true)}
+                  className="w-14 h-14 flex items-center justify-center rounded-2xl bg-emerald-800 text-white shadow-md hover:bg-emerald-900 active:scale-95 transition cursor-pointer"
+                  title="開始"
+                >
                   <Play className="w-6 h-6 ml-0.5" />
-                )}
-              </button>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setIsStopwatchRunning(false)}
+                  className="w-14 h-14 flex items-center justify-center rounded-2xl bg-amber-600 text-white shadow-md hover:bg-amber-700 active:scale-95 transition cursor-pointer"
+                  title="暫停"
+                >
+                  <Pause className="w-6 h-6" />
+                </button>
+              )}
             </div>
           </div>
         )}

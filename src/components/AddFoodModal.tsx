@@ -13,36 +13,47 @@ import {
   Loader2,
   AlertCircle,
   Upload,
+  ChevronDown,
 } from 'lucide-react';
 import { CustomFood, FoodSearchResult, MealType } from '../types';
 import { StorageService } from '../services/storage';
 
 interface AddFoodModalProps {
-  targetMeal: MealType;
+  initialMealType: MealType;
+  availableMeals: { type: MealType; name: string }[];
   currentDate: string;
-  mealName: string;
+  initialTab?: FoodTab;
   onClose: () => void;
-  onSelectFood: (food: FoodSearchResult) => void;
+  onSelectFood: (food: FoodSearchResult, mealType?: MealType) => void;
   onOpenCustomFoodModal: () => void;
 }
 
-type FoodTab = 'ALL' | '711' | 'FAMILYMART' | 'OFFICIAL' | 'CUSTOM' | 'AI_SCAN' | 'BARCODE';
+export type FoodTab = 'ALL' | '711' | 'FAMILYMART' | 'OFFICIAL' | 'CUSTOM' | 'AI_SCAN' | 'BARCODE';
 
 export const AddFoodModal: React.FC<AddFoodModalProps> = ({
-  mealName,
+  initialMealType,
+  availableMeals,
+  initialTab = 'ALL',
   onClose,
   onSelectFood,
   onOpenCustomFoodModal,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeTab, setActiveTab] = useState<FoodTab>('ALL');
+  const [activeTab, setActiveTab] = useState<FoodTab>(initialTab);
+  const [selectedMealType, setSelectedMealType] = useState<MealType>(initialMealType);
+  const [showMealSelector, setShowMealSelector] = useState(false);
+
+  const selectedMealName = availableMeals.find(m => m.type === selectedMealType)?.name || '餐點';
 
   // AI Scanner state
   const [aiPrompt, setAiPrompt] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState('');
   const [selectedImageBase64, setSelectedImageBase64] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [lastImageMimeType, setLastImageMimeType] = useState<string>('image/jpeg');
+  const [retryAction, setRetryAction] = useState<(() => void) | null>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
 
   // Barcode state
   const [barcodeInput, setBarcodeInput] = useState('');
@@ -99,7 +110,29 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
       );
       if (res.ok) {
         const data = await res.json();
-        setOnlineResults(data.products || []);
+        const mapped = (data.products || []).map((p: any) => {
+          const defaultAmount = p.defaultServingAmount || 100;
+          const ratio = defaultAmount / 100;
+          return {
+            id: p.id,
+            name: p.name,
+            brand: p.brand || '一般食材',
+            calories: Math.round(p.caloriesPer100g * ratio * 10) / 10,
+            carbs: Math.round(p.carbsPer100g * ratio * 10) / 10,
+            sugars: Math.round((p.sugarsPer100g || 0) * ratio * 10) / 10,
+            fiber: Math.round((p.fiberPer100g || 0) * ratio * 10) / 10,
+            protein: Math.round(p.proteinPer100g * ratio * 10) / 10,
+            fat: Math.round(p.fatPer100g * ratio * 10) / 10,
+            sodium: Math.round((p.sodiumPer100g || 0) * ratio * 10) / 10,
+            potassium: Math.round((p.potassiumPer100g || 0) * ratio * 10) / 10,
+            servingAmount: defaultAmount,
+            servingUnit: p.servingUnit || 'g',
+            servingSizeText: p.servingSizeText,
+            imageUrl: p.imageUrl,
+            barcode: p.barcode,
+          };
+        });
+        setOnlineResults(mapped);
       }
     } catch (e) {
       console.error('Online search failed:', e);
@@ -127,7 +160,28 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
       if (res.ok) {
         const data = await res.json();
         if (data.product) {
-          onSelectFood(data.product);
+          const p = data.product;
+          const defaultAmount = p.defaultServingAmount || 100;
+          const ratio = defaultAmount / 100;
+          const mapped: FoodSearchResult = {
+            id: p.id,
+            name: p.name,
+            brand: p.brand || '一般食材',
+            calories: Math.round(p.caloriesPer100g * ratio * 10) / 10,
+            carbs: Math.round(p.carbsPer100g * ratio * 10) / 10,
+            sugars: Math.round((p.sugarsPer100g || 0) * ratio * 10) / 10,
+            fiber: Math.round((p.fiberPer100g || 0) * ratio * 10) / 10,
+            protein: Math.round(p.proteinPer100g * ratio * 10) / 10,
+            fat: Math.round(p.fatPer100g * ratio * 10) / 10,
+            sodium: Math.round((p.sodiumPer100g || 0) * ratio * 10) / 10,
+            potassium: Math.round((p.potassiumPer100g || 0) * ratio * 10) / 10,
+            servingAmount: defaultAmount,
+            servingUnit: p.servingUnit || 'g',
+            servingSizeText: p.servingSizeText,
+            imageUrl: p.imageUrl,
+            barcode: p.barcode,
+          };
+          onSelectFood(mapped);
           return;
         }
       }
@@ -139,59 +193,161 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
     }
   };
 
+  // Separate AI call logic for reusability (Retries)
+  const performImageAnalysis = async (base64: string, mime: string) => {
+    setAiLoading(true);
+    setAiError('');
+    try {
+      const userKey = StorageService.getGeminiApiKey();
+      const model = StorageService.getSelectedAiModel();
+      const res = await fetch('/api/ai/estimate-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          imageBase64: base64,
+          mimeType: mime,
+          customApiKey: userKey,
+          model,
+        }),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        const isBusy = res.status === 503 || res.status === 429;
+        const msg = isBusy 
+          ? 'AI 伺服器目前較為繁忙，請稍候重試或再點擊一次「再試一次」按鈕。' 
+          : (errData.error || '照片辨識失敗');
+        throw new Error(msg);
+      }
+
+      const result = await res.json();
+      const defaultAmount = Number(result.defaultServingAmount) || 200;
+      const ratio = defaultAmount / 100;
+      const calories = Math.round((Number(result.caloriesPer100g) || 150) * ratio * 10) / 10;
+      const carbs = Math.round((Number(result.carbsPer100g) || 15) * ratio * 10) / 10;
+      const protein = Math.round((Number(result.proteinPer100g) || 10) * ratio * 10) / 10;
+      const fat = Math.round((Number(result.fatPer100g) || 5) * ratio * 10) / 10;
+      const sugars = Math.round((Number(result.sugarsPer100g) || 0) * ratio * 10) / 10;
+      const fiber = Math.round((Number(result.fiberPer100g) || 0) * ratio * 10) / 10;
+      const sodium = Math.round((Number(result.sodiumPer100g) || 0) * ratio * 10) / 10;
+      const potassium = Math.round((Number(result.potassiumPer100g) || 0) * ratio * 10) / 10;
+
+      const foodItem: FoodSearchResult = {
+        id: 'ai_photo_' + Date.now(),
+        name: result.name || '相片辨識料理',
+        brand: 'AI 視覺辨識',
+        calories,
+        carbs,
+        protein,
+        fat,
+        sugars,
+        fiber,
+        sodium,
+        potassium,
+        servingAmount: defaultAmount,
+        servingUnit: result.servingUnit || 'g',
+        servingSizeText: result.servingSizeText || `1份 (${defaultAmount}${result.servingUnit || 'g'})`,
+        isUserCustom: true,
+      };
+
+      StorageService.saveCustomFood({
+        id: foodItem.id,
+        name: foodItem.name,
+        brand: foodItem.brand,
+        servingAmount: foodItem.servingAmount,
+        servingUnit: foodItem.servingUnit,
+        calories: foodItem.calories,
+        carbs: foodItem.carbs,
+        protein: foodItem.protein,
+        fat: foodItem.fat,
+        sugars: foodItem.sugars,
+        fiber: foodItem.fiber,
+        sodium: foodItem.sodium,
+        potassium: foodItem.potassium,
+        updatedAt: Date.now(),
+      });
+
+      onSelectFood(foodItem);
+    } catch (e: any) {
+      setAiError(e.message || 'AI 辨識發生錯誤');
+      setRetryAction(() => () => performImageAnalysis(base64, mime));
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
   // Handle AI text analyze
   const handleAiTextAnalyze = async () => {
     if (!aiPrompt.trim()) return;
     setAiLoading(true);
     setAiError('');
+    setRetryAction(() => handleAiTextAnalyze);
     try {
       const userKey = StorageService.getGeminiApiKey();
+      const model = StorageService.getSelectedAiModel();
       const res = await fetch('/api/ai/estimate-nutrition', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: aiPrompt.trim(), customApiKey: userKey }),
+        body: JSON.stringify({ 
+          query: aiPrompt.trim(), 
+          customApiKey: userKey,
+          model 
+        }),
       });
 
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.error || '估算失敗');
+        const isBusy = res.status === 503 || res.status === 429;
+        const msg = isBusy 
+          ? 'AI 伺服器目前較為繁忙，請稍候重試或點擊「再試一次」。' 
+          : (errData.error || '估算失敗');
+        throw new Error(msg);
       }
 
       const result = await res.json();
+      const defaultAmount = Number(result.defaultServingAmount) || 100;
+      const ratio = defaultAmount / 100;
+      const calories = Math.round((Number(result.caloriesPer100g) || 150) * ratio * 10) / 10;
+      const carbs = Math.round((Number(result.carbsPer100g) || 15) * ratio * 10) / 10;
+      const protein = Math.round((Number(result.proteinPer100g) || 10) * ratio * 10) / 10;
+      const fat = Math.round((Number(result.fatPer100g) || 5) * ratio * 10) / 10;
+      const sugars = Math.round((Number(result.sugarsPer100g) || 0) * ratio * 10) / 10;
+      const fiber = Math.round((Number(result.fiberPer100g) || 0) * ratio * 10) / 10;
+      const sodium = Math.round((Number(result.sodiumPer100g) || 0) * ratio * 10) / 10;
+      const potassium = Math.round((Number(result.potassiumPer100g) || 0) * ratio * 10) / 10;
+
       const foodItem: FoodSearchResult = {
         id: 'ai_' + Date.now(),
         name: result.name || aiPrompt.trim(),
         brand: 'AI 智慧估算',
-        caloriesPer100g: Number(result.caloriesPer100g) || 150,
-        carbsPer100g: Number(result.carbsPer100g) || 15,
-        proteinPer100g: Number(result.proteinPer100g) || 10,
-        fatPer100g: Number(result.fatPer100g) || 5,
-        sugarsPer100g: Number(result.sugarsPer100g) || 0,
-        fiberPer100g: Number(result.fiberPer100g) || 0,
-        sodiumPer100g: Number(result.sodiumPer100g) || 0,
-        potassiumPer100g: Number(result.potassiumPer100g) || 0,
-        defaultServingAmount: Number(result.defaultServingAmount) || 100,
+        calories,
+        carbs,
+        protein,
+        fat,
+        sugars,
+        fiber,
+        sodium,
+        potassium,
+        servingAmount: defaultAmount,
         servingUnit: result.servingUnit || 'g',
-        servingSizeText: result.servingSizeText || `1份 (${result.defaultServingAmount || 100}g)`,
+        servingSizeText: result.servingSizeText || `1份 (${defaultAmount}${result.servingUnit || 'g'})`,
         isUserCustom: true,
       };
 
-      // Save to custom foods automatically so user has it for future
       StorageService.saveCustomFood({
         id: foodItem.id,
         name: foodItem.name,
         brand: foodItem.brand,
-        caloriesPer100g: foodItem.caloriesPer100g,
-        carbsPer100g: foodItem.carbsPer100g,
-        proteinPer100g: foodItem.proteinPer100g,
-        fatPer100g: foodItem.fatPer100g,
-        sugarsPer100g: foodItem.sugarsPer100g,
-        fiberPer100g: foodItem.fiberPer100g,
-        sodiumPer100g: foodItem.sodiumPer100g,
-        potassiumPer100g: foodItem.potassiumPer100g,
-        defaultServingAmount: foodItem.defaultServingAmount,
+        servingAmount: foodItem.servingAmount,
         servingUnit: foodItem.servingUnit,
-        servingSizeText: foodItem.servingSizeText,
+        calories: foodItem.calories,
+        carbs: foodItem.carbs,
+        protein: foodItem.protein,
+        fat: foodItem.fat,
+        sugars: foodItem.sugars,
+        fiber: foodItem.fiber,
+        sodium: foodItem.sodium,
+        potassium: foodItem.potassium,
         updatedAt: Date.now(),
       });
 
@@ -208,60 +364,14 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
     const file = e.target.files?.[0];
     if (!file) return;
 
+    const mime = file.type || 'image/jpeg';
+    setLastImageMimeType(mime);
+
     const reader = new FileReader();
     reader.onload = async () => {
       const base64 = reader.result as string;
       setSelectedImageBase64(base64);
-      setAiLoading(true);
-      setAiError('');
-
-      try {
-        const userKey = StorageService.getGeminiApiKey();
-        const res = await fetch('/api/ai/estimate-image', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            imageBase64: base64,
-            mimeType: file.type || 'image/jpeg',
-            customApiKey: userKey,
-          }),
-        });
-
-        if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          throw new Error(errData.error || '照片辨識失敗');
-        }
-
-        const result = await res.json();
-        const foodItem: FoodSearchResult = {
-          id: 'ai_photo_' + Date.now(),
-          name: result.name || '相片辨識料理',
-          brand: 'AI 視覺辨識',
-          caloriesPer100g: Number(result.caloriesPer100g) || 150,
-          carbsPer100g: Number(result.carbsPer100g) || 15,
-          proteinPer100g: Number(result.proteinPer100g) || 10,
-          fatPer100g: Number(result.fatPer100g) || 5,
-          sugarsPer100g: Number(result.sugarsPer100g) || 0,
-          fiberPer100g: Number(result.fiberPer100g) || 0,
-          sodiumPer100g: Number(result.sodiumPer100g) || 0,
-          potassiumPer100g: Number(result.potassiumPer100g) || 0,
-          defaultServingAmount: Number(result.defaultServingAmount) || 200,
-          servingUnit: result.servingUnit || 'g',
-          servingSizeText: result.servingSizeText || '1份',
-          isUserCustom: true,
-        };
-
-        StorageService.saveCustomFood({
-          ...foodItem,
-          updatedAt: Date.now(),
-        });
-
-        onSelectFood(foodItem);
-      } catch (e: any) {
-        setAiError(e.message || '無法辨識此照片，請嘗試手動輸入菜名');
-      } finally {
-        setAiLoading(false);
-      }
+      await performImageAnalysis(base64, mime);
     };
     reader.readAsDataURL(file);
   };
@@ -271,14 +381,38 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
       <div className="bg-white w-full max-w-2xl h-[92vh] sm:h-[85vh] rounded-3xl shadow-2xl overflow-hidden flex flex-col">
         {/* Header */}
         <div className="p-4 border-b border-slate-100 flex items-center justify-between">
-          <div>
+          <div className="relative">
             <div className="flex items-center gap-2">
               <h2 className="text-lg font-bold text-slate-900">記錄飲食</h2>
-              <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-xs font-bold">
-                {mealName}
-              </span>
+              <button
+                onClick={() => setShowMealSelector(!showMealSelector)}
+                className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-xs font-bold flex items-center gap-1 hover:bg-emerald-200 transition cursor-pointer"
+              >
+                {selectedMealName}
+                <ChevronDown className="w-3 h-3" />
+              </button>
             </div>
-            <p className="text-xs text-slate-500">搜尋超商鮮食、衛福部官方庫、條碼或 AI 智慧辨識</p>
+            
+            {showMealSelector && (
+              <div className="absolute top-full left-0 mt-2 bg-white border border-slate-200 rounded-2xl shadow-xl z-50 p-2 min-w-[120px] animate-in fade-in slide-in-from-top-1">
+                {availableMeals.map((m) => (
+                  <button
+                    key={m.type}
+                    onClick={() => {
+                      setSelectedMealType(m.type);
+                      setShowMealSelector(false);
+                    }}
+                    className={`w-full text-left px-3 py-2 rounded-xl text-xs font-bold transition ${
+                      selectedMealType === m.type
+                        ? 'bg-emerald-800 text-white'
+                        : 'text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    {m.name}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
           <button
             onClick={onClose}
@@ -288,102 +422,80 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
           </button>
         </div>
 
-        {/* Search Bar */}
-        <div className="px-4 pt-3 pb-2">
-          <div className="relative flex items-center">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 pointer-events-none" />
-            <input
-              type="text"
-              placeholder="搜尋超商、官方資料庫或我的飲食..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-10 py-2.5 bg-slate-100/80 rounded-2xl text-sm font-medium text-slate-800 placeholder-slate-400 focus:outline-emerald-600 focus:bg-white border border-transparent focus:border-emerald-200 transition"
-              autoFocus
-            />
-            {searchQuery && (
-              <button
-                onClick={() => setSearchQuery('')}
-                className="absolute right-3 p-1 text-slate-400 hover:text-slate-600 cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Categories Bar */}
-        <div className="px-4 py-2 border-b border-slate-100 overflow-x-auto flex gap-1.5 scrollbar-none">
+        {/* Search Mode Toggle */}
+        <div className="p-4 border-b border-slate-100 flex gap-2">
           <button
             onClick={() => setActiveTab('ALL')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition cursor-pointer flex items-center gap-1.5 ${
-              activeTab === 'ALL'
+            className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition cursor-pointer ${
+              activeTab === 'ALL' || activeTab === '711' || activeTab === 'FAMILYMART' || activeTab === 'OFFICIAL' || activeTab === 'CUSTOM'
                 ? 'bg-emerald-700 text-white'
                 : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
             }`}
           >
-            全部 ({allLocalFoods.length})
-          </button>
-          <button
-            onClick={() => setActiveTab('711')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition cursor-pointer flex items-center gap-1.5 ${
-              activeTab === '711'
-                ? 'bg-emerald-700 text-white'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-            }`}
-          >
-            <Store className="w-3.5 h-3.5" /> 7-ELEVEN
-          </button>
-          <button
-            onClick={() => setActiveTab('FAMILYMART')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition cursor-pointer flex items-center gap-1.5 ${
-              activeTab === 'FAMILYMART'
-                ? 'bg-emerald-700 text-white'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-            }`}
-          >
-            <Store className="w-3.5 h-3.5" /> 全家
-          </button>
-          <button
-            onClick={() => setActiveTab('OFFICIAL')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition cursor-pointer flex items-center gap-1.5 ${
-              activeTab === 'OFFICIAL'
-                ? 'bg-emerald-700 text-white'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-            }`}
-          >
-            <ChefHat className="w-3.5 h-3.5" /> 衛福部食材庫
-          </button>
-          <button
-            onClick={() => setActiveTab('CUSTOM')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition cursor-pointer flex items-center gap-1.5 ${
-              activeTab === 'CUSTOM'
-                ? 'bg-emerald-700 text-white'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-            }`}
-          >
-            <BookmarkCheck className="w-3.5 h-3.5" /> 我的自訂
+            一般搜尋
           </button>
           <button
             onClick={() => setActiveTab('AI_SCAN')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition cursor-pointer flex items-center gap-1.5 ${
-              activeTab === 'AI_SCAN'
+            className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition cursor-pointer ${
+              activeTab === 'AI_SCAN' || activeTab === 'BARCODE'
                 ? 'bg-purple-700 text-white'
-                : 'bg-purple-50 text-purple-700 hover:bg-purple-100'
+                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
             }`}
           >
-            <Sparkles className="w-3.5 h-3.5" /> AI 照片/分析
-          </button>
-          <button
-            onClick={() => setActiveTab('BARCODE')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition cursor-pointer flex items-center gap-1.5 ${
-              activeTab === 'BARCODE'
-                ? 'bg-blue-700 text-white'
-                : 'bg-blue-50 text-blue-700 hover:bg-blue-100'
-            }`}
-          >
-            <Barcode className="w-3.5 h-3.5" /> 條碼查詢
+            AI 智慧辨識/工具
           </button>
         </div>
+
+        {/* Conditional Search/Tool Bar */}
+        {(activeTab === 'ALL' || activeTab === '711' || activeTab === 'FAMILYMART' || activeTab === 'OFFICIAL' || activeTab === 'CUSTOM') && (
+          <div className="px-4 pt-3 pb-2">
+            <div className="relative flex items-center">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 pointer-events-none" />
+              <input
+                type="text"
+                placeholder="搜尋超商、官方資料庫或我的飲食..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-10 pr-10 py-2.5 bg-slate-100/80 rounded-2xl text-sm font-medium text-slate-800 placeholder-slate-400 focus:outline-emerald-600 focus:bg-white border border-transparent focus:border-emerald-200 transition"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-3 p-1 text-slate-400 hover:text-slate-600 cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+            
+            {/* Categories Bar (Only in general search) */}
+            <div className="flex gap-1.5 overflow-x-auto scrollbar-none pt-2">
+              <button onClick={() => setActiveTab('ALL')} className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition cursor-pointer ${activeTab === 'ALL' ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600'}`}>全部</button>
+              <button onClick={() => setActiveTab('711')} className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition cursor-pointer ${activeTab === '711' ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600'}`}>7-11</button>
+              <button onClick={() => setActiveTab('FAMILYMART')} className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition cursor-pointer ${activeTab === 'FAMILYMART' ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600'}`}>全家</button>
+              <button onClick={() => setActiveTab('OFFICIAL')} className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition cursor-pointer ${activeTab === 'OFFICIAL' ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600'}`}>衛福部</button>
+              <button onClick={() => setActiveTab('CUSTOM')} className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition cursor-pointer ${activeTab === 'CUSTOM' ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600'}`}>自訂</button>
+            </div>
+          </div>
+        )}
+
+        {/* Smart Tool Switcher (Only in AI mode) */}
+        {(activeTab === 'AI_SCAN' || activeTab === 'BARCODE') && (
+          <div className="p-4 border-b border-slate-100 flex gap-2">
+            <button
+              onClick={() => setActiveTab('AI_SCAN')}
+              className={`flex-1 py-2 rounded-lg text-xs font-bold transition cursor-pointer ${activeTab === 'AI_SCAN' ? 'bg-purple-100 text-purple-800' : 'text-slate-500'}`}
+            >
+              AI 影像/文字分析
+            </button>
+            <button
+              onClick={() => setActiveTab('BARCODE')}
+              className={`flex-1 py-2 rounded-lg text-xs font-bold transition cursor-pointer ${activeTab === 'BARCODE' ? 'bg-blue-100 text-blue-800' : 'text-slate-500'}`}
+            >
+              條碼搜尋
+            </button>
+          </div>
+        )}
 
         {/* Content Body */}
         <div className="flex-1 overflow-y-auto p-4">
@@ -402,26 +514,61 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
               </div>
 
               {/* Photo upload section */}
-              <div className="bg-white border-2 border-dashed border-purple-200 rounded-2xl p-6 text-center hover:border-purple-400 transition">
+              <div className="bg-white border-2 border-dashed border-purple-200 rounded-2xl p-5 text-center hover:border-purple-400 transition">
                 <input
                   type="file"
-                  ref={fileInputRef}
+                  ref={cameraInputRef}
+                  accept="image/*"
+                  capture="environment"
+                  onChange={handleImageUpload}
+                  className="hidden"
+                />
+                <input
+                  type="file"
+                  ref={galleryInputRef}
                   accept="image/*"
                   onChange={handleImageUpload}
                   className="hidden"
                 />
-                <Camera className="w-10 h-10 mx-auto text-purple-500 mb-2" />
-                <h4 className="font-bold text-sm text-slate-800">拍照或上傳餐點照片</h4>
-                <p className="text-xs text-slate-500 mt-1 mb-3">支援 JPG, PNG, WEBP 照片即時識別</p>
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={aiLoading}
-                  className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-xl shadow-xs transition inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                >
-                  <Upload className="w-3.5 h-3.5" />
-                  選擇照片辨識
-                </button>
+                
+                {selectedImageBase64 ? (
+                  <div className="mb-3 relative inline-block">
+                    <img
+                      src={selectedImageBase64}
+                      alt="辨識照片預覽"
+                      className="w-32 h-32 object-cover rounded-2xl border border-purple-200 shadow-sm mx-auto"
+                    />
+                  </div>
+                ) : (
+                  <Camera className="w-10 h-10 mx-auto text-purple-500 mb-2" />
+                )}
+
+                <h4 className="font-bold text-sm text-slate-800">
+                  {selectedImageBase64 ? '已選擇照片，準備進行 AI 辨識' : '拍照或上傳餐點照片'}
+                </h4>
+                <p className="text-xs text-slate-500 mt-1 mb-4">支援相機即時拍攝、相簿照片 (JPG, PNG)</p>
+                
+                <div className="flex flex-wrap items-center justify-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => cameraInputRef.current?.click()}
+                    disabled={aiLoading}
+                    className="px-4 py-2.5 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-xl shadow-xs transition inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  >
+                    <Camera className="w-4 h-4" />
+                    手機相機拍照
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => galleryInputRef.current?.click()}
+                    disabled={aiLoading}
+                    className="px-4 py-2.5 bg-purple-50 hover:bg-purple-100 border border-purple-200 text-purple-900 text-xs font-bold rounded-xl transition inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  >
+                    <Upload className="w-4 h-4 text-purple-600" />
+                    從相簿選擇
+                  </button>
+                </div>
               </div>
 
               {/* Or text describe */}
@@ -459,9 +606,19 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
               )}
 
               {aiError && (
-                <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 flex items-start gap-2">
-                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                  <span>{aiError}</span>
+                <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 space-y-2">
+                  <div className="flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                    <span>{aiError}</span>
+                  </div>
+                  {retryAction && (
+                    <button
+                      onClick={() => retryAction()}
+                      className="ml-6 px-3 py-1.5 bg-rose-600 text-white font-bold rounded-lg hover:bg-rose-700 transition cursor-pointer"
+                    >
+                      再試一次
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -523,39 +680,37 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
             <div className="space-y-2">
               {filteredFoods.length > 0 ? (
                 filteredFoods.map((food) => (
-                  <div
-                    key={food.id}
-                    onClick={() => onSelectFood(food)}
-                    className="p-3 bg-white border border-slate-100 hover:border-emerald-300 rounded-2xl hover:shadow-sm transition cursor-pointer flex items-center justify-between gap-3 group"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-1.5 mb-0.5">
-                        <span className="text-[11px] font-semibold px-2 py-0.5 bg-slate-100 text-slate-700 rounded-md">
-                          {food.brand || '食材'}
-                        </span>
-                        {food.isUserCustom && (
-                          <span className="text-[10px] font-bold px-1.5 py-0.5 bg-amber-100 text-amber-800 rounded-md">
-                            我的自訂
+                    <div key={food.id} onClick={() => onSelectFood(food, selectedMealType)} className="p-3 bg-white border border-slate-100 hover:border-emerald-300 rounded-2xl hover:shadow-sm transition cursor-pointer flex items-center justify-between gap-3 group">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5 mb-0.5">
+                          <span className="text-[11px] font-semibold px-2 py-0.5 bg-slate-100 text-slate-700 rounded-md">
+                            {food.brand || '食材'}
                           </span>
-                        )}
-                        {food.barcode && (
-                          <span className="text-[10px] text-slate-400 font-mono">
-                            #{food.barcode.slice(-4)}
+                          {food.isUserCustom && (
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 bg-amber-100 text-amber-800 rounded-md">
+                              我的自訂
+                            </span>
+                          )}
+                          {food.barcode && (
+                            <span className="text-[10px] text-slate-400 font-mono">
+                              #{food.barcode.slice(-4)}
+                            </span>
+                          )}
+                        </div>
+                        <h4 className="font-bold text-sm text-slate-900 truncate group-hover:text-emerald-800">
+                          {food.name}
+                        </h4>
+                        <div className="flex items-center gap-2 text-xs text-slate-500 mt-1">
+                          <span className="font-semibold text-emerald-800">
+                            每份 ({food.servingAmount}{food.servingUnit}), {food.calories} kcal
                           </span>
-                        )}
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-1.5 py-0.25 rounded-full">C: {food.carbs}g</span>
+                            <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-1.5 py-0.25 rounded-full">P: {food.protein}g</span>
+                            <span className="text-[10px] font-bold text-rose-700 bg-rose-50 px-1.5 py-0.25 rounded-full">F: {food.fat}g</span>
+                          </div>
+                        </div>
                       </div>
-                      <h4 className="font-bold text-sm text-slate-900 truncate group-hover:text-emerald-800">
-                        {food.name}
-                      </h4>
-                      <div className="flex items-center gap-3 text-xs text-slate-500 mt-1">
-                        <span className="font-semibold text-emerald-800">
-                          {food.caloriesPer100g} kcal / 100g
-                        </span>
-                        <span className="text-amber-700">碳 {food.carbsPer100g}g</span>
-                        <span className="text-blue-700">蛋 {food.proteinPer100g}g</span>
-                        <span className="text-rose-700">脂 {food.fatPer100g}g</span>
-                      </div>
-                    </div>
 
                     <div className="p-2 text-slate-400 group-hover:text-emerald-700 group-hover:bg-emerald-50 rounded-xl transition">
                       <Plus className="w-5 h-5" />
@@ -604,7 +759,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                         <div className="text-[11px] font-semibold text-blue-800">{food.brand || '全球資料庫'}</div>
                         <div className="font-bold text-sm text-slate-800">{food.name}</div>
                         <div className="text-xs text-slate-500 mt-0.5">
-                          {food.caloriesPer100g} kcal / 100g · 碳{food.carbsPer100g}g 蛋{food.proteinPer100g}g 脂{food.fatPer100g}g
+                          每份 ({food.servingAmount}{food.servingUnit}), {food.calories} kcal · 碳{food.carbs}g 蛋{food.protein}g 脂{food.fat}g
                         </div>
                       </div>
                       <Plus className="w-5 h-5 text-blue-600" />

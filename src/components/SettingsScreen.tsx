@@ -9,33 +9,58 @@ import {
   Download,
   Upload,
   Key,
-  Smartphone,
   Check,
+  AlertCircle,
   Plus,
   Trash2,
   Edit2,
   Sparkles,
   ChevronRight,
   FileText,
+  User,
+  Cloud,
+  RefreshCw,
+  Search,
+  X,
 } from 'lucide-react';
 import {
-  CarbCycleType,
   CustomFood,
-  MealConfig,
-  NutritionGoalPreset,
   UserProfile,
 } from '../types';
 import { StorageService } from '../services/storage';
 import { GoalSettingModal } from './GoalSettingModal';
 import { CustomFoodModal } from './CustomFoodModal';
-import { ApkDownloadModal } from './ApkDownloadModal';
+import { auth, loginWithGoogle, logout } from '../lib/firebase';
+import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 
 export const SettingsScreen: React.FC = () => {
+  const [user, setUser] = useState<FirebaseUser | null>(auth.currentUser);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (u) => setUser(u));
+    return () => unsubscribe();
+  }, []);
+
+  const handleLogin = async () => {
+    try {
+      await loginWithGoogle(true);
+      flashMessage('已成功登入並開始同步雲端資料！');
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+      flashMessage('已登出雲端帳號。');
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   const [userProfile, setUserProfile] = useState<UserProfile>(
     StorageService.getUserProfile()
-  );
-  const [activeMeals, setActiveMeals] = useState<MealConfig[]>(
-    StorageService.getActiveMeals()
   );
   const [customFoods, setCustomFoods] = useState<CustomFood[]>(
     StorageService.getCustomFoods()
@@ -43,25 +68,22 @@ export const SettingsScreen: React.FC = () => {
   const [geminiKey, setGeminiKey] = useState<string>(
     StorageService.getGeminiApiKey()
   );
-  const [presets, setPresets] = useState<Record<CarbCycleType, NutritionGoalPreset>>(
-    StorageService.getPresets()
+  const [aiModel, setAiModel] = useState<string>(
+    StorageService.getSelectedAiModel()
   );
 
   // Modals
-  const [showGoalModal, setShowGoalModal] = useState(false);
   const [showCustomFoodModal, setShowCustomFoodModal] = useState(false);
+  const [showCustomFoodsListModal, setShowCustomFoodsListModal] = useState(false);
+  const [customFoodsSearchQuery, setCustomFoodsSearchQuery] = useState('');
   const [editingCustomFood, setEditingCustomFood] = useState<CustomFood | undefined>(
     undefined
   );
-  const [showApkModal, setShowApkModal] = useState(false);
-
-  // New meal input
-  const [newMealName, setNewMealName] = useState('');
-  const [editingMealIndex, setEditingMealIndex] = useState<number | null>(null);
-  const [editMealText, setEditMealText] = useState('');
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   // Save feedback state
   const [savedMessage, setSavedMessage] = useState('');
+  const [apiKeyStatus, setApiKeyStatus] = useState<'none' | 'saved' | 'deleted'>('none');
 
   const flashMessage = (msg: string) => {
     setSavedMessage(msg);
@@ -113,50 +135,7 @@ export const SettingsScreen: React.FC = () => {
   // Apply BMR results to Carb Cycle Goals
   const handleApplyCalculatedToGoals = () => {
     const { targetCal, targetProtein, targetFat, targetCarbs } = calculated;
-
-    const newPresets: Record<CarbCycleType, NutritionGoalPreset> = {
-      ...presets,
-      MEDIUM: {
-        type: 'MEDIUM',
-        calories: targetCal,
-        carbs: targetCarbs,
-        protein: targetProtein,
-        fat: targetFat,
-        sodium: 2400,
-        potassium: 2500,
-      },
-      HIGH: {
-        type: 'HIGH',
-        calories: targetCal + 300,
-        carbs: targetCarbs + 60,
-        protein: targetProtein,
-        fat: Math.max(35, targetFat - 5),
-        sodium: 2400,
-        potassium: 2500,
-      },
-      LOW: {
-        type: 'LOW',
-        calories: targetCal - 300,
-        carbs: Math.max(50, targetCarbs - 60),
-        protein: targetProtein + 10,
-        fat: targetFat + 5,
-        sodium: 2400,
-        potassium: 2500,
-      },
-      CUSTOM: {
-        type: 'CUSTOM',
-        calories: targetCal,
-        carbs: targetCarbs,
-        protein: targetProtein,
-        fat: targetFat,
-        sodium: 2400,
-        potassium: 2500,
-      },
-    };
-
-    setPresets(newPresets);
-    StorageService.savePresets(newPresets);
-    flashMessage('已成功將計算之營養數據套用至高、中、低碳循環目標！');
+    flashMessage('已成功將計算之營養數據套用！(請注意：碳循環目標設定已移除)');
   };
 
   // Save profile
@@ -166,42 +145,60 @@ export const SettingsScreen: React.FC = () => {
     flashMessage('個人基本身體資料已更新！');
   };
 
-  // Add custom meal
-  const handleAddMeal = () => {
-    if (!newMealName.trim()) return;
-    if (activeMeals.length >= 10) {
-      alert('最多支援 10 個餐點項目');
-      return;
-    }
-    const nextIdx = activeMeals.length + 1;
-    const mealType = ('MEAL_' + nextIdx) as any;
-    const updated = [
-      ...activeMeals,
-      { mealType, customName: newMealName.trim(), isCustom: true },
-    ];
-    setActiveMeals(updated);
-    StorageService.saveActiveMeals(updated);
-    setNewMealName('');
-    flashMessage(`已新增餐點「${newMealName.trim()}」！`);
-  };
-
-  // Delete custom meal
-  const handleDeleteMeal = (index: number) => {
-    const meal = activeMeals[index];
-    if (!meal.isCustom) {
-      alert('預設餐點無法刪除');
-      return;
-    }
-    const updated = activeMeals.filter((_, i) => i !== index);
-    setActiveMeals(updated);
-    StorageService.saveActiveMeals(updated);
-  };
-
   // Save Gemini Key
   const handleSaveGeminiKey = (key: string) => {
+    if (!key.trim()) {
+      handleClearGeminiKey();
+      return;
+    }
     setGeminiKey(key);
     StorageService.saveGeminiApiKey(key);
+    setApiKeyStatus('saved');
+    setTimeout(() => setApiKeyStatus('none'), 5000);
     flashMessage('Gemini API 設定已儲存！');
+  };
+
+  const handleClearGeminiKey = () => {
+    setGeminiKey('');
+    StorageService.saveGeminiApiKey('');
+    setApiKeyStatus('deleted');
+    setTimeout(() => setApiKeyStatus('none'), 5000);
+    flashMessage('Gemini API 金鑰已清空');
+  };
+
+  const handleModelChange = (model: string) => {
+    setAiModel(model);
+    StorageService.saveSelectedAiModel(model);
+    flashMessage(`已切換模型至 ${model}`);
+  };
+
+  // AI Connection Test
+  const [testingAi, setTestingAi] = useState(false);
+  const [testResult, setTestResult] = useState<{
+    ok: boolean;
+    message?: string;
+    modelUsed?: string;
+    requestedModel?: string;
+    latencyMs?: number;
+    error?: string;
+  } | null>(null);
+
+  const handleTestConnection = async () => {
+    setTestingAi(true);
+    setTestResult(null);
+    try {
+      const res = await fetch('/api/ai/test-connection', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ customApiKey: geminiKey, model: aiModel }),
+      });
+      const data = await res.json();
+      setTestResult(data);
+    } catch (err: any) {
+      setTestResult({ ok: false, error: err.message || '連線伺服器逾時或失敗' });
+    } finally {
+      setTestingAi(false);
+    }
   };
 
   // JSON Export / Backup
@@ -245,7 +242,7 @@ th { background: #f1f5f9; font-weight: 600; }
 ${records
   .map(
     (r) =>
-      `<tr><td>${r.date}</td><td>${r.mealType}</td><td>${r.name}</td><td>${r.amount}${r.unit}</td><td>${r.calories}</td><td>${r.carbs}g</td><td>${r.protein}g</td><td>${r.fat}g</td></tr>`
+      `<tr><td>${r.date}</td><td>${r.mealType}</td><td>${r.name}</td><td>${r.loggedAmount}${r.loggedUnit}</td><td>${r.calories}</td><td>${r.carbs}g</td><td>${r.protein}g</td><td>${r.fat}g</td></tr>`
   )
   .join('')}
 </tbody>
@@ -316,6 +313,80 @@ ${workouts
         </div>
       )}
 
+      {/* 0. Cloud Sync Section */}
+      <div className="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-2xs space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Cloud className="w-5 h-5 text-sky-600" />
+            <h3 className="font-bold text-slate-900 text-sm">
+              Google Drive 雲端同步
+            </h3>
+          </div>
+          {user ? (
+            <span className="text-[10px] font-bold text-sky-700 bg-sky-50 px-2 py-0.5 rounded-lg flex items-center gap-1">
+              <Check className="w-3 h-3" /> 已連結雲端硬碟
+            </span>
+          ) : (
+            <span className="text-[10px] font-bold text-slate-400 bg-slate-50 px-2 py-0.5 rounded-lg">
+              尚未授權
+            </span>
+          )}
+        </div>
+
+        {user ? (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between bg-slate-50 p-3 rounded-2xl border border-slate-100">
+              <div className="flex items-center gap-3">
+                {user.photoURL ? (
+                  <img src={user.photoURL} alt="User" className="w-10 h-10 rounded-full border-2 border-white shadow-xs" referrerPolicy="no-referrer" />
+                ) : (
+                  <div className="w-10 h-10 rounded-full bg-sky-100 flex items-center justify-center">
+                    <User className="w-6 h-6 text-sky-600" />
+                  </div>
+                )}
+                <div>
+                  <div className="text-xs font-black text-slate-900">{user.displayName}</div>
+                  <div className="text-[10px] text-slate-500">{user.email}</div>
+                </div>
+              </div>
+              <button
+                onClick={handleLogin}
+                className="p-2 text-slate-400 hover:text-sky-600 hover:bg-sky-50 rounded-xl transition"
+                title="切換帳號"
+              >
+                <RefreshCw className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <button
+              onClick={async () => {
+                flashMessage('正在與 Google Drive 同步...');
+                await StorageService.syncFromCloud();
+                flashMessage('同步完成！');
+                setTimeout(() => window.location.reload(), 1000);
+              }}
+              className="w-full py-2.5 bg-sky-50 hover:bg-sky-100 text-sky-800 text-xs font-black rounded-xl border border-sky-100 transition flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <Database className="w-4 h-4" />
+              <span>立即從雲端硬碟拉取最新數據</span>
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <p className="text-xs text-slate-500 leading-relaxed">
+              授權後，您的所有紀錄將直接存儲於您個人的 Google Drive 中 (fitpocket_data.json)，確保數據隱私且支援跨裝置即時同步。
+            </p>
+            <button
+              onClick={handleLogin}
+              className="w-full py-3 bg-white border-2 border-slate-200 rounded-2xl text-xs font-black text-slate-700 hover:border-sky-400 hover:bg-sky-50/30 transition flex items-center justify-center gap-2 cursor-pointer group"
+            >
+              <img src="https://www.google.com/favicon.ico" alt="Google" className="w-4 h-4 group-hover:scale-110 transition" />
+              <span>授權連結 Google 雲端硬碟</span>
+            </button>
+          </div>
+        )}
+      </div>
+
       {/* 1. AI BMR & TDEE Calculator */}
       <div className="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-2xs space-y-4">
         <div className="flex items-center justify-between border-b border-slate-100 pb-3">
@@ -330,111 +401,130 @@ ${workouts
           </span>
         </div>
 
-        {/* Inputs */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
-          <div>
-            <label className="block text-slate-500 mb-1 font-semibold">生理性別</label>
-            <select
-              value={userProfile.gender}
-              onChange={(e) =>
-                handleSaveProfile({
-                  ...userProfile,
-                  gender: e.target.value as any,
-                })
-              }
-              className="w-full px-3 py-2 bg-slate-50 rounded-xl border border-slate-200 font-bold"
-            >
-              <option value="male">男性 (Male)</option>
-              <option value="female">女性 (Female)</option>
-            </select>
-          </div>
+          {/* Inputs */}
+          <div className="space-y-4">
+            <div>
+              <label className="block text-slate-500 mb-2 font-semibold">生理性別</label>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => handleSaveProfile({ ...userProfile, gender: 'male' })}
+                  className={`py-3 text-sm font-bold rounded-2xl border transition cursor-pointer ${
+                    userProfile.gender === 'male'
+                      ? 'bg-sky-800 text-white border-sky-800'
+                      : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  男性
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSaveProfile({ ...userProfile, gender: 'female' })}
+                  className={`py-3 text-sm font-bold rounded-2xl border transition cursor-pointer ${
+                    userProfile.gender === 'female'
+                      ? 'bg-rose-800 text-white border-rose-800'
+                      : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  女性
+                </button>
+              </div>
+            </div>
 
-          <div>
-            <label className="block text-slate-500 mb-1 font-semibold">年齡</label>
-            <input
-              type="number"
-              value={userProfile.age}
-              onChange={(e) =>
-                handleSaveProfile({
-                  ...userProfile,
-                  age: parseInt(e.target.value) || 20,
-                })
-              }
-              className="w-full px-3 py-2 bg-slate-50 rounded-xl border border-slate-200 font-bold"
-            />
-          </div>
+            <div className="grid grid-cols-2 gap-3 text-xs">
+              <div>
+                <label className="block text-slate-500 mb-1 font-semibold">年齡</label>
+                <input
+                  type="number"
+                  value={userProfile.age}
+                  onChange={(e) =>
+                    handleSaveProfile({
+                      ...userProfile,
+                      age: parseInt(e.target.value) || 20,
+                    })
+                  }
+                  className="w-full px-3 py-2 bg-slate-50 rounded-xl border border-slate-200 font-bold"
+                />
+              </div>
 
-          <div>
-            <label className="block text-slate-500 mb-1 font-semibold">身高 (cm)</label>
-            <input
-              type="number"
-              value={userProfile.heightCm}
-              onChange={(e) =>
-                handleSaveProfile({
-                  ...userProfile,
-                  heightCm: parseFloat(e.target.value) || 170,
-                })
-              }
-              className="w-full px-3 py-2 bg-slate-50 rounded-xl border border-slate-200 font-bold"
-            />
-          </div>
+              <div>
+                <label className="block text-slate-500 mb-1 font-semibold">身高 (cm)</label>
+                <input
+                  type="number"
+                  value={userProfile.heightCm}
+                  onChange={(e) =>
+                    handleSaveProfile({
+                      ...userProfile,
+                      heightCm: parseFloat(e.target.value) || 170,
+                    })
+                  }
+                  className="w-full px-3 py-2 bg-slate-50 rounded-xl border border-slate-200 font-bold"
+                />
+              </div>
 
-          <div>
-            <label className="block text-slate-500 mb-1 font-semibold">目前體重 (kg)</label>
-            <input
-              type="number"
-              step="0.1"
-              value={userProfile.currentWeightKg}
-              onChange={(e) =>
-                handleSaveProfile({
-                  ...userProfile,
-                  currentWeightKg: parseFloat(e.target.value) || 70,
-                })
-              }
-              className="w-full px-3 py-2 bg-slate-50 rounded-xl border border-slate-200 font-bold"
-            />
-          </div>
+              <div>
+                <label className="block text-slate-500 mb-1 font-semibold">目前體重 (kg)</label>
+                <input
+                  type="number"
+                  step="0.1"
+                  value={userProfile.currentWeightKg}
+                  onChange={(e) =>
+                    handleSaveProfile({
+                      ...userProfile,
+                      currentWeightKg: parseFloat(e.target.value) || 70,
+                    })
+                  }
+                  className="w-full px-3 py-2 bg-slate-50 rounded-xl border border-slate-200 font-bold"
+                />
+              </div>
 
-          <div>
-            <label className="block text-slate-500 mb-1 font-semibold">目標體重 (kg)</label>
-            <input
-              type="number"
-              step="0.1"
-              value={userProfile.targetWeightKg}
-              onChange={(e) =>
-                handleSaveProfile({
-                  ...userProfile,
-                  targetWeightKg: parseFloat(e.target.value) || 65,
-                })
-              }
-              className="w-full px-3 py-2 bg-slate-50 rounded-xl border border-slate-200 font-bold"
-            />
-          </div>
+              <div>
+                <label className="block text-slate-500 mb-1 font-semibold">目標體重 (kg)</label>
+                <input
+                  type="number"
+                  step="0.1"
+                  value={userProfile.targetWeightKg}
+                  onChange={(e) =>
+                    handleSaveProfile({
+                      ...userProfile,
+                      targetWeightKg: parseFloat(e.target.value) || 65,
+                    })
+                  }
+                  className="w-full px-3 py-2 bg-slate-50 rounded-xl border border-slate-200 font-bold"
+                />
+              </div>
+            </div>
 
-          <div>
-            <label className="block text-slate-500 mb-1 font-semibold">活動強度</label>
-            <select
-              value={userProfile.activityLevel}
-              onChange={(e) =>
-                handleSaveProfile({
-                  ...userProfile,
-                  activityLevel: e.target.value as any,
-                })
-              }
-              className="w-full px-3 py-2 bg-slate-50 rounded-xl border border-slate-200 font-bold"
-            >
-              <option value="sedentary">久坐無運動 (×1.2)</option>
-              <option value="light">輕度運動 1-3天 (×1.375)</option>
-              <option value="moderate">中度運動 3-5天 (×1.55)</option>
-              <option value="heavy">重度運動 6-7天 (×1.725)</option>
-              <option value="athlete">運動員密集高強度 (×1.9)</option>
-            </select>
+            <div>
+              <label className="block text-slate-500 mb-2 font-semibold">活動強度</label>
+              <div className="flex flex-col gap-2">
+                {[
+                  { id: 'sedentary', label: '久坐無運動 (×1.2)' },
+                  { id: 'light', label: '輕度運動 1-3天 (×1.375)' },
+                  { id: 'moderate', label: '中度運動 3-5天 (×1.55)' },
+                  { id: 'heavy', label: '重度運動 6-7天 (×1.725)' },
+                  { id: 'athlete', label: '運動員密集高強度 (×1.9)' },
+                ].map((l) => (
+                  <button
+                    key={l.id}
+                    type="button"
+                    onClick={() => handleSaveProfile({ ...userProfile, activityLevel: l.id as any })}
+                    className={`py-2.5 px-4 text-xs font-bold rounded-xl border transition cursor-pointer text-left ${
+                      userProfile.activityLevel === l.id
+                        ? 'bg-sky-800 text-white border-sky-800'
+                        : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    {l.label}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
-        </div>
 
         <div>
           <label className="block text-slate-500 mb-1 font-semibold text-xs">健身與飲食目標</label>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="flex flex-col gap-2">
             {[
               { id: 'fat_loss', label: '減脂 (-400kcal)' },
               { id: 'maintain', label: '維持平衡 (維持TDEE)' },
@@ -449,7 +539,7 @@ ${workouts
                     fitnessGoal: g.id as any,
                   })
                 }
-                className={`py-2 px-2 text-xs font-bold rounded-xl border transition cursor-pointer ${
+                className={`py-2 px-3 text-xs font-bold rounded-xl border transition cursor-pointer text-left ${
                   userProfile.fitnessGoal === g.id
                     ? 'bg-emerald-800 text-white border-emerald-800'
                     : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
@@ -484,7 +574,7 @@ ${workouts
             </div>
           </div>
 
-          <div className="flex items-center justify-between pt-2 border-t border-emerald-200/50 text-xs">
+          <div className="flex flex-col gap-3 pt-2 border-t border-emerald-200/50 text-xs">
             <div className="text-slate-600">
               建議分配：碳 <strong className="text-amber-800">{calculated.targetCarbs}g</strong> ·
               蛋 <strong className="text-blue-800">{calculated.targetProtein}g</strong> · 脂{' '}
@@ -494,126 +584,12 @@ ${workouts
             <button
               type="button"
               onClick={handleApplyCalculatedToGoals}
-              className="px-3 py-1.5 bg-emerald-800 hover:bg-emerald-900 text-white text-xs font-bold rounded-xl shadow-xs transition cursor-pointer flex items-center gap-1"
+              className="w-full px-3 py-2.5 bg-emerald-800 hover:bg-emerald-900 text-white text-xs font-bold rounded-xl shadow-xs transition cursor-pointer flex items-center justify-center gap-1"
             >
               <Sparkles className="w-3.5 h-3.5" />
               一鍵套用至循環日
             </button>
           </div>
-        </div>
-      </div>
-
-      {/* 2. Carb Cycle Goals Button */}
-      <div className="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-2xs flex items-center justify-between">
-        <div>
-          <h3 className="font-bold text-slate-900 text-sm">碳循環各日目標設定</h3>
-          <p className="text-xs text-slate-500 mt-0.5">
-            自訂高碳日、中碳日、低碳日與自訂日的熱量、三大營養素與微量鈉鉀上限
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() => setShowGoalModal(true)}
-          className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold rounded-xl transition cursor-pointer flex items-center gap-1"
-        >
-          <span>詳細微調</span>
-          <ChevronRight className="w-4 h-4" />
-        </button>
-      </div>
-
-      {/* 3. Meal Customization */}
-      <div className="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-2xs space-y-3">
-        <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-          <div className="flex items-center gap-2">
-            <Utensils className="w-4 h-4 text-emerald-700" />
-            <h3 className="font-bold text-slate-900 text-sm">自訂餐點時段</h3>
-          </div>
-          <span className="text-xs text-slate-400">目前 {activeMeals.length} 個餐點</span>
-        </div>
-
-        <div className="divide-y divide-slate-100 text-xs">
-          {activeMeals.map((m, idx) => (
-            <div key={m.mealType} className="py-2 flex items-center justify-between">
-              {editingMealIndex === idx ? (
-                <div className="flex items-center gap-2 flex-1 mr-2">
-                  <input
-                    type="text"
-                    value={editMealText}
-                    onChange={(e) => setEditMealText(e.target.value)}
-                    className="px-2 py-1 bg-white border border-slate-300 rounded-lg text-xs"
-                    autoFocus
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (editMealText.trim()) {
-                        const updated = [...activeMeals];
-                        updated[idx].customName = editMealText.trim();
-                        setActiveMeals(updated);
-                        StorageService.saveActiveMeals(updated);
-                        setEditingMealIndex(null);
-                      }
-                    }}
-                    className="px-2 py-1 bg-emerald-800 text-white rounded-lg text-[11px] font-bold"
-                  >
-                    儲存
-                  </button>
-                </div>
-              ) : (
-                <div className="flex items-center gap-2">
-                  <span className="font-bold text-slate-800">{m.customName}</span>
-                  {m.isCustom && (
-                    <span className="text-[10px] text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded">
-                      自訂
-                    </span>
-                  )}
-                </div>
-              )}
-
-              <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setEditingMealIndex(idx);
-                    setEditMealText(m.customName);
-                  }}
-                  className="p-1 text-slate-400 hover:text-slate-700 rounded"
-                  title="重新命名"
-                >
-                  <Edit2 className="w-3.5 h-3.5" />
-                </button>
-                {m.isCustom && (
-                  <button
-                    type="button"
-                    onClick={() => handleDeleteMeal(idx)}
-                    className="p-1 text-slate-400 hover:text-rose-600 rounded"
-                    title="刪除"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* Add Meal form */}
-        <div className="pt-2 flex gap-2">
-          <input
-            type="text"
-            placeholder="新增餐點 (例如: 練前加餐、宵夜)"
-            value={newMealName}
-            onChange={(e) => setNewMealName(e.target.value)}
-            className="flex-1 px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl"
-          />
-          <button
-            type="button"
-            onClick={handleAddMeal}
-            className="px-3 py-1.5 bg-slate-800 text-white text-xs font-bold rounded-xl hover:bg-slate-900 transition flex items-center gap-1 cursor-pointer"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            新增
-          </button>
         </div>
       </div>
 
@@ -636,92 +612,178 @@ ${workouts
           </button>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-xs">
-          <div className="p-2.5 bg-slate-50 rounded-xl">
-            <span className="text-[10px] text-slate-400 block font-semibold">台灣官方與超商預載</span>
+        <div className="grid grid-cols-1 gap-2 text-center text-xs">
+          <div className="p-3 bg-slate-50 rounded-2xl flex justify-between items-center">
+            <span className="text-slate-500 font-semibold">台灣官方與超商預載</span>
             <span className="font-bold text-slate-800 text-sm">{presetFoodCount} 筆</span>
           </div>
-          <div className="p-2.5 bg-slate-50 rounded-xl">
-            <span className="text-[10px] text-slate-400 block font-semibold">我的常用自訂</span>
+          <div className="p-3 bg-slate-50 rounded-2xl flex justify-between items-center">
+            <span className="text-slate-500 font-semibold">我的常用自訂</span>
             <span className="font-bold text-emerald-800 text-sm">{customFoods.length} 筆</span>
           </div>
-          <div className="p-2.5 bg-slate-50 rounded-xl">
-            <span className="text-[10px] text-slate-400 block font-semibold">Open Food Facts</span>
+          <div className="p-3 bg-slate-50 rounded-2xl flex justify-between items-center">
+            <span className="text-slate-500 font-semibold">Open Food Facts</span>
             <span className="font-bold text-sky-800 text-sm">全球雲端</span>
-          </div>
-          <div className="p-2.5 bg-slate-50 rounded-xl">
-            <span className="text-[10px] text-slate-400 block font-semibold">Gemini AI 分析</span>
-            <span className="font-bold text-purple-800 text-sm">2.5 Flash</span>
           </div>
         </div>
 
         {customFoods.length > 0 && (
-          <div className="pt-2">
-            <div className="text-xs font-bold text-slate-500 mb-1.5">我的自訂食物清單：</div>
-            <div className="max-h-44 overflow-y-auto divide-y divide-slate-100 text-xs">
-              {customFoods.map((cf) => (
-                <div key={cf.id} className="py-2 flex items-center justify-between">
-                  <div>
-                    <span className="font-bold text-slate-800">{cf.name}</span>
-                    <span className="text-[11px] text-slate-400 ml-2">
-                      {cf.caloriesPer100g} kcal / 100g
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setEditingCustomFood(cf);
-                        setShowCustomFoodModal(true);
-                      }}
-                      className="p-1 text-slate-400 hover:text-slate-700"
-                    >
-                      <Edit2 className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        StorageService.deleteCustomFood(cf.id);
-                        setCustomFoods(StorageService.getCustomFoods());
-                      }}
-                      className="p-1 text-slate-400 hover:text-rose-600"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
+          <div className="pt-1">
+            <button
+              type="button"
+              onClick={() => {
+                setCustomFoodsSearchQuery('');
+                setShowCustomFoodsListModal(true);
+              }}
+              className="w-full py-2.5 px-4 bg-emerald-50 hover:bg-emerald-100/80 border border-emerald-100 text-emerald-800 text-xs font-bold rounded-xl shadow-2xs transition flex items-center justify-center gap-2 cursor-pointer active:scale-98"
+            >
+              <Search className="w-3.5 h-3.5 text-emerald-700" />
+              <span>管理自訂食物清單 ({customFoods.length} 筆)</span>
+            </button>
           </div>
         )}
       </div>
 
       {/* 5. Gemini API Key Configuration */}
-      <div className="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-2xs space-y-3">
+      <div className="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-2xs space-y-4">
         <div className="flex items-center gap-2">
-          <Key className="w-4 h-4 text-purple-600" />
-          <h3 className="font-bold text-slate-900 text-sm">Gemini AI API 金鑰設定</h3>
+          <Key className="w-5 h-5 text-purple-600" />
+          <h3 className="font-bold text-slate-900 text-sm">Gemini AI API 金鑰設定 (必填)</h3>
         </div>
-        <p className="text-xs text-slate-500 leading-relaxed">
-          系統已內建後端伺服器代理，支援照片與描述飲食分析。若您有自己的 Google AI Studio
-          金鑰，可填寫於此以使用您的專屬配額。
-        </p>
-        <div className="flex gap-2">
+        
+        <div className="bg-purple-50/70 border border-purple-100 p-3.5 rounded-2xl text-xs text-purple-900 space-y-2">
+          <p className="font-bold">💡 為什麼需要填寫 API Key？</p>
+          <p className="leading-relaxed text-purple-800">
+            為確保隱私與獨立配額，本應用的所有 AI 智慧分析與拍照辨識功能，<strong>一律需要使用者自行輸入個人的 Google Gemini API Key</strong> 才能使用。系統不提供預設金鑰。
+          </p>
+        </div>
+
+        {/* Tutorial */}
+        <div className="bg-slate-50 border border-slate-200/80 p-4 rounded-2xl space-y-2 text-xs text-slate-700">
+          <p className="font-bold text-slate-900">📖 如何免費取得您的 Gemini API Key：</p>
+          <ol className="list-decimal list-inside space-y-1.5 text-slate-600 leading-relaxed">
+            <li>
+              前往官方網站：{' '}
+              <a
+                href="https://aistudio.google.com/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-purple-600 font-bold underline hover:text-purple-800"
+              >
+                Google AI Studio
+              </a>
+            </li>
+            <li>使用您的 Google 帳號免費登入。</li>
+            <li>點擊左上角或頁面中的 <strong>「Get API key」</strong> 按鈕。</li>
+            <li>點擊 <strong>「Create API key」</strong>（建立 API 金鑰），並複製產生的金鑰。</li>
+            <li>將金鑰貼至下方輸入框並點擊「儲存金鑰」即可啟用！</li>
+          </ol>
+        </div>
+
+        <div className="flex gap-2 pt-1">
           <input
             type="password"
-            placeholder="AIzaSy..."
+            placeholder="請輸入您的 Gemini API Key..."
             value={geminiKey}
             onChange={(e) => setGeminiKey(e.target.value)}
             className="flex-1 px-3 py-2 text-xs bg-slate-50 rounded-xl border border-slate-200 font-mono"
           />
+          <div className="flex gap-1.5">
+            <button
+              type="button"
+              onClick={handleClearGeminiKey}
+              className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-bold rounded-xl transition cursor-pointer"
+            >
+              清空
+            </button>
+            <button
+              type="button"
+              onClick={() => handleSaveGeminiKey(geminiKey)}
+              className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-xl transition cursor-pointer"
+            >
+              儲存金鑰
+            </button>
+          </div>
+        </div>
+
+        {/* Dynamic Model Switcher */}
+        <div className="mt-4 p-3 bg-slate-50 rounded-2xl border border-slate-100">
+          <div className="text-[10px] uppercase tracking-wider text-slate-400 font-bold mb-2">
+            動態模型切換 (3.x 系列)
+          </div>
+          <div className="flex gap-1.5">
+            {['gemini-3.5-flash', 'gemini-3.6-flash', 'gemini-3.8-flash'].map((m) => (
+              <button
+                key={m}
+                onClick={() => handleModelChange(m)}
+                className={`flex-1 py-2 text-[11px] font-bold rounded-xl transition cursor-pointer ${
+                  aiModel === m
+                    ? 'bg-purple-600 text-white shadow-sm'
+                    : 'bg-white text-slate-500 border border-slate-100 hover:border-purple-200'
+                }`}
+              >
+                {m.replace('gemini-', '')}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Connection Test Action & Status */}
+        <div className="mt-3 pt-3 border-t border-slate-100 flex flex-col gap-2">
           <button
             type="button"
-            onClick={() => handleSaveGeminiKey(geminiKey)}
-            className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-xl transition cursor-pointer"
+            onClick={handleTestConnection}
+            disabled={testingAi}
+            className="w-full py-2.5 px-4 bg-purple-50 hover:bg-purple-100 border border-purple-200 text-purple-700 text-xs font-bold rounded-xl transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
           >
-            儲存金鑰
+            <RefreshCw className={`w-3.5 h-3.5 ${testingAi ? 'animate-spin' : ''}`} />
+            <span>{testingAi ? '正在測試 AI 通訊與延遲...' : '即時測試 AI API 連線'}</span>
           </button>
+
+          {testResult && (
+            <div
+              className={`p-3 rounded-xl text-xs flex flex-col gap-1.5 animate-in fade-in slide-in-from-top-1 ${
+                testResult.ok
+                  ? 'bg-emerald-50 border border-emerald-200 text-emerald-800'
+                  : 'bg-rose-50 border border-rose-200 text-rose-800'
+              }`}
+            >
+              <div className="flex items-center gap-1.5 font-bold">
+                {testResult.ok ? (
+                  <Check className="w-4 h-4 text-emerald-600" />
+                ) : (
+                  <AlertCircle className="w-4 h-4 text-rose-600" />
+                )}
+                <span>{testResult.ok ? 'AI 連線正常' : 'AI 連線失敗'}</span>
+              </div>
+              {testResult.ok ? (
+                <div className="text-[11px] text-emerald-700 space-y-0.5">
+                  <p>• 運作模型：<span className="font-mono font-semibold">{testResult.modelUsed}</span></p>
+                  <p>• 回應延遲：<span className="font-semibold">{testResult.latencyMs} 毫秒</span></p>
+                  <p className="text-emerald-600/90 font-medium">智慧飲食估算、照片辨識、訓練推薦等所有 AI 功能皆已就緒！</p>
+                </div>
+              ) : (
+                <div className="text-[11px] text-rose-700">
+                  <p>{testResult.error || '請確認 API 金鑰是否有效或網路通訊正常。'}</p>
+                </div>
+              )}
+            </div>
+          )}
         </div>
+
+        {apiKeyStatus === 'saved' && (
+          <div className="mt-3 flex items-center gap-1.5 text-[11px] font-bold text-emerald-600 bg-emerald-50 py-1.5 px-3 rounded-lg animate-in fade-in slide-in-from-top-1">
+            <Check className="w-3.5 h-3.5" />
+            <span>API 金鑰已成功儲存並同步至雲端！</span>
+          </div>
+        )}
+
+        {apiKeyStatus === 'deleted' && (
+          <div className="mt-3 flex items-center gap-1.5 text-[11px] font-bold text-rose-600 bg-rose-50 py-1.5 px-3 rounded-lg animate-in fade-in slide-in-from-top-1">
+            <AlertCircle className="w-3.5 h-3.5" />
+            <span>API 金鑰已刪除。</span>
+          </div>
+        )}
       </div>
 
       {/* 6. Data Backup & Restore */}
@@ -763,52 +825,7 @@ ${workouts
         </div>
       </div>
 
-      {/* 7. Native Android APK Download Portal CTA */}
-      <div className="bg-gradient-to-r from-emerald-900 to-slate-900 text-white rounded-3xl p-5 shadow-sm space-y-3">
-        <div className="flex items-center gap-3">
-          <Smartphone className="w-6 h-6 text-emerald-400" />
-          <div>
-            <h3 className="font-bold text-sm">FitPocket 原生 Android APK</h3>
-            <p className="text-xs text-slate-300">
-              提供 8 區段高速串流下載通道，支援手機離線使用與純本機儲存
-            </p>
-          </div>
-        </div>
-
-        <div className="flex gap-2 pt-1">
-          <button
-            type="button"
-            onClick={() => setShowApkModal(true)}
-            className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white text-xs font-bold rounded-xl transition shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
-          >
-            <Download className="w-4 h-4" />
-            <span>開啟 APK 下載器</span>
-          </button>
-          <a
-            href="/apk.html"
-            target="_blank"
-            rel="noreferrer"
-            className="px-4 py-2.5 bg-white/10 hover:bg-white/20 text-white text-xs font-semibold rounded-xl transition flex items-center justify-center"
-          >
-            獨立頁面
-          </a>
-        </div>
-      </div>
-
       {/* Modals */}
-      {showGoalModal && (
-        <GoalSettingModal
-          currentCycle="MEDIUM"
-          presets={presets}
-          onClose={() => setShowGoalModal(false)}
-          onSave={(newPresets) => {
-            setPresets(newPresets);
-            StorageService.savePresets(newPresets);
-            flashMessage('碳循環目標已儲存！');
-          }}
-        />
-      )}
-
       {showCustomFoodModal && (
         <CustomFoodModal
           initialFood={editingCustomFood}
@@ -824,8 +841,152 @@ ${workouts
         />
       )}
 
-      {showApkModal && (
-        <ApkDownloadModal isOpen={showApkModal} onClose={() => setShowApkModal(false)} />
+      {showCustomFoodsListModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="absolute inset-0" onClick={() => setShowCustomFoodsListModal(false)} />
+          <div className="bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden relative z-10 flex flex-col max-h-[85vh] animate-in zoom-in-95 duration-150">
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <Database className="w-5 h-5 text-emerald-800" />
+                <h3 className="text-base font-black text-slate-900">我的自訂食物清單管理</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowCustomFoodsListModal(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Search Input */}
+            <div className="px-6 py-3 bg-slate-50 border-b border-slate-100">
+              <div className="relative">
+                <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="搜尋自訂食物名稱或品牌..."
+                  value={customFoodsSearchQuery}
+                  onChange={(e) => setCustomFoodsSearchQuery(e.target.value)}
+                  className="w-full pl-9 pr-4 py-2 text-sm bg-white border border-slate-200 rounded-2xl focus:outline-none focus:border-emerald-500 text-slate-800"
+                />
+              </div>
+            </div>
+
+            {/* Content List */}
+            <div className="flex-1 overflow-y-auto px-6 py-2 divide-y divide-slate-100">
+              {(() => {
+                const filtered = customFoods.filter((cf) => {
+                  const q = customFoodsSearchQuery.toLowerCase().trim();
+                  if (!q) return true;
+                  return (
+                    cf.name.toLowerCase().includes(q) ||
+                    (cf.brand && cf.brand.toLowerCase().includes(q))
+                  );
+                });
+
+                if (filtered.length === 0) {
+                  return (
+                    <div className="py-12 text-center text-slate-400 text-sm">
+                      <Search className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                      找不到符合「{customFoodsSearchQuery}」的自訂食物
+                    </div>
+                  );
+                }
+
+                return filtered.map((cf) => (
+                  <div key={cf.id} className="py-3.5 flex items-center justify-between gap-4">
+                    <div className="min-w-0">
+                      <div className="font-bold text-slate-800 text-sm truncate">{cf.name}</div>
+                      <div className="text-[11px] text-slate-400 flex flex-wrap items-center gap-x-2.5 gap-y-1 mt-0.5">
+                        {cf.brand && <span className="bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded-sm font-semibold">{cf.brand}</span>}
+                        <span>每份 ({cf.servingAmount}{cf.servingUnit}) {cf.calories} kcal</span>
+                        <span className="text-slate-300">|</span>
+                        <span>碳: {cf.carbs}g</span>
+                        <span>蛋: {cf.protein}g</span>
+                        <span>脂: {cf.fat}g</span>
+                      </div>
+                    </div>
+                    
+                    {confirmDeleteId === cf.id ? (
+                      <div className="flex items-center gap-1 bg-rose-50/80 px-2 py-1 rounded-xl border border-rose-100 shrink-0">
+                        <span className="text-[10px] font-bold text-rose-700 mr-1">確認刪除？</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            StorageService.deleteCustomFood(cf.id);
+                            const updated = StorageService.getCustomFoods();
+                            setCustomFoods(updated);
+                            setConfirmDeleteId(null);
+                            if (updated.length === 0) {
+                              setShowCustomFoodsListModal(false);
+                            }
+                          }}
+                          className="px-2 py-1 bg-rose-600 hover:bg-rose-700 text-white text-[10px] font-bold rounded-lg transition cursor-pointer"
+                        >
+                          確定
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setConfirmDeleteId(null)}
+                          className="px-1.5 py-1 bg-slate-200 hover:bg-slate-300 text-slate-700 text-[10px] font-bold rounded-lg transition cursor-pointer"
+                        >
+                          取消
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingCustomFood(cf);
+                            setShowCustomFoodModal(true);
+                          }}
+                          className="p-2 text-slate-500 hover:text-emerald-700 hover:bg-emerald-50 rounded-xl transition cursor-pointer"
+                          title="編輯"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setConfirmDeleteId(cf.id)}
+                          className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition cursor-pointer"
+                          title="刪除"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ));
+              })()}
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/70 flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingCustomFood(undefined);
+                  setShowCustomFoodModal(true);
+                }}
+                className="py-2 px-3.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-xl transition flex items-center gap-1 cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>新增自訂食物</span>
+              </button>
+              
+              <button
+                type="button"
+                onClick={() => setShowCustomFoodsListModal(false)}
+                className="py-2 px-4 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-bold rounded-xl transition cursor-pointer"
+              >
+                關閉
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

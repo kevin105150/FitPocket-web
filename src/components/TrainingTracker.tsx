@@ -70,10 +70,8 @@ export const TrainingTracker: React.FC<TrainingTrackerProps> = ({
 
   // Delete entire workout
   const handleDeleteWorkout = (workoutId: string) => {
-    if (window.confirm('確定要刪除此訓練紀錄嗎？')) {
-      StorageService.deleteWorkoutRecord(workoutId);
-      refreshWorkouts();
-    }
+    StorageService.deleteWorkoutRecord(workoutId);
+    refreshWorkouts();
   };
 
   // Add Exercise to Workout
@@ -252,10 +250,15 @@ export const TrainingTracker: React.FC<TrainingTrackerProps> = ({
     setAiLoading(true);
     try {
       const userKey = StorageService.getGeminiApiKey();
+      const model = StorageService.getSelectedAiModel();
       const res = await fetch('/api/ai/workout-suggest', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ bodyPart: selectedMuscle, customApiKey: userKey }),
+        body: JSON.stringify({ 
+          bodyPart: selectedMuscle, 
+          customApiKey: userKey,
+          model
+        }),
       });
       if (res.ok) {
         const data = await res.json();
@@ -348,194 +351,87 @@ export const TrainingTracker: React.FC<TrainingTrackerProps> = ({
                 </div>
               </div>
 
-              {/* Exercises in Workout */}
-              <div className="p-4 space-y-4">
-                {workout.exercises.map((exercise, idx) => (
-                  <div
-                    key={exercise.id}
-                    className={`rounded-2xl border p-4 transition ${
-                      exercise.supersetGroupId
-                        ? 'border-purple-200 bg-purple-50/20'
-                        : 'border-slate-200/70 bg-white'
-                    }`}
-                  >
-                    {/* Exercise Title */}
-                    <div className="flex items-start justify-between gap-2 mb-3">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <h4 className="font-bold text-sm text-slate-900">{exercise.name}</h4>
-                          {exercise.isCardio && (
-                            <span className="text-[10px] font-bold px-2 py-0.5 bg-sky-100 text-sky-800 rounded-md">
-                              有氧心肺
-                            </span>
-                          )}
-                          {exercise.supersetGroupId && (
-                            <span className="text-[10px] font-bold px-2 py-0.5 bg-purple-100 text-purple-800 rounded-md flex items-center gap-1">
-                              <Link className="w-3 h-3" /> 超級組
-                            </span>
-                          )}
-                        </div>
-                      </div>
+                {/* Exercises in Workout */}
+              <div className="p-4 space-y-3">
+                {(() => {
+                  const items: (WorkoutExercise | { isSuperset: true; exercises: WorkoutExercise[]; groupId: number })[] = [];
+                  const processedSupersets = new Set<number>();
 
-                      <div className="flex items-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() => handleToggleSuperset(workout.id, exercise.id)}
-                          className="p-1 text-slate-400 hover:text-purple-700 rounded-md transition"
-                          title="切換超級組標記"
-                        >
-                          <Link className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteExercise(workout.id, exercise.id)}
-                          className="p-1 text-slate-400 hover:text-rose-600 rounded-md transition"
-                          title="刪除動作"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </div>
+                  workout.exercises.forEach((ex) => {
+                    const gid = ex.supersetGroupId;
+                    if (gid === null || gid === undefined) {
+                      items.push(ex);
+                    } else {
+                      if (!processedSupersets.has(gid)) {
+                        processedSupersets.add(gid);
+                        const group = workout.exercises.filter((e) => e.supersetGroupId === gid);
+                        items.push({ isSuperset: true, exercises: group, groupId: gid });
+                      }
+                    }
+                  });
 
-                    {/* Sets Table */}
-                    <div className="space-y-1.5 text-xs">
-                      <div className="grid grid-cols-12 gap-2 text-[11px] font-semibold text-slate-400 px-2 pb-1">
-                        <span className="col-span-2 text-center">組數</span>
-                        {exercise.isCardio ? (
-                          <span className="col-span-6 text-center">時間 (分鐘)</span>
-                        ) : (
-                          <>
-                            <span className="col-span-4 text-center">重量 (kg)</span>
-                            <span className="col-span-3 text-center">次數 (reps)</span>
-                          </>
-                        )}
-                        <span className="col-span-3 text-center">完成</span>
-                      </div>
-
-                      {exercise.exerciseSets.map((set, sIdx) => (
+                  return items.map((item, idx) => {
+                    if ('isSuperset' in item) {
+                      return (
                         <div
-                          key={set.id}
-                          className={`grid grid-cols-12 gap-2 items-center p-2 rounded-xl border transition ${
-                            set.isCompleted
-                              ? 'bg-emerald-50/70 border-emerald-200/80 text-emerald-900'
-                              : 'bg-slate-50 border-slate-100 text-slate-700'
-                          }`}
+                          key={`superset-${item.groupId}`}
+                          className="rounded-2xl border-2 border-purple-200/60 bg-purple-50/20 overflow-hidden"
                         >
-                          {/* Set number */}
-                          <div className="col-span-2 font-bold text-center">
-                            #{sIdx + 1}
-                          </div>
-
-                          {/* Inputs */}
-                          {exercise.isCardio ? (
-                            <div className="col-span-6 flex items-center justify-center gap-1">
-                              <input
-                                type="number"
-                                value={set.durationMinutes || 0}
-                                onChange={(e) =>
-                                  handleUpdateSet(
-                                    workout.id,
-                                    exercise.id,
-                                    set.id,
-                                    'durationMinutes',
-                                    parseFloat(e.target.value) || 0
-                                  )
-                                }
-                                className="w-16 py-1 px-2 text-center font-bold bg-white rounded-lg border border-slate-200 focus:outline-emerald-600"
-                              />
-                              <span className="text-slate-500 font-medium">分</span>
+                          <div className="bg-purple-100/50 px-4 py-2 border-b border-purple-200/40 flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <Layers className="w-4 h-4 text-purple-700" />
+                              <span className="text-[11px] font-black text-purple-900 uppercase tracking-wider">
+                                超級組 (Superset) · {item.exercises.length} 個動作
+                              </span>
                             </div>
-                          ) : (
-                            <>
-                              <div className="col-span-4 flex items-center justify-center gap-1">
-                                <input
-                                  type="number"
-                                  step="0.5"
-                                  value={set.weight}
-                                  onChange={(e) =>
-                                    handleUpdateSet(
-                                      workout.id,
-                                      exercise.id,
-                                      set.id,
-                                      'weight',
-                                      parseFloat(e.target.value) || 0
-                                    )
-                                  }
-                                  className="w-16 py-1 px-1 text-center font-bold bg-white rounded-lg border border-slate-200 focus:outline-emerald-600"
-                                />
-                                <span className="text-slate-400 text-[10px]">kg</span>
-                              </div>
-
-                              <div className="col-span-3 flex items-center justify-center gap-1">
-                                <input
-                                  type="number"
-                                  value={set.reps}
-                                  onChange={(e) =>
-                                    handleUpdateSet(
-                                      workout.id,
-                                      exercise.id,
-                                      set.id,
-                                      'reps',
-                                      parseInt(e.target.value) || 0
-                                    )
-                                  }
-                                  className="w-12 py-1 px-1 text-center font-bold bg-white rounded-lg border border-slate-200 focus:outline-emerald-600"
-                                />
-                                <span className="text-slate-400 text-[10px]">次</span>
-                              </div>
-                            </>
-                          )}
-
-                          {/* Checkbox button */}
-                          <div className="col-span-3 flex items-center justify-center gap-1">
                             <button
                               type="button"
                               onClick={() => {
-                                handleToggleSetComplete(workout.id, exercise.id, set.id);
-                                if (!set.isCompleted) {
-                                  // Open rest timer optionally
-                                  setShowTimerModal(true);
-                                }
+                                // Break superset for all
+                                item.exercises.forEach(ex => handleToggleSuperset(workout.id, ex.id));
                               }}
-                              className={`p-1.5 rounded-lg transition cursor-pointer ${
-                                set.isCompleted
-                                  ? 'text-emerald-700 bg-emerald-100 hover:bg-emerald-200'
-                                  : 'text-slate-400 hover:text-emerald-600 hover:bg-slate-200'
-                              }`}
-                              title="標記為已完成（自動啟動組間休息碼錶）"
+                              className="text-[10px] font-bold text-purple-700 hover:underline cursor-pointer"
                             >
-                              {set.isCompleted ? (
-                                <CheckCircle2 className="w-5 h-5" />
-                              ) : (
-                                <Circle className="w-5 h-5" />
-                              )}
+                              解除群組
                             </button>
-
-                            {exercise.exerciseSets.length > 1 && (
-                              <button
-                                type="button"
-                                onClick={() => handleRemoveSet(workout.id, exercise.id, set.id)}
-                                className="p-1 text-slate-300 hover:text-rose-500 rounded cursor-pointer"
-                                title="刪除此組"
-                              >
-                                <X className="w-3 h-3" />
-                              </button>
-                            )}
+                          </div>
+                          <div className="p-3 space-y-3">
+                            {item.exercises.map((exercise, innerIdx) => (
+                              <ExerciseCard
+                                key={exercise.id}
+                                exercise={exercise}
+                                workoutId={workout.id}
+                                onToggleSuperset={handleToggleSuperset}
+                                onDeleteExercise={handleDeleteExercise}
+                                onToggleSetComplete={handleToggleSetComplete}
+                                onUpdateSet={handleUpdateSet}
+                                onAddSet={handleAddSet}
+                                onRemoveSet={handleRemoveSet}
+                                setShowTimerModal={setShowTimerModal}
+                                isInsideSuperset={true}
+                              />
+                            ))}
                           </div>
                         </div>
-                      ))}
-                    </div>
-
-                    {/* Add set button */}
-                    <button
-                      type="button"
-                      onClick={() => handleAddSet(workout.id, exercise.id)}
-                      className="mt-2.5 w-full py-1.5 text-center text-xs font-semibold text-emerald-800 hover:bg-emerald-50 border border-dashed border-emerald-300 rounded-xl transition cursor-pointer"
-                    >
-                      + 新增一組
-                    </button>
-                  </div>
-                ))}
+                      );
+                    } else {
+                      return (
+                        <ExerciseCard
+                          key={item.id}
+                          exercise={item}
+                          workoutId={workout.id}
+                          onToggleSuperset={handleToggleSuperset}
+                          onDeleteExercise={handleDeleteExercise}
+                          onToggleSetComplete={handleToggleSetComplete}
+                          onUpdateSet={handleUpdateSet}
+                          onAddSet={handleAddSet}
+                          onRemoveSet={handleRemoveSet}
+                          setShowTimerModal={setShowTimerModal}
+                        />
+                      );
+                    }
+                  });
+                })()}
 
                 {workout.exercises.length === 0 && (
                   <div
@@ -544,9 +440,12 @@ export const TrainingTracker: React.FC<TrainingTrackerProps> = ({
                       setSelectedMuscle(workout.bodyPart || '胸');
                       setShowAddExerciseModal(true);
                     }}
-                    className="py-6 text-center text-xs text-slate-400 border border-dashed border-slate-200 rounded-2xl hover:border-emerald-400 hover:text-emerald-700 cursor-pointer transition"
+                    className="py-10 text-center space-y-2 border-2 border-dashed border-slate-200 rounded-3xl hover:border-emerald-400 hover:bg-emerald-50/30 group cursor-pointer transition-all"
                   >
-                    + 點擊新增此肌群動作
+                    <Plus className="w-8 h-8 text-slate-300 group-hover:text-emerald-500 mx-auto" />
+                    <div className="text-sm font-bold text-slate-400 group-hover:text-emerald-800">
+                      點擊新增「{workout.bodyPart || '此部位'}」訓練動作
+                    </div>
                   </div>
                 )}
               </div>
@@ -736,6 +635,219 @@ export const TrainingTracker: React.FC<TrainingTrackerProps> = ({
 
       {/* Rest Timer Modal */}
       <WorkoutTimerModal isOpen={showTimerModal} onClose={() => setShowTimerModal(false)} />
+    </div>
+  );
+};
+
+interface ExerciseCardProps {
+  exercise: WorkoutExercise;
+  workoutId: string;
+  onToggleSuperset: (workoutId: string, exerciseId: string) => void;
+  onDeleteExercise: (workoutId: string, exerciseId: string) => void;
+  onToggleSetComplete: (workoutId: string, exerciseId: string, setId: string) => void;
+  onUpdateSet: (workoutId: string, exerciseId: string, setId: string, field: 'weight' | 'reps' | 'durationMinutes', val: number) => void;
+  onAddSet: (workoutId: string, exerciseId: string) => void;
+  onRemoveSet: (workoutId: string, exerciseId: string, setId: string) => void;
+  setShowTimerModal: (show: boolean) => void;
+  isInsideSuperset?: boolean;
+}
+
+const ExerciseCard: React.FC<ExerciseCardProps> = ({
+  exercise,
+  workoutId,
+  onToggleSuperset,
+  onDeleteExercise,
+  onToggleSetComplete,
+  onUpdateSet,
+  onAddSet,
+  onRemoveSet,
+  setShowTimerModal,
+  isInsideSuperset = false,
+}) => {
+  return (
+    <div
+      className={`rounded-2xl border p-4 transition ${
+        isInsideSuperset
+          ? 'border-slate-100 bg-white/60 shadow-sm'
+          : exercise.supersetGroupId
+          ? 'border-purple-200 bg-purple-50/20'
+          : 'border-slate-200/70 bg-white'
+      }`}
+    >
+      {/* Exercise Title */}
+      <div className="flex items-start justify-between gap-2 mb-3">
+        <div>
+          <div className="flex items-center gap-2">
+            <h4 className="font-bold text-sm text-slate-900">{exercise.name}</h4>
+            {exercise.isCardio && (
+              <span className="text-[10px] font-bold px-2 py-0.5 bg-sky-100 text-sky-800 rounded-md">
+                有氧心肺
+              </span>
+            )}
+            {exercise.supersetGroupId && !isInsideSuperset && (
+              <span className="text-[10px] font-bold px-2 py-0.5 bg-purple-100 text-purple-800 rounded-md flex items-center gap-1">
+                <Link className="w-3 h-3" /> 超級組
+              </span>
+            )}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => onToggleSuperset(workoutId, exercise.id)}
+            className={`p-1 rounded-md transition ${
+              exercise.supersetGroupId ? 'text-purple-700 bg-purple-100' : 'text-slate-400 hover:text-purple-700 hover:bg-slate-100'
+            }`}
+            title="切換超級組標記"
+          >
+            <Link className="w-3.5 h-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={() => onDeleteExercise(workoutId, exercise.id)}
+            className="p-1 text-slate-400 hover:text-rose-600 hover:bg-slate-100 rounded-md transition"
+            title="刪除動作"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </div>
+
+      {/* Sets Table */}
+      <div className="space-y-1.5 text-xs">
+        <div className="grid grid-cols-12 gap-2 text-[11px] font-semibold text-slate-400 px-2 pb-1">
+          <span className="col-span-2 text-center">組數</span>
+          {exercise.isCardio ? (
+            <span className="col-span-6 text-center">時間 (分鐘)</span>
+          ) : (
+            <>
+              <span className="col-span-4 text-center">重量 (kg)</span>
+              <span className="col-span-3 text-center">次數 (reps)</span>
+            </>
+          )}
+          <span className="col-span-3 text-center">完成</span>
+        </div>
+
+        {exercise.exerciseSets.map((set, sIdx) => (
+          <div
+            key={set.id}
+            className={`grid grid-cols-12 gap-2 items-center p-2 rounded-xl border transition ${
+              set.isCompleted
+                ? 'bg-emerald-50/70 border-emerald-200/80 text-emerald-900'
+                : 'bg-slate-50 border-slate-100 text-slate-700'
+            }`}
+          >
+            {/* Set number */}
+            <div className="col-span-2 font-bold text-center">#{sIdx + 1}</div>
+
+            {/* Inputs */}
+            {exercise.isCardio ? (
+              <div className="col-span-6 flex items-center justify-center gap-1">
+                <input
+                  type="number"
+                  value={set.durationMinutes || 0}
+                  onChange={(e) =>
+                    onUpdateSet(
+                      workoutId,
+                      exercise.id,
+                      set.id,
+                      'durationMinutes',
+                      parseFloat(e.target.value) || 0
+                    )
+                  }
+                  className="w-16 py-1 px-2 text-center font-bold bg-white rounded-lg border border-slate-200 focus:outline-emerald-600"
+                />
+                <span className="text-slate-500 font-medium">分</span>
+              </div>
+            ) : (
+              <>
+                <div className="col-span-4 flex items-center justify-center gap-1">
+                  <input
+                    type="number"
+                    step="0.5"
+                    value={set.weight}
+                    onChange={(e) =>
+                      onUpdateSet(
+                        workoutId,
+                        exercise.id,
+                        set.id,
+                        'weight',
+                        parseFloat(e.target.value) || 0
+                      )
+                    }
+                    className="w-16 py-1 px-1 text-center font-bold bg-white rounded-lg border border-slate-200 focus:outline-emerald-600"
+                  />
+                  <span className="text-slate-400 text-[10px]">kg</span>
+                </div>
+
+                <div className="col-span-3 flex items-center justify-center gap-1">
+                  <input
+                    type="number"
+                    value={set.reps}
+                    onChange={(e) =>
+                      onUpdateSet(
+                        workoutId,
+                        exercise.id,
+                        set.id,
+                        'reps',
+                        parseInt(e.target.value) || 0
+                      )
+                    }
+                    className="w-12 py-1 px-1 text-center font-bold bg-white rounded-lg border border-slate-200 focus:outline-emerald-600"
+                  />
+                  <span className="text-slate-400 text-[10px]">次</span>
+                </div>
+              </>
+            )}
+
+            {/* Checkbox button */}
+            <div className="col-span-3 flex items-center justify-center gap-1">
+              <button
+                type="button"
+                onClick={() => {
+                  onToggleSetComplete(workoutId, exercise.id, set.id);
+                  if (!set.isCompleted) {
+                    setShowTimerModal(true);
+                  }
+                }}
+                className={`p-1.5 rounded-lg transition cursor-pointer ${
+                  set.isCompleted
+                    ? 'text-emerald-700 bg-emerald-100 hover:bg-emerald-200'
+                    : 'text-slate-400 hover:text-emerald-600 hover:bg-slate-200'
+                }`}
+                title="標記為已完成（自動啟動組間休息碼錶）"
+              >
+                {set.isCompleted ? (
+                  <CheckCircle2 className="w-5 h-5" />
+                ) : (
+                  <Circle className="w-5 h-5" />
+                )}
+              </button>
+
+              {exercise.exerciseSets.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => onRemoveSet(workoutId, exercise.id, set.id)}
+                  className="p-1 text-slate-300 hover:text-rose-500 rounded cursor-pointer"
+                  title="刪除此組"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Add set button */}
+      <button
+        type="button"
+        onClick={() => onAddSet(workoutId, exercise.id)}
+        className="mt-2.5 w-full py-1.5 text-center text-xs font-semibold text-emerald-800 hover:bg-emerald-50 border border-dashed border-emerald-300 rounded-xl transition cursor-pointer"
+      >
+        + 新增一組
+      </button>
     </div>
   );
 };

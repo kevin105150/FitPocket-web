@@ -1,0 +1,128 @@
+{
+  "collections": {
+    "users": {
+      "description": "User profile and top-level settings",
+      "documents": {
+        "{userId}": {
+          "fields": {
+            "email": { "type": "string" },
+            "lastSeen": { "type": "timestamp" }
+          },
+          "collections": {
+            "diet_records": {
+              "description": "Daily food logs",
+              "documents": {
+                "{recordId}": {
+                  "fields": {
+                    "id": { "type": "string" },
+                    "date": { "type": "string" },
+                    "mealType": { "type": "string" },
+                    "sourceFoodId": { "type": "string" },
+                    "barcode": { "type": "string" },
+                    "brand": { "type": "string" },
+                    "loggedAmount": { "type": "number" },
+                    "loggedUnit": { "type": "string" },
+                    "name": { "type": "string" },
+                    "calories": { "type": "number" },
+                    "carbs": { "type": "number" },
+                    "protein": { "type": "number" },
+                    "fat": { "type": "number" },
+                    "sugars": { "type": "number" },
+                    "fiber": { "type": "number" },
+                    "sodium": { "type": "number" },
+                    "potassium": { "type": "number" },
+                    "createdAt": { "type": "timestamp" }
+                  }
+                }
+              }
+            },
+            "custom_foods": {
+              "description": "User created custom foods list",
+              "documents": {
+                "{foodId}": {
+                  "fields": {
+                    "id": { "type": "string" },
+                    "name": { "type": "string" },
+                    "brand": { "type": "string" },
+                    "servingAmount": { "type": "number" },
+                    "servingUnit": { "type": "string" },
+                    "calories": { "type": "number" },
+                    "carbs": { "type": "number" },
+                    "protein": { "type": "number" },
+                    "fat": { "type": "number" },
+                    "sugars": { "type": "number" },
+                    "fiber": { "type": "number" },
+                    "sodium": { "type": "number" },
+                    "potassium": { "type": "number" },
+                    "barcode": { "type": "string" },
+                    "updatedAt": { "type": "timestamp" }
+                  }
+                }
+              }
+            },
+            "weight_records": {
+              "description": "Weight tracking logs",
+              "documents": {
+                "{recordId}": {
+                  "fields": {
+                    "id": { "type": "string" },
+                    "date": { "type": "string" },
+                    "weight": { "type": "number" },
+                    "createdAt": { "type": "timestamp" }
+                  }
+                }
+              }
+            },
+            "water_records": {
+              "description": "Daily water intake",
+              "documents": {
+                "{recordId}": {
+                  "fields": {
+                    "id": { "type": "string" },
+                    "date": { "type": "string" },
+                    "amount": { "type": "number" },
+                    "createdAt": { "type": "timestamp" }
+                  }
+                }
+              }
+            },
+            "workout_records": {
+              "description": "Workout logs",
+              "documents": {
+                "{recordId}": {
+                  "fields": {
+                    "id": { "type": "string" },
+                    "date": { "type": "string" },
+                    "bodyPart": { "type": "string" },
+                    "duration": { "type": "number" },
+                    "isCompleted": { "type": "boolean" },
+                    "exercises": { "type": "array" },
+                    "createdAt": { "type": "timestamp" }
+                  }
+                }
+              }
+            },
+            "settings": {
+              "description": "User preferences and goals",
+              "documents": {
+                "goals": {
+                  "fields": {
+                    "calories": { "type": "number" },
+                    "carbs": { "type": "number" },
+                    "protein": { "type": "number" },
+                    "fat": { "type": "number" }
+                  }
+                },
+                "meals": {
+                  "fields": {
+                    "activeMeals": { "type": "array" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

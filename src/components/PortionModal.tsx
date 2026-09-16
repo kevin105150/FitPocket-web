@@ -17,18 +17,31 @@ export const PortionModal: React.FC<PortionModalProps> = ({
   onClose,
   onConfirm,
 }) => {
-  const [amount, setAmount] = useState<number>(food.defaultServingAmount || 100);
+  const [amount, setAmount] = useState<number>(food.servingAmount || 100);
   const [unit, setUnit] = useState<string>(food.servingUnit || 'g');
 
-  const ratio = (amount || 0) / 100;
-  const cal = Math.round(food.caloriesPer100g * ratio * 10) / 10;
-  const carbs = Math.round(food.carbsPer100g * ratio * 10) / 10;
-  const pro = Math.round(food.proteinPer100g * ratio * 10) / 10;
-  const fat = Math.round(food.fatPer100g * ratio * 10) / 10;
-  const sugars = Math.round((food.sugarsPer100g || 0) * ratio * 10) / 10;
-  const fiber = Math.round((food.fiberPer100g || 0) * ratio * 10) / 10;
-  const sodium = Math.round((food.sodiumPer100g || 0) * ratio * 10) / 10;
-  const potassium = Math.round((food.potassiumPer100g || 0) * ratio * 10) / 10;
+  // Multiplier logic
+  let multiplier = 1.0;
+  if (unit === '份') {
+    multiplier = amount;
+  } else if (unit === food.servingUnit) {
+    multiplier = amount / (food.servingAmount || 1);
+  } else {
+    if (unit === 'g' || unit === 'ml') {
+      multiplier = amount / (food.servingAmount || 100);
+    } else {
+      multiplier = amount;
+    }
+  }
+
+  const cal = Math.round(food.calories * multiplier * 10) / 10;
+  const carbs = Math.round(food.carbs * multiplier * 10) / 10;
+  const pro = Math.round(food.protein * multiplier * 10) / 10;
+  const fat = Math.round(food.fat * multiplier * 10) / 10;
+  const sugars = Math.round((food.sugars || 0) * multiplier * 10) / 10;
+  const fiber = Math.round((food.fiber || 0) * multiplier * 10) / 10;
+  const sodium = Math.round((food.sodium || 0) * multiplier * 10) / 10;
+  const potassium = Math.round((food.potassium || 0) * multiplier * 10) / 10;
 
   const handleAdjust = (delta: number) => {
     setAmount((prev) => Math.max(5, Math.round((prev + delta) * 10) / 10));
@@ -48,10 +61,11 @@ export const PortionModal: React.FC<PortionModalProps> = ({
       fiber,
       sodium,
       potassium,
-      amount,
-      unit,
+      loggedAmount: amount,
+      loggedUnit: unit,
+      brand: food.brand,
       barcode: food.barcode,
-      imageUrl: food.imageUrl,
+      sourceFoodId: food.id.startsWith('custom_') ? food.id.replace('custom_', '') : undefined,
       createdAt: Date.now(),
     };
     onConfirm(record);
@@ -141,35 +155,46 @@ export const PortionModal: React.FC<PortionModalProps> = ({
           </div>
 
           {/* Calculated Nutrition Card */}
-          <div className="bg-emerald-50/70 border border-emerald-200/60 p-4 rounded-2xl">
-            <div className="flex items-baseline justify-between mb-3">
-              <span className="text-xs font-bold text-emerald-900">總計熱量</span>
+          <div className="bg-slate-50 border border-slate-200 p-4 rounded-2xl">
+            <div className="flex items-baseline justify-between mb-4">
+              <span className="text-xs font-bold text-slate-600">實際攝取營養預覽：</span>
               <span className="text-2xl font-black text-emerald-800">
                 {cal} <span className="text-sm font-semibold text-emerald-700">kcal</span>
               </span>
             </div>
 
-            <div className="grid grid-cols-3 gap-2 text-center pt-2 border-t border-emerald-200/50">
-              <div className="bg-white/80 p-2 rounded-xl">
-                <span className="text-[11px] font-bold text-amber-700 block">碳水</span>
-                <span className="text-sm font-black text-slate-800">{carbs}g</span>
+            <div className="grid grid-cols-4 gap-2 text-center">
+              <div className="bg-white p-2 rounded-xl border border-slate-100 shadow-2xs">
+                <div className="text-[10px] text-amber-600 mb-0.5 font-bold">碳水</div>
+                <div className="text-sm font-black text-slate-800">{carbs}g</div>
               </div>
-              <div className="bg-white/80 p-2 rounded-xl">
-                <span className="text-[11px] font-bold text-blue-700 block">蛋白質</span>
-                <span className="text-sm font-black text-slate-800">{pro}g</span>
+              <div className="bg-white p-2 rounded-xl border border-slate-100 shadow-2xs">
+                <div className="text-[10px] text-blue-600 mb-0.5 font-bold">蛋白質</div>
+                <div className="text-sm font-black text-slate-800">{pro}g</div>
               </div>
-              <div className="bg-white/80 p-2 rounded-xl">
-                <span className="text-[11px] font-bold text-rose-700 block">脂肪</span>
-                <span className="text-sm font-black text-slate-800">{fat}g</span>
+              <div className="bg-white p-2 rounded-xl border border-slate-100 shadow-2xs">
+                <div className="text-[10px] text-rose-600 mb-0.5 font-bold">脂肪</div>
+                <div className="text-sm font-black text-slate-800">{fat}g</div>
               </div>
-            </div>
-
-            {/* Micro nutrients */}
-            <div className="grid grid-cols-4 gap-1 text-center mt-2 text-[10px] text-slate-600">
-              <div>糖 {sugars}g</div>
-              <div>纖維 {fiber}g</div>
-              <div>鈉 {sodium}mg</div>
-              <div>鉀 {potassium}mg</div>
+              <div className="bg-white p-2 rounded-xl border border-slate-100 shadow-2xs">
+                <div className="text-[10px] text-orange-500 mb-0.5 font-bold">糖</div>
+                <div className="text-sm font-black text-slate-800">{sugars}g</div>
+              </div>
+              <div className="bg-white p-2 rounded-xl border border-slate-100 shadow-2xs">
+                <div className="text-[10px] text-slate-400 mb-0.5 font-bold">纖維</div>
+                <div className="text-sm font-black text-slate-800">{fiber}g</div>
+              </div>
+              <div className="bg-white p-2 rounded-xl border border-slate-100 shadow-2xs">
+                <div className="text-[10px] text-indigo-500 mb-0.5 font-bold">鈉</div>
+                <div className="text-[10px] font-black text-slate-800">{sodium}mg</div>
+              </div>
+              <div className="bg-white p-2 rounded-xl border border-slate-100 shadow-2xs">
+                <div className="text-[10px] text-cyan-500 mb-0.5 font-bold">鉀</div>
+                <div className="text-[10px] font-black text-slate-800">{potassium}mg</div>
+              </div>
+              <div className="bg-white p-2 rounded-xl border border-slate-100 shadow-2xs flex flex-col justify-center">
+                <div className="text-[9px] text-slate-400 leading-tight">即時<br/>換算</div>
+              </div>
             </div>
           </div>
         </div>

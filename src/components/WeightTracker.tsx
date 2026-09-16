@@ -16,11 +16,13 @@ export const WeightTracker: React.FC<WeightTrackerProps> = ({
   const [weightRecords, setWeightRecords] = useState<WeightRecord[]>([]);
   const [currentDayRecord, setCurrentDayRecord] = useState<WeightRecord | undefined>(undefined);
   const [morningWeight, setMorningWeight] = useState<string>('');
-  const [morningTime, setMorningTime] = useState<string>('08:00');
+  const [morningTime, setMorningTime] = useState<string>(new Date().toTimeString().slice(0, 5));
   const [eveningWeight, setEveningWeight] = useState<string>('');
-  const [eveningTime, setEveningTime] = useState<string>('21:30');
+  const [eveningTime, setEveningTime] = useState<string>(new Date().toTimeString().slice(0, 5));
   const [chartDays, setChartDays] = useState<number>(7);
   const [userProfile, setUserProfile] = useState(StorageService.getUserProfile());
+
+  const [activeTab, setActiveTab] = useState<'morning' | 'evening'>('morning');
 
   const refreshWeights = () => {
     const all = StorageService.getAllWeightRecords().sort(
@@ -36,7 +38,9 @@ export const WeightTracker: React.FC<WeightTrackerProps> = ({
       setEveningTime(day.eveningTime || '21:30');
     } else {
       setMorningWeight('');
+      setMorningTime(new Date().toTimeString().slice(0, 5));
       setEveningWeight('');
+      setEveningTime(new Date().toTimeString().slice(0, 5));
     }
     setUserProfile(StorageService.getUserProfile());
   };
@@ -49,6 +53,11 @@ export const WeightTracker: React.FC<WeightTrackerProps> = ({
     e.preventDefault();
     const mw = morningWeight ? parseFloat(morningWeight) : null;
     const ew = eveningWeight ? parseFloat(eveningWeight) : null;
+
+    if (mw === null && ew === null) {
+      // Don't save empty
+      return;
+    }
 
     const record: WeightRecord = {
       id: currentDayRecord?.id || 'weight_' + Date.now(),
@@ -64,6 +73,8 @@ export const WeightTracker: React.FC<WeightTrackerProps> = ({
     refreshWeights();
   };
 
+  // ... (Chart logic needs to be updated to be tab-aware)
+  
   const handleDeleteRecord = (id: string) => {
     StorageService.deleteWeightRecord(id);
     refreshWeights();
@@ -85,12 +96,17 @@ export const WeightTracker: React.FC<WeightTrackerProps> = ({
   const chartFiltered =
     chartDays === 0 ? sortedRecords : sortedRecords.slice(-chartDays);
 
-  const validChartPoints = chartFiltered
-    .map((r) => {
-      const val = r.morningWeightKg || r.eveningWeightKg;
-      return val ? { date: r.date.slice(5), weight: val } : null;
-    })
-    .filter(Boolean) as { date: string; weight: number }[];
+  // Filter for chart based on tab
+  const getChartPoints = (type: 'morning' | 'evening') => {
+    return sortedRecords
+      .map((r) => {
+        const val = type === 'morning' ? r.morningWeightKg : r.eveningWeightKg;
+        return val ? { date: r.date.slice(5), weight: val } : null;
+      })
+      .filter(Boolean) as { date: string; weight: number }[];
+  }
+
+  const validChartPoints = getChartPoints(activeTab);
 
   const minW = Math.min(...validChartPoints.map((p) => p.weight), userProfile.targetWeightKg) - 1;
   const maxW = Math.max(...validChartPoints.map((p) => p.weight), userProfile.targetWeightKg) + 1;
@@ -102,16 +118,24 @@ export const WeightTracker: React.FC<WeightTrackerProps> = ({
       <DateNavigator currentDate={currentDate} onDateChange={onDateChange} />
 
       {/* Summary KPI Cards */}
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-2 gap-3">
         <div className="bg-white rounded-3xl p-4 border border-slate-200/80 shadow-2xs text-center">
           <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-            目前體重
+            晨間體重
           </div>
-          <div className="text-xl font-black text-slate-900 mt-1">
-            {latestWeight} <span className="text-xs font-semibold text-slate-400">kg</span>
+          <div className="text-xl font-black text-amber-800 mt-1">
+            {[...weightRecords].reverse().find(r => r.morningWeightKg)?.morningWeightKg || '--'}{' '}
+            <span className="text-xs font-semibold text-slate-400">kg</span>
           </div>
-          <div className="text-[10px] font-semibold text-emerald-700 mt-0.5">
-            BMI {bmi}
+        </div>
+
+        <div className="bg-white rounded-3xl p-4 border border-slate-200/80 shadow-2xs text-center">
+          <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+            晚間體重
+          </div>
+          <div className="text-xl font-black text-indigo-800 mt-1">
+            {[...weightRecords].reverse().find(r => r.eveningWeightKg)?.eveningWeightKg || '--'}{' '}
+            <span className="text-xs font-semibold text-slate-400">kg</span>
           </div>
         </div>
 
@@ -123,9 +147,6 @@ export const WeightTracker: React.FC<WeightTrackerProps> = ({
             {userProfile.targetWeightKg}{' '}
             <span className="text-xs font-semibold text-slate-400">kg</span>
           </div>
-          <div className="text-[10px] font-semibold text-slate-400 mt-0.5">
-            差距 {(latestWeight - userProfile.targetWeightKg).toFixed(1)} kg
-          </div>
         </div>
 
         <div className="bg-white rounded-3xl p-4 border border-slate-200/80 shadow-2xs text-center">
@@ -136,68 +157,57 @@ export const WeightTracker: React.FC<WeightTrackerProps> = ({
             {userProfile.heightCm}{' '}
             <span className="text-xs font-semibold text-slate-400">cm</span>
           </div>
-          <div className="text-[10px] font-semibold text-slate-400 mt-0.5">
-            標準範圍 18.5-24
-          </div>
         </div>
       </div>
 
-      {/* Today Weight Log Form */}
+      {/* Tab Switcher */}
+      <div className="bg-white p-1 rounded-2xl border border-slate-200 flex gap-1">
+        <button
+          onClick={() => setActiveTab('morning')}
+          className={`flex-1 py-3 text-sm font-bold rounded-xl transition ${activeTab === 'morning' ? 'bg-amber-100 text-amber-900' : 'text-slate-500'}`}
+        >
+          晨間體重
+        </button>
+        <button
+          onClick={() => setActiveTab('evening')}
+          className={`flex-1 py-3 text-sm font-bold rounded-xl transition ${activeTab === 'evening' ? 'bg-indigo-100 text-indigo-900' : 'text-slate-500'}`}
+        >
+          晚間體重
+        </button>
+      </div>
+
+      {/* Weight Entry Form */}
       <div className="bg-white rounded-3xl border border-slate-200/80 shadow-2xs p-5">
-        <h3 className="font-bold text-slate-900 text-sm mb-3">記錄 {currentDate} 體重</h3>
+        <h3 className="font-bold text-slate-900 text-sm mb-3">記錄 {currentDate} {activeTab === 'morning' ? '晨間' : '晚間'} 體重</h3>
         <form onSubmit={handleSaveDayWeight} className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            {/* Morning Weight */}
-            <div className="bg-amber-50/50 border border-amber-200/60 p-3.5 rounded-2xl">
-              <span className="text-xs font-bold text-amber-900 block mb-1">🌅 晨重 (空腹)</span>
-              <div className="flex items-center gap-1.5">
+            <div className={`p-4 rounded-2xl border ${activeTab === 'morning' ? 'bg-amber-50/50 border-amber-200/60' : 'bg-indigo-50/50 border-indigo-200/60'}`}>
+              <div className="flex justify-between items-center mb-1">
+                <span className="text-xs font-bold text-slate-700">{activeTab === 'morning' ? '🌅 晨重 (空腹)' : '🌙 晚重 (睡前)'}</span>
+                <input
+                  type="time"
+                  value={activeTab === 'morning' ? morningTime : eveningTime}
+                  onChange={(e) => activeTab === 'morning' ? setMorningTime(e.target.value) : setEveningTime(e.target.value)}
+                  className="px-2 py-1 text-xs font-bold bg-white rounded-lg border border-slate-200 text-slate-600"
+                />
+              </div>
+              <div className="flex items-center gap-1.5 mt-2">
                 <input
                   type="number"
                   step="0.1"
                   placeholder="例如: 72.4"
-                  value={morningWeight}
-                  onChange={(e) => setMorningWeight(e.target.value)}
-                  className="w-full px-2.5 py-1.5 bg-white rounded-xl border border-amber-200 text-base font-black text-slate-800 focus:outline-amber-600"
+                  value={activeTab === 'morning' ? morningWeight : eveningWeight}
+                  onChange={(e) => activeTab === 'morning' ? setMorningWeight(e.target.value) : setEveningWeight(e.target.value)}
+                  className="w-full px-3 py-2 bg-white rounded-xl border border-slate-200 text-lg font-black text-slate-800 focus:outline-emerald-600"
                 />
-                <span className="text-xs font-bold text-slate-500">kg</span>
+                <span className="text-sm font-bold text-slate-500">kg</span>
               </div>
-              <input
-                type="time"
-                value={morningTime}
-                onChange={(e) => setMorningTime(e.target.value)}
-                className="w-full mt-2 px-2 py-1 text-xs bg-white rounded-lg border border-amber-200 text-slate-600"
-              />
             </div>
-
-            {/* Evening Weight */}
-            <div className="bg-indigo-50/50 border border-indigo-200/60 p-3.5 rounded-2xl">
-              <span className="text-xs font-bold text-indigo-900 block mb-1">🌙 晚重 (睡前)</span>
-              <div className="flex items-center gap-1.5">
-                <input
-                  type="number"
-                  step="0.1"
-                  placeholder="例如: 73.1"
-                  value={eveningWeight}
-                  onChange={(e) => setEveningWeight(e.target.value)}
-                  className="w-full px-2.5 py-1.5 bg-white rounded-xl border border-indigo-200 text-base font-black text-slate-800 focus:outline-indigo-600"
-                />
-                <span className="text-xs font-bold text-slate-500">kg</span>
-              </div>
-              <input
-                type="time"
-                value={eveningTime}
-                onChange={(e) => setEveningTime(e.target.value)}
-                className="w-full mt-2 px-2 py-1 text-xs bg-white rounded-lg border border-indigo-200 text-slate-600"
-              />
-            </div>
-          </div>
-
           <button
             type="submit"
-            className="w-full py-2.5 bg-emerald-800 hover:bg-emerald-900 text-white font-bold text-xs rounded-xl shadow-xs transition flex items-center justify-center gap-1.5 cursor-pointer"
+            className="w-full py-3 bg-emerald-800 hover:bg-emerald-900 text-white font-bold text-sm rounded-xl shadow-xs transition flex items-center justify-center gap-1.5 cursor-pointer"
           >
             <Check className="w-4 h-4" />
-            <span>儲存體重記錄</span>
+            <span>儲存 {activeTab === 'morning' ? '晨間' : '晚間'} 體重</span>
           </button>
         </form>
       </div>
