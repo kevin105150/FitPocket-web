@@ -32,6 +32,7 @@ import { StorageService } from '../services/storage';
 import { CloudFoodService } from '../services/cloudFoodService';
 import { GoalSettingModal } from './GoalSettingModal';
 import { CustomFoodModal } from './CustomFoodModal';
+import { ExportHtmlModal } from './ExportHtmlModal';
 import { auth, loginWithGoogle, logout, testFirebaseConnection } from '../lib/firebase';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 
@@ -82,6 +83,7 @@ export const SettingsScreen: React.FC = () => {
   // Modals
   const [showCustomFoodModal, setShowCustomFoodModal] = useState(false);
   const [showCustomFoodsListModal, setShowCustomFoodsListModal] = useState(false);
+  const [showExportHtmlModal, setShowExportHtmlModal] = useState(false);
   const [customFoodsSearchQuery, setCustomFoodsSearchQuery] = useState('');
   const [editingCustomFood, setEditingCustomFood] = useState<CustomFood | undefined>(
     undefined
@@ -273,19 +275,7 @@ export const SettingsScreen: React.FC = () => {
 
   // HTML Export Report
   const handleExportHtml = () => {
-    const rawDataJson = StorageService.exportData();
-    const parsedData = JSON.parse(rawDataJson);
-    const htmlContent = generateFullAppExportHtml(parsedData);
-    const blob = new Blob([htmlContent], { type: 'text/html; charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `fitpocket_full_report_${getTodayString()}.html`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    flashMessage('已成功匯出全頁面互動式 HTML 備份檔！');
+    setShowExportHtmlModal(true);
   };
 
   // JSON Import
@@ -895,6 +885,13 @@ export const SettingsScreen: React.FC = () => {
       </div>
 
       {/* Modals */}
+      {showExportHtmlModal && (
+        <ExportHtmlModal
+          onClose={() => setShowExportHtmlModal(false)}
+          onSuccessMessage={flashMessage}
+        />
+      )}
+
       {showCustomFoodModal && (
         <CustomFoodModal
           initialFood={editingCustomFood}

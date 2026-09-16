@@ -1,15 +1,25 @@
-import { getTodayString } from './dateUtils';
+import { getTodayString, addDays, formatChineseDisplayDate } from './dateUtils';
 
-export function generateFullAppExportHtml(exportData: any): string {
+interface ExportOptions {
+  selectedDate?: string;
+  startDate?: string;
+  endDate?: string;
+}
+
+export function generateFullAppExportHtml(exportData: any, options?: ExportOptions): string {
   const jsonString = JSON.stringify(exportData);
   const exportedAtStr = new Date().toLocaleString('zh-TW');
+  const initialDate = options?.selectedDate || options?.endDate || getTodayString();
+  const dateRangeNotice = options?.startDate && options?.endDate 
+    ? `涵蓋區間：${options.startDate} ～ ${options.endDate} (往前7天)`
+    : '完整歷史數據';
 
   return `<!DOCTYPE html>
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>FitPocket 完整健康記錄離線備份</title>
+  <title>FitPocket 健康與飲食訓練報表 (${initialDate})</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
@@ -33,7 +43,7 @@ export function generateFullAppExportHtml(exportData: any): string {
     @media print {
       .no-print { display: none !important; }
       body { background: #fff !important; }
-      .shadow-sm, .shadow-md, .shadow-xl { box-shadow: none !important; }
+      .shadow-sm, .shadow-md, .shadow-xl, .shadow-2xs { box-shadow: none !important; }
     }
     .scrollbar-none::-webkit-scrollbar { display: none; }
     .scrollbar-none { -ms-overflow-style: none; scrollbar-width: none; }
@@ -52,11 +62,11 @@ export function generateFullAppExportHtml(exportData: any): string {
           <path d="M 270 170 H 345 C 380 170 405 192 405 224 C 405 256 380 278 345 278 H 312 V 332 C 312 343 303 352 291 352 C 279 352 270 343 270 332 V 170 Z M 312 210 V 238 H 342 C 353 238 362 232 362 224 C 362 216 353 210 342 210 H 312 Z" fill="#0F172A"/>
         </svg>
         <div>
-          <h1 class="text-base sm:text-lg font-black text-slate-900 tracking-tight leading-none">FitPocket</h1>
-          <p class="text-[11px] text-slate-500 font-medium">完整歷史記錄備份 ‧ 匯出於 ${exportedAtStr}</p>
+          <h1 class="text-base sm:text-lg font-black text-slate-900 tracking-tight leading-none">FitPocket 離線報表</h1>
+          <p class="text-[11px] text-slate-500 font-medium">${dateRangeNotice} ‧ 匯出於 ${exportedAtStr}</p>
         </div>
       </div>
-      <button onclick="window.print()" class="no-print text-xs font-bold px-3 py-1.5 bg-emerald-50 text-emerald-800 rounded-xl hover:bg-emerald-100 transition border border-emerald-200">
+      <button onclick="window.print()" class="no-print text-xs font-bold px-3 py-1.5 bg-emerald-50 text-emerald-800 rounded-xl hover:bg-emerald-100 transition border border-emerald-200 cursor-pointer">
         🖨️ 列印 / PDF
       </button>
     </div>
@@ -65,7 +75,7 @@ export function generateFullAppExportHtml(exportData: any): string {
   <!-- Main Container -->
   <main class="max-w-2xl mx-auto px-4 py-5 space-y-4">
 
-    <!-- Date Navigator Card (Identical to DateNavigator.tsx) -->
+    <!-- Date Navigator Card -->
     <div class="bg-white rounded-2xl shadow-xs border border-emerald-900/5 p-3 flex items-center justify-between gap-2">
       <button
         type="button"
@@ -91,9 +101,9 @@ export function generateFullAppExportHtml(exportData: any): string {
         <button
           id="today-btn"
           onclick="todayDate()"
-          class="hidden px-2.5 py-1 bg-emerald-100 text-emerald-800 text-xs font-bold rounded-lg hover:bg-emerald-200 transition shrink-0"
+          class="hidden px-2.5 py-1 bg-emerald-100 text-emerald-800 text-xs font-bold rounded-lg hover:bg-emerald-200 transition shrink-0 cursor-pointer"
         >
-          今天
+          基準日
         </button>
       </div>
 
@@ -107,15 +117,15 @@ export function generateFullAppExportHtml(exportData: any): string {
       </button>
     </div>
 
-    <!-- Navigation Tabs (Identical to Navigation.tsx) -->
+    <!-- Navigation Tabs -->
     <div class="bg-white/80 backdrop-blur-md rounded-2xl border border-emerald-900/5 p-1.5 flex items-center justify-around no-print shadow-xs">
-      <button id="tab-diet" onclick="switchTab('diet')" class="flex-1 py-2 text-xs font-bold rounded-xl transition text-center bg-emerald-800 text-white shadow-2xs">
+      <button id="tab-diet" onclick="switchTab('diet')" class="flex-1 py-2 text-xs font-bold rounded-xl transition text-center bg-emerald-800 text-white shadow-2xs cursor-pointer">
         🥗 飲食與水分
       </button>
-      <button id="tab-workout" onclick="switchTab('workout')" class="flex-1 py-2 text-xs font-bold rounded-xl transition text-center text-slate-600 hover:text-slate-900">
+      <button id="tab-workout" onclick="switchTab('workout')" class="flex-1 py-2 text-xs font-bold rounded-xl transition text-center text-slate-600 hover:text-slate-900 cursor-pointer">
         🏋️ 訓練健身
       </button>
-      <button id="tab-weight" onclick="switchTab('weight')" class="flex-1 py-2 text-xs font-bold rounded-xl transition text-center text-slate-600 hover:text-slate-900">
+      <button id="tab-weight" onclick="switchTab('weight')" class="flex-1 py-2 text-xs font-bold rounded-xl transition text-center text-slate-600 hover:text-slate-900 cursor-pointer">
         ⚖️ 體重目標
       </button>
     </div>
@@ -123,7 +133,7 @@ export function generateFullAppExportHtml(exportData: any): string {
     <!-- TAB 1: DIET & WATER -->
     <section id="view-diet" class="space-y-4">
 
-      <!-- Macro Summary Card (Identical to DietTracker.tsx) -->
+      <!-- Macro Summary Card -->
       <div class="bg-white rounded-3xl border border-emerald-950/5 shadow-sm p-5 space-y-4">
         
         <!-- Carb Cycle Pills -->
@@ -232,7 +242,7 @@ export function generateFullAppExportHtml(exportData: any): string {
 
       </div>
 
-      <!-- Water Tracker Card (Identical to WaterTracker.tsx) -->
+      <!-- Water Tracker Card -->
       <div class="bg-white rounded-3xl border border-emerald-950/5 shadow-sm p-5 space-y-3">
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-2">
@@ -265,7 +275,10 @@ export function generateFullAppExportHtml(exportData: any): string {
     <section id="view-workout" class="space-y-4 hidden">
       <div class="bg-white rounded-3xl border border-emerald-950/5 shadow-sm p-5 space-y-4">
         <div class="flex items-center justify-between pb-3 border-b border-slate-100">
-          <h2 class="font-black text-base text-slate-900">🏋️ 健身訓練日誌</h2>
+          <div>
+            <h2 class="font-black text-base text-slate-900">🏋️ 健身訓練日誌</h2>
+            <p class="text-[11px] text-slate-400 mt-0.5" id="workout-date-subtitle">當日課表與組數細節</p>
+          </div>
           <span id="workout-count-badge" class="text-xs bg-emerald-50 text-emerald-800 font-bold px-3 py-1 rounded-full border border-emerald-100">
             0 項記錄
           </span>
@@ -279,8 +292,36 @@ export function generateFullAppExportHtml(exportData: any): string {
     <!-- TAB 3: WEIGHT -->
     <section id="view-weight" class="space-y-4 hidden">
       <div class="bg-white rounded-3xl border border-emerald-950/5 shadow-sm p-5 space-y-5">
-        <h2 class="font-black text-base text-slate-900">⚖️ 體重與健康目標</h2>
+        <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+          <div>
+            <h2 class="font-black text-base text-slate-900">⚖️ 體重與健康目標</h2>
+            <p class="text-[11px] text-slate-400 mt-0.5">每日晨晚體重、BMI 與目標追蹤</p>
+          </div>
+          <span id="current-day-weight-tag" class="text-xs bg-amber-50 text-amber-800 font-bold px-3 py-1 rounded-full border border-amber-200/60">
+            當日記錄
+          </span>
+        </div>
+
+        <!-- Selected Day Weight Card -->
+        <div class="bg-slate-50/80 p-4 rounded-2xl border border-slate-200/60 space-y-3">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+              📅 <span id="selected-weight-date-label">當日數值</span>
+            </span>
+          </div>
+          <div class="grid grid-cols-2 gap-3 text-center">
+            <div class="bg-white p-3 rounded-xl border border-amber-100 shadow-2xs">
+              <span class="text-[10px] text-amber-700 font-bold block mb-0.5">🌅 當日晨重</span>
+              <span id="day-morning-weight" class="text-lg font-black text-amber-900">--</span>
+            </div>
+            <div class="bg-white p-3 rounded-xl border border-indigo-100 shadow-2xs">
+              <span class="text-[10px] text-indigo-700 font-bold block mb-0.5">🌙 當日晚重</span>
+              <span id="day-evening-weight" class="text-lg font-black text-indigo-900">--</span>
+            </div>
+          </div>
+        </div>
         
+        <!-- Overall Status Cards -->
         <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
           <div class="bg-amber-50/60 p-3.5 rounded-2xl border border-amber-200/50">
             <p class="text-[11px] text-amber-800 font-bold mb-1">🌅 最新晨重</p>
@@ -304,19 +345,19 @@ export function generateFullAppExportHtml(exportData: any): string {
         <div class="space-y-3">
           <div class="flex flex-wrap items-center justify-between gap-2">
             <div class="flex items-center gap-1 bg-slate-100 p-1 rounded-2xl">
-              <button id="weight-tab-morning" onclick="setWeightTab('morning')" class="px-3 py-1.5 text-xs font-bold rounded-xl transition bg-amber-500 text-white shadow-2xs">
+              <button id="weight-tab-morning" onclick="setWeightTab('morning')" class="px-3 py-1.5 text-xs font-bold rounded-xl transition bg-amber-500 text-white shadow-2xs cursor-pointer">
                 🌅 晨間趨勢
               </button>
-              <button id="weight-tab-evening" onclick="setWeightTab('evening')" class="px-3 py-1.5 text-xs font-bold rounded-xl transition text-slate-600 hover:text-slate-900">
+              <button id="weight-tab-evening" onclick="setWeightTab('evening')" class="px-3 py-1.5 text-xs font-bold rounded-xl transition text-slate-600 hover:text-slate-900 cursor-pointer">
                 🌙 晚間趨勢
               </button>
             </div>
             
             <div class="flex gap-1 bg-slate-100 p-1 rounded-xl">
-              <button onclick="setWeightChartDays(7)" id="w-days-7" class="px-2.5 py-1 text-xs font-bold rounded-lg transition bg-white text-emerald-800 shadow-2xs">7天</button>
-              <button onclick="setWeightChartDays(30)" id="w-days-30" class="px-2.5 py-1 text-xs font-bold rounded-lg transition text-slate-500 hover:text-slate-800">30天</button>
-              <button onclick="setWeightChartDays(90)" id="w-days-90" class="px-2.5 py-1 text-xs font-bold rounded-lg transition text-slate-500 hover:text-slate-800">90天</button>
-              <button onclick="setWeightChartDays(0)" id="w-days-0" class="px-2.5 py-1 text-xs font-bold rounded-lg transition text-slate-500 hover:text-slate-800">全部</button>
+              <button onclick="setWeightChartDays(7)" id="w-days-7" class="px-2.5 py-1 text-xs font-bold rounded-lg transition bg-white text-emerald-800 shadow-2xs cursor-pointer">7天</button>
+              <button onclick="setWeightChartDays(30)" id="w-days-30" class="px-2.5 py-1 text-xs font-bold rounded-lg transition text-slate-500 hover:text-slate-800 cursor-pointer">30天</button>
+              <button onclick="setWeightChartDays(90)" id="w-days-90" class="px-2.5 py-1 text-xs font-bold rounded-lg transition text-slate-500 hover:text-slate-800 cursor-pointer">90天</button>
+              <button onclick="setWeightChartDays(0)" id="w-days-0" class="px-2.5 py-1 text-xs font-bold rounded-lg transition text-slate-500 hover:text-slate-800 cursor-pointer">全部</button>
             </div>
           </div>
 
@@ -352,8 +393,8 @@ export function generateFullAppExportHtml(exportData: any): string {
   <script>
     const APP_DATA = ${jsonString};
 
-    let currentDate = "${getTodayString()}";
-    const todayStr = "${getTodayString()}";
+    let currentDate = "${initialDate}";
+    const exportBaseDate = "${initialDate}";
 
     // Carb Cycle Information
     const CARB_CYCLE_INFO = {
@@ -391,13 +432,19 @@ export function generateFullAppExportHtml(exportData: any): string {
     }
 
     function init() {
-      document.getElementById('datePicker').value = currentDate;
-      renderCarbCyclePills();
-      renderAll();
+      try {
+        const picker = document.getElementById('datePicker');
+        if (picker) picker.value = currentDate;
+        renderCarbCyclePills();
+        renderAll();
+      } catch (e) {
+        console.error('Init error:', e);
+      }
     }
 
     function renderCarbCyclePills() {
       const container = document.getElementById('carb-cycle-container');
+      if (!container) return;
       const cycles = ['HIGH', 'MEDIUM', 'LOW', 'CUSTOM'];
       container.innerHTML = cycles.map(c => {
         const info = CARB_CYCLE_INFO[c];
@@ -421,25 +468,29 @@ export function generateFullAppExportHtml(exportData: any): string {
     function setDate(val) {
       if (!val) return;
       currentDate = val;
-      document.getElementById('datePicker').value = currentDate;
+      const picker = document.getElementById('datePicker');
+      if (picker) picker.value = currentDate;
       renderAll();
     }
 
     function prevDay() {
       currentDate = addDays(currentDate, -1);
-      document.getElementById('datePicker').value = currentDate;
+      const picker = document.getElementById('datePicker');
+      if (picker) picker.value = currentDate;
       renderAll();
     }
 
     function nextDay() {
       currentDate = addDays(currentDate, 1);
-      document.getElementById('datePicker').value = currentDate;
+      const picker = document.getElementById('datePicker');
+      if (picker) picker.value = currentDate;
       renderAll();
     }
 
     function todayDate() {
-      currentDate = todayStr;
-      document.getElementById('datePicker').value = currentDate;
+      currentDate = exportBaseDate;
+      const picker = document.getElementById('datePicker');
+      if (picker) picker.value = currentDate;
       renderAll();
     }
 
@@ -448,11 +499,12 @@ export function generateFullAppExportHtml(exportData: any): string {
       tabs.forEach(t => {
         const btn = document.getElementById('tab-' + t);
         const view = document.getElementById('view-' + t);
+        if (!btn || !view) return;
         if (t === tab) {
-          btn.className = "flex-1 py-2 text-xs font-bold rounded-xl transition text-center bg-emerald-800 text-white shadow-2xs";
+          btn.className = "flex-1 py-2 text-xs font-bold rounded-xl transition text-center bg-emerald-800 text-white shadow-2xs cursor-pointer";
           view.classList.remove('hidden');
         } else {
-          btn.className = "flex-1 py-2 text-xs font-bold rounded-xl transition text-center text-slate-600 hover:text-slate-900";
+          btn.className = "flex-1 py-2 text-xs font-bold rounded-xl transition text-center text-slate-600 hover:text-slate-900 cursor-pointer";
           view.classList.add('hidden');
         }
       });
@@ -464,10 +516,10 @@ export function generateFullAppExportHtml(exportData: any): string {
       const profile = APP_DATA.userProfile || {};
 
       return {
-        calories: preset.calories || profile.targetCalories || 2000,
-        carbs: preset.carbs || profile.targetCarbs || 250,
-        protein: preset.protein || profile.targetProtein || 120,
-        fat: preset.fat || profile.targetFat || 50,
+        calories: Number(preset.calories || profile.targetCalories || 2000),
+        carbs: Number(preset.carbs || profile.targetCarbs || 250),
+        protein: Number(preset.protein || profile.targetProtein || 120),
+        fat: Number(preset.fat || profile.targetFat || 50),
       };
     }
 
@@ -476,17 +528,21 @@ export function generateFullAppExportHtml(exportData: any): string {
       const dateDisplay = document.getElementById('date-display');
       const todayBtn = document.getElementById('today-btn');
 
-      dateDisplay.textContent = formatChineseDisplayDate(currentDate);
-
-      if (currentDate !== todayStr) {
-        todayBtn.classList.remove('hidden');
-      } else {
-        todayBtn.classList.add('hidden');
+      if (dateDisplay) {
+        dateDisplay.textContent = formatChineseDisplayDate(currentDate);
       }
 
-      renderDiet();
-      renderWorkouts();
-      renderWeight();
+      if (todayBtn) {
+        if (currentDate !== exportBaseDate) {
+          todayBtn.classList.remove('hidden');
+        } else {
+          todayBtn.classList.add('hidden');
+        }
+      }
+
+      try { renderDiet(); } catch (err) { console.error('Error rendering diet:', err); }
+      try { renderWorkouts(); } catch (err) { console.error('Error rendering workouts:', err); }
+      try { renderWeight(); } catch (err) { console.error('Error rendering weight:', err); }
     }
 
     function renderDiet() {
@@ -497,73 +553,98 @@ export function generateFullAppExportHtml(exportData: any): string {
       let totalSugars = 0, totalFiber = 0, totalSodium = 0, totalPotassium = 0;
 
       foods.forEach(f => {
-        totalCal += (f.calories || 0);
-        totalCarbs += (f.carbs || 0);
-        totalProtein += (f.protein || 0);
-        totalFat += (f.fat || 0);
-        totalSugars += (f.sugars || 0);
-        totalFiber += (f.fiber || 0);
-        totalSodium += (f.sodium || 0);
-        totalPotassium += (f.potassium || 0);
+        totalCal += (Number(f.calories) || 0);
+        totalCarbs += (Number(f.carbs) || 0);
+        totalProtein += (Number(f.protein) || 0);
+        totalFat += (Number(f.fat) || 0);
+        totalSugars += (Number(f.sugars) || 0);
+        totalFiber += (Number(f.fiber) || 0);
+        totalSodium += (Number(f.sodium) || 0);
+        totalPotassium += (Number(f.potassium) || 0);
       });
 
       const calDiff = goal.calories - totalCal;
       const calPercent = Math.min(100, Math.round((totalCal / (goal.calories || 1)) * 100));
 
-      document.getElementById('total-calories').textContent = Math.round(totalCal);
-      document.getElementById('target-calories').textContent = goal.calories;
-      document.getElementById('cal-target-text').textContent = goal.calories;
-      document.getElementById('cal-percent').textContent = calPercent;
+      const totalCalEl = document.getElementById('total-calories');
+      if (totalCalEl) totalCalEl.textContent = Math.round(totalCal);
+      const targetCalEl = document.getElementById('target-calories');
+      if (targetCalEl) targetCalEl.textContent = goal.calories;
+      const calTargetTextEl = document.getElementById('cal-target-text');
+      if (calTargetTextEl) calTargetTextEl.textContent = goal.calories;
+      const calPercentEl = document.getElementById('cal-percent');
+      if (calPercentEl) calPercentEl.textContent = calPercent;
 
       const calDiffLabel = document.getElementById('cal-diff-label');
       const calDiffVal = document.getElementById('cal-diff-val');
       const calProgressBar = document.getElementById('cal-progress-bar');
 
-      if (calDiff >= 0) {
-        calDiffLabel.textContent = '剩餘可攝取';
-        calDiffVal.className = 'text-2xl font-black mt-0.5 text-emerald-700';
-        calDiffVal.innerHTML = Math.round(calDiff) + ' <span class="text-xs font-semibold">kcal</span>';
-        calProgressBar.className = 'h-full bg-emerald-600 transition-all duration-300 rounded-full';
-      } else {
-        calDiffLabel.textContent = '超出預算';
-        calDiffVal.className = 'text-2xl font-black mt-0.5 text-rose-600';
-        calDiffVal.innerHTML = Math.abs(Math.round(calDiff)) + ' <span class="text-xs font-semibold">kcal</span>';
-        calProgressBar.className = 'h-full bg-rose-500 transition-all duration-300 rounded-full';
+      if (calDiffLabel && calDiffVal && calProgressBar) {
+        if (calDiff >= 0) {
+          calDiffLabel.textContent = '剩餘可攝取';
+          calDiffVal.className = 'text-2xl font-black mt-0.5 text-emerald-700';
+          calDiffVal.innerHTML = Math.round(calDiff) + ' <span class="text-xs font-semibold">kcal</span>';
+          calProgressBar.className = 'h-full bg-emerald-600 transition-all duration-300 rounded-full';
+        } else {
+          calDiffLabel.textContent = '超出預算';
+          calDiffVal.className = 'text-2xl font-black mt-0.5 text-rose-600';
+          calDiffVal.innerHTML = Math.abs(Math.round(calDiff)) + ' <span class="text-xs font-semibold">kcal</span>';
+          calProgressBar.className = 'h-full bg-rose-500 transition-all duration-300 rounded-full';
+        }
+        calProgressBar.style.width = calPercent + '%';
       }
-      calProgressBar.style.width = calPercent + '%';
 
       // 3 Macros
-      document.getElementById('val-carbs').textContent = Math.round(totalCarbs);
-      document.getElementById('target-carbs').textContent = goal.carbs;
+      const valCarbsEl = document.getElementById('val-carbs');
+      if (valCarbsEl) valCarbsEl.textContent = Math.round(totalCarbs);
+      const targetCarbsEl = document.getElementById('target-carbs');
+      if (targetCarbsEl) targetCarbsEl.textContent = goal.carbs;
       const pctC = Math.round((totalCarbs / (goal.carbs || 1)) * 100);
-      document.getElementById('pct-carbs').textContent = pctC + '%';
-      document.getElementById('bar-carbs').style.width = Math.min(100, pctC) + '%';
+      const pctCarbsEl = document.getElementById('pct-carbs');
+      if (pctCarbsEl) pctCarbsEl.textContent = pctC + '%';
+      const barCarbsEl = document.getElementById('bar-carbs');
+      if (barCarbsEl) barCarbsEl.style.width = Math.min(100, pctC) + '%';
 
-      document.getElementById('val-protein').textContent = Math.round(totalProtein);
-      document.getElementById('target-protein').textContent = goal.protein;
+      const valProteinEl = document.getElementById('val-protein');
+      if (valProteinEl) valProteinEl.textContent = Math.round(totalProtein);
+      const targetProteinEl = document.getElementById('target-protein');
+      if (targetProteinEl) targetProteinEl.textContent = goal.protein;
       const pctP = Math.round((totalProtein / (goal.protein || 1)) * 100);
-      document.getElementById('pct-protein').textContent = pctP + '%';
-      document.getElementById('bar-protein').style.width = Math.min(100, pctP) + '%';
+      const pctProteinEl = document.getElementById('pct-protein');
+      if (pctProteinEl) pctProteinEl.textContent = pctP + '%';
+      const barProteinEl = document.getElementById('bar-protein');
+      if (barProteinEl) barProteinEl.style.width = Math.min(100, pctP) + '%';
 
-      document.getElementById('val-fat').textContent = Math.round(totalFat);
-      document.getElementById('target-fat').textContent = goal.fat;
+      const valFatEl = document.getElementById('val-fat');
+      if (valFatEl) valFatEl.textContent = Math.round(totalFat);
+      const targetFatEl = document.getElementById('target-fat');
+      if (targetFatEl) targetFatEl.textContent = goal.fat;
       const pctF = Math.round((totalFat / (goal.fat || 1)) * 100);
-      document.getElementById('pct-fat').textContent = pctF + '%';
-      document.getElementById('bar-fat').style.width = Math.min(100, pctF) + '%';
+      const pctFatEl = document.getElementById('pct-fat');
+      if (pctFatEl) pctFatEl.textContent = pctF + '%';
+      const barFatEl = document.getElementById('bar-fat');
+      if (barFatEl) barFatEl.style.width = Math.min(100, pctF) + '%';
 
       // 4 Micros
-      document.getElementById('val-sugars').textContent = Math.round(totalSugars) + 'g';
-      document.getElementById('val-fiber').textContent = Math.round(totalFiber) + 'g';
-      document.getElementById('val-sodium').innerHTML = Math.round(totalSodium) + ' <span class="text-[9px]">mg</span>';
-      document.getElementById('val-potassium').innerHTML = Math.round(totalPotassium) + ' <span class="text-[9px]">mg</span>';
+      const sugarsEl = document.getElementById('val-sugars');
+      if (sugarsEl) sugarsEl.textContent = Math.round(totalSugars) + 'g';
+      const fiberEl = document.getElementById('val-fiber');
+      if (fiberEl) fiberEl.textContent = Math.round(totalFiber) + 'g';
+      const sodiumEl = document.getElementById('val-sodium');
+      if (sodiumEl) sodiumEl.innerHTML = Math.round(totalSodium) + ' <span class="text-[9px]">mg</span>';
+      const potassiumEl = document.getElementById('val-potassium');
+      if (potassiumEl) potassiumEl.innerHTML = Math.round(totalPotassium) + ' <span class="text-[9px]">mg</span>';
 
       // Water
       const waterGoal = APP_DATA.waterGoal || 2500;
       const waterRecords = (APP_DATA.waterRecords || []).filter(w => w.date === currentDate);
-      const waterIntake = waterRecords.reduce((sum, w) => sum + (w.amountMl || 0), 0);
-      document.getElementById('water-intake').textContent = waterIntake;
-      document.getElementById('water-goal').textContent = waterGoal;
-      document.getElementById('water-bar').style.width = Math.min(100, Math.round((waterIntake / waterGoal) * 100)) + '%';
+      const waterIntake = waterRecords.reduce((sum, w) => sum + (Number(w.amountMl) || 0), 0);
+      const waterIntakeEl = document.getElementById('water-intake');
+      if (waterIntakeEl) waterIntakeEl.textContent = waterIntake;
+      const waterGoalEl = document.getElementById('water-goal');
+      if (waterGoalEl) waterGoalEl.textContent = waterGoal;
+      const waterBarEl = document.getElementById('water-bar');
+      if (waterBarEl) waterBarEl.style.width = Math.min(100, Math.round((waterIntake / waterGoal) * 100)) + '%';
 
       // Meal Sections
       const activeMeals = APP_DATA.activeMeals || [
@@ -574,14 +655,15 @@ export function generateFullAppExportHtml(exportData: any): string {
       ];
 
       const mealsContainer = document.getElementById('meals-container');
+      if (!mealsContainer) return;
       let html = '';
 
       activeMeals.forEach(meal => {
         const mRecords = foods.filter(r => r.mealType === meal.mealType);
-        const mCal = Math.round(mRecords.reduce((s, r) => s + (r.calories || 0), 0));
-        const mC = Math.round(mRecords.reduce((s, r) => s + (r.carbs || 0), 0));
-        const mP = Math.round(mRecords.reduce((s, r) => s + (r.protein || 0), 0));
-        const mF = Math.round(mRecords.reduce((s, r) => s + (r.fat || 0), 0));
+        const mCal = Math.round(mRecords.reduce((s, r) => s + (Number(r.calories) || 0), 0));
+        const mC = Math.round(mRecords.reduce((s, r) => s + (Number(r.carbs) || 0), 0));
+        const mP = Math.round(mRecords.reduce((s, r) => s + (Number(r.protein) || 0), 0));
+        const mF = Math.round(mRecords.reduce((s, r) => s + (Number(r.fat) || 0), 0));
 
         html += '<div class="bg-white rounded-3xl border border-slate-200/70 shadow-2xs overflow-hidden">' +
           '<div class="px-5 py-3.5 flex items-center justify-between bg-white">' +
@@ -602,6 +684,7 @@ export function generateFullAppExportHtml(exportData: any): string {
         if (mRecords.length > 0) {
           html += '<div class="px-5 pb-4 pt-1 border-t border-slate-100 divide-y divide-slate-100">';
           mRecords.forEach(item => {
+            const unit = item.loggedUnit || '份';
             html += '<div class="py-2.5 flex items-center justify-between gap-3">' +
               '<div class="min-w-0 flex-1">' +
                 '<div class="flex items-center gap-1.5 font-bold text-sm text-slate-800">' +
@@ -609,7 +692,7 @@ export function generateFullAppExportHtml(exportData: any): string {
                   (item.brand ? '<span class="text-xs font-medium text-slate-400 shrink-0">' + item.brand + '</span>' : '') +
                 '</div>' +
                 '<div class="flex flex-wrap items-center gap-2 text-xs text-slate-500 mt-0.5">' +
-                  '<span class="font-semibold text-emerald-800">' + item.loggedAmount + (item.loggedUnit || '') + ' , ' + item.calories + ' kcal</span>' +
+                  '<span class="font-semibold text-emerald-800">' + item.loggedAmount + unit + ' , ' + item.calories + ' kcal</span>' +
                   '<div class="flex items-center gap-1">' +
                     '<span class="text-[10px] font-bold text-amber-700 bg-amber-50 px-1.5 py-0.25 rounded-full">C: ' + item.carbs + 'g</span>' +
                     '<span class="text-[10px] font-bold text-blue-700 bg-blue-50 px-1.5 py-0.25 rounded-full">P: ' + item.protein + 'g</span>' +
@@ -633,35 +716,91 @@ export function generateFullAppExportHtml(exportData: any): string {
     function renderWorkouts() {
       const workouts = (APP_DATA.workoutRecords || []).filter(w => w.date === currentDate);
       const container = document.getElementById('workouts-container');
-      document.getElementById('workout-count-badge').textContent = workouts.length + ' 項記錄';
+      const badge = document.getElementById('workout-count-badge');
+      if (badge) badge.textContent = workouts.length + ' 項記錄';
+
+      if (!container) return;
 
       if (workouts.length === 0) {
-        container.innerHTML = '<div class="text-center py-8 text-slate-400 text-xs bg-slate-50 rounded-2xl border border-dashed border-slate-200">此日期尚無訓練記錄</div>';
+        container.innerHTML = '<div class="text-center py-10 text-slate-400 text-xs bg-slate-50 rounded-2xl border border-dashed border-slate-200">' +
+          '此日期尚無訓練記錄' +
+        '</div>';
         return;
       }
 
       let html = '';
       workouts.forEach(w => {
+        const exercises = Array.isArray(w.exercises) ? w.exercises : [];
         html += '<div class="bg-slate-50/80 rounded-2xl p-4 border border-slate-200/60 space-y-3">' +
           '<div class="flex items-center justify-between">' +
-            '<span class="text-xs font-bold px-2.5 py-1 bg-emerald-100 text-emerald-800 rounded-lg">' + (w.bodyPart || '健身訓練') + '</span>' +
+            '<div class="flex items-center gap-2">' +
+              '<span class="text-xs font-black px-3 py-1 bg-emerald-800 text-white rounded-xl shadow-2xs">' + (w.bodyPart || '健身訓練') + '</span>' +
+              (w.note ? '<span class="text-xs text-slate-500 font-medium">備註: ' + w.note + '</span>' : '') +
+            '</div>' +
             '<span class="text-xs text-slate-400 font-medium">' + w.date + '</span>' +
           '</div>' +
-          '<div class="space-y-2">';
+          '<div class="space-y-2.5">';
 
-        (w.exercises || []).forEach(ex => {
-          html += '<div class="bg-white p-3 rounded-xl border border-slate-200/50 space-y-1.5">' +
-            '<p class="font-extrabold text-xs text-slate-800">' + ex.name + '</p>' +
-            '<div class="flex flex-wrap gap-1.5 text-[11px]">';
+        if (exercises.length === 0) {
+          html += '<div class="text-xs text-slate-400 text-center py-3 bg-white rounded-xl border border-slate-100">尚未加入動作</div>';
+        } else {
+          exercises.forEach(ex => {
+            // Support both exerciseSets array and legacy formats
+            const setsList = Array.isArray(ex.exerciseSets) 
+              ? ex.exerciseSets 
+              : (Array.isArray(ex.sets) ? ex.sets : []);
 
-          (ex.sets || []).forEach((s, idx) => {
-            html += '<span class="bg-slate-100 px-2 py-0.5 rounded text-slate-600 font-medium">' +
-              '第' + (idx + 1) + '組: ' + s.weightKg + 'kg × ' + s.reps + '次' +
-            '</span>';
+            const isCardio = !!ex.isCardio;
+            const superset = ex.supersetGroupId ? '<span class="text-[10px] bg-purple-50 text-purple-700 px-1.5 py-0.5 rounded font-bold border border-purple-100">超級組</span>' : '';
+            const cardioTag = isCardio ? '<span class="text-[10px] bg-sky-50 text-sky-700 px-1.5 py-0.5 rounded font-bold border border-sky-100">有氧</span>' : '';
+
+            html += '<div class="bg-white p-3.5 rounded-xl border border-slate-200/60 space-y-2">' +
+              '<div class="flex items-center justify-between">' +
+                '<div class="flex items-center gap-1.5">' +
+                  '<p class="font-extrabold text-sm text-slate-800">' + ex.name + '</p>' +
+                  superset + cardioTag +
+                '</div>' +
+                '<span class="text-[11px] text-slate-400 font-semibold">' + (setsList.length > 0 ? setsList.length + ' 組' : (ex.sets || 3) + ' 組') + '</span>' +
+              '</div>';
+
+            if (setsList.length > 0) {
+              html += '<div class="flex flex-wrap gap-1.5">';
+              setsList.forEach((s, idx) => {
+                const sIdx = s.setIndex || (idx + 1);
+                const sWeight = s.weight !== undefined ? s.weight : (s.weightKg !== undefined ? s.weightKg : 0);
+                const sReps = s.reps !== undefined ? s.reps : 0;
+                const sDuration = s.durationMinutes !== undefined ? s.durationMinutes : (s.duration || null);
+                const isCompleted = !!s.isCompleted;
+
+                let setText = '';
+                if (isCardio || sDuration) {
+                  setText = '第' + sIdx + '組: ' + (sDuration || 20) + ' 分鐘';
+                } else {
+                  setText = '第' + sIdx + '組: ' + sWeight + 'kg × ' + sReps + '次';
+                }
+
+                const setClass = isCompleted
+                  ? 'bg-emerald-50 text-emerald-800 border border-emerald-200 font-bold'
+                  : 'bg-slate-100 text-slate-600 font-medium';
+
+                html += '<span class="px-2.5 py-1 rounded-lg text-xs ' + setClass + '">' +
+                  (isCompleted ? '✓ ' : '') + setText +
+                '</span>';
+              });
+              html += '</div>';
+            } else {
+              // Fallback for compact format
+              const weight = ex.weight || 0;
+              const reps = ex.reps || 10;
+              const sets = ex.sets || 3;
+              html += '<div class="text-xs text-slate-600 font-medium bg-slate-50 p-2 rounded-lg">' +
+                sets + ' 組 × ' + reps + ' 次 (' + weight + ' kg)' +
+              '</div>';
+            }
+
+            html += '</div>';
           });
-
-          html += '</div></div>';
-        });
+        }
 
         html += '</div></div>';
       });
@@ -678,11 +817,11 @@ export function generateFullAppExportHtml(exportData: any): string {
       const eBtn = document.getElementById('weight-tab-evening');
       if (mBtn && eBtn) {
         if (tab === 'morning') {
-          mBtn.className = "px-3 py-1.5 text-xs font-bold rounded-xl transition bg-amber-500 text-white shadow-2xs";
-          eBtn.className = "px-3 py-1.5 text-xs font-bold rounded-xl transition text-slate-600 hover:text-slate-900";
+          mBtn.className = "px-3 py-1.5 text-xs font-bold rounded-xl transition bg-amber-500 text-white shadow-2xs cursor-pointer";
+          eBtn.className = "px-3 py-1.5 text-xs font-bold rounded-xl transition text-slate-600 hover:text-slate-900 cursor-pointer";
         } else {
-          mBtn.className = "px-3 py-1.5 text-xs font-bold rounded-xl transition text-slate-600 hover:text-slate-900";
-          eBtn.className = "px-3 py-1.5 text-xs font-bold rounded-xl transition bg-indigo-600 text-white shadow-2xs";
+          mBtn.className = "px-3 py-1.5 text-xs font-bold rounded-xl transition text-slate-600 hover:text-slate-900 cursor-pointer";
+          eBtn.className = "px-3 py-1.5 text-xs font-bold rounded-xl transition bg-indigo-600 text-white shadow-2xs cursor-pointer";
         }
       }
       renderWeight();
@@ -694,9 +833,9 @@ export function generateFullAppExportHtml(exportData: any): string {
         const btn = document.getElementById('w-days-' + d);
         if (btn) {
           if (d === days) {
-            btn.className = "px-2.5 py-1 text-xs font-bold rounded-lg transition bg-white text-emerald-800 shadow-2xs";
+            btn.className = "px-2.5 py-1 text-xs font-bold rounded-lg transition bg-white text-emerald-800 shadow-2xs cursor-pointer";
           } else {
-            btn.className = "px-2.5 py-1 text-xs font-bold rounded-lg transition text-slate-500 hover:text-slate-800";
+            btn.className = "px-2.5 py-1 text-xs font-bold rounded-lg transition text-slate-500 hover:text-slate-800 cursor-pointer";
           }
         }
       });
@@ -704,13 +843,46 @@ export function generateFullAppExportHtml(exportData: any): string {
     }
 
     function renderWeight() {
-      const weights = APP_DATA.weightRecords || [];
+      const weights = Array.isArray(APP_DATA.weightRecords) ? APP_DATA.weightRecords : [];
       const profile = APP_DATA.userProfile || {};
       const tbody = document.getElementById('weight-records-body');
 
-      const sortedWeights = [...weights].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      // Sort chronological
+      const sortedWeights = [...weights].sort((a, b) => {
+        const tA = new Date(a.date).getTime() || 0;
+        const tB = new Date(b.date).getTime() || 0;
+        return tA - tB;
+      });
 
-      // Latest Morning & Evening
+      // 1. Current Selected Date Weight Record
+      const dayRecord = weights.find(r => r.date === currentDate);
+      const dayMorningEl = document.getElementById('day-morning-weight');
+      const dayEveningEl = document.getElementById('day-evening-weight');
+      const dayLabelEl = document.getElementById('selected-weight-date-label');
+
+      if (dayLabelEl) {
+        dayLabelEl.textContent = formatChineseDisplayDate(currentDate) + ' 體重記錄';
+      }
+
+      if (dayMorningEl) {
+        const mw = dayRecord ? (dayRecord.morningWeightKg || (dayRecord.weightKg && !dayRecord.eveningWeightKg ? dayRecord.weightKg : null)) : null;
+        if (mw) {
+          dayMorningEl.innerHTML = mw + ' <span class="text-xs font-medium">kg</span>' + (dayRecord && dayRecord.morningTime ? ' <span class="text-[10px] text-amber-600 font-normal">(' + dayRecord.morningTime + ')</span>' : '');
+        } else {
+          dayMorningEl.innerHTML = '<span class="text-slate-400 font-normal text-sm">尚未記錄</span>';
+        }
+      }
+
+      if (dayEveningEl) {
+        const ew = dayRecord ? dayRecord.eveningWeightKg : null;
+        if (ew) {
+          dayEveningEl.innerHTML = ew + ' <span class="text-xs font-medium">kg</span>' + (dayRecord && dayRecord.eveningTime ? ' <span class="text-[10px] text-indigo-600 font-normal">(' + dayRecord.eveningTime + ')</span>' : '');
+        } else {
+          dayEveningEl.innerHTML = '<span class="text-slate-400 font-normal text-sm">尚未記錄</span>';
+        }
+      }
+
+      // 2. Latest Morning & Evening Stats
       const latestMorningRec = [...sortedWeights].reverse().find(r => r.morningWeightKg || (r.weightKg && !r.eveningWeightKg));
       const latestMorning = latestMorningRec ? (latestMorningRec.morningWeightKg || latestMorningRec.weightKg) : null;
 
@@ -735,18 +907,17 @@ export function generateFullAppExportHtml(exportData: any): string {
         if (targetEl) targetEl.textContent = profile.targetWeightKg.toString();
       }
 
-      // Filtered records for Chart
+      // 3. Filtered records for SVG Chart
       const filteredForChart = currentWeightDays === 0 ? sortedWeights : sortedWeights.slice(-currentWeightDays);
 
-      // Extract points based on currentWeightTab
       const chartPoints = [];
       filteredForChart.forEach(r => {
         const val = currentWeightTab === 'morning' 
           ? (r.morningWeightKg || (r.weightKg && !r.eveningWeightKg ? r.weightKg : null))
           : r.eveningWeightKg;
-        if (val != null && !isNaN(val)) {
+        if (val != null && !isNaN(Number(val))) {
           chartPoints.push({
-            date: r.date.length > 5 ? r.date.slice(5) : r.date,
+            date: r.date && r.date.length > 5 ? r.date.slice(5) : (r.date || ''),
             weight: Number(val),
             time: currentWeightTab === 'morning' ? (r.morningTime || '') : (r.eveningTime || '')
           });
@@ -761,13 +932,18 @@ export function generateFullAppExportHtml(exportData: any): string {
             '請至少記錄 2 筆以上的' + (currentWeightTab === 'morning' ? '晨間' : '晚間') + '體重資料以繪製連續變化曲線' +
           '</div>';
         } else {
-          const targetW = profile.targetWeightKg || null;
-          const weightsList = chartPoints.map(p => p.weight);
+          const targetW = Number(profile.targetWeightKg) || null;
+          const weightsList = chartPoints.map(p => p.weight).filter(w => !isNaN(w));
           if (targetW) weightsList.push(targetW);
+
+          if (weightsList.length === 0) {
+            chartBox.innerHTML = '<div class="text-center py-6 text-slate-400 text-xs font-semibold">無有效體重資料</div>';
+            return;
+          }
 
           const minW = Math.min(...weightsList) - 0.5;
           const maxW = Math.max(...weightsList) + 0.5;
-          const rangeW = maxW - minW || 1;
+          const rangeW = maxW - minW > 0 ? (maxW - minW) : 1;
 
           const chartWidth = 320;
           const chartHeight = 130;
@@ -776,7 +952,7 @@ export function generateFullAppExportHtml(exportData: any): string {
           const drawH = chartHeight - padding * 2;
 
           const coords = chartPoints.map((p, i) => {
-            const x = padding + (i / (chartPoints.length - 1)) * drawW;
+            const x = padding + (i / Math.max(1, chartPoints.length - 1)) * drawW;
             const y = padding + drawH - ((p.weight - minW) / rangeW) * drawH;
             return { x, y, weight: p.weight, date: p.date, time: p.time };
           });
@@ -788,7 +964,7 @@ export function generateFullAppExportHtml(exportData: any): string {
           const fillColor = currentWeightTab === 'morning' ? 'rgba(245, 158, 11, 0.12)' : 'rgba(99, 102, 241, 0.12)';
 
           let targetLineSvg = '';
-          if (targetW) {
+          if (targetW && !isNaN(targetW)) {
             const targetY = padding + drawH - ((targetW - minW) / rangeW) * drawH;
             targetLineSvg = '<line x1="' + padding + '" y1="' + targetY.toFixed(1) + '" x2="' + (chartWidth - padding) + '" y2="' + targetY.toFixed(1) + '" stroke="#10b981" stroke-dasharray="4 4" stroke-width="1.5"/>' +
               '<text x="' + (chartWidth - padding) + '" y="' + (targetY - 4).toFixed(1) + '" fill="#10b981" font-size="9" font-weight="bold" text-anchor="end">目標 ' + targetW + 'kg</text>';
@@ -810,7 +986,7 @@ export function generateFullAppExportHtml(exportData: any): string {
         }
       }
 
-      // Render Table Body
+      // 4. Render Table Body
       if (tbody) {
         if (sortedWeights.length === 0) {
           tbody.innerHTML = '<tr><td colspan="4" class="text-center py-6 text-slate-400">尚未記錄體重數據</td></tr>';
@@ -818,13 +994,20 @@ export function generateFullAppExportHtml(exportData: any): string {
         }
 
         tbody.innerHTML = [...sortedWeights].reverse().map(w => {
+          const isSelected = w.date === currentDate;
           const mw = w.morningWeightKg || (w.weightKg && !w.eveningWeightKg ? w.weightKg : null);
           const ew = w.eveningWeightKg;
           const mwStr = mw ? mw + ' kg' + (w.morningTime ? ' <span class="text-[10px] text-slate-400 font-normal">(' + w.morningTime + ')</span>' : '') : '-';
           const ewStr = ew ? ew + ' kg' + (w.eveningTime ? ' <span class="text-[10px] text-slate-400 font-normal">(' + w.eveningTime + ')</span>' : '') : '-';
 
-          return '<tr class="hover:bg-slate-50">' +
-            '<td class="p-3 font-semibold text-slate-800">' + w.date + '</td>' +
+          const rowClass = isSelected 
+            ? 'bg-emerald-50/70 font-semibold' 
+            : 'hover:bg-slate-50';
+
+          return '<tr class="' + rowClass + '">' +
+            '<td class="p-3 font-semibold text-slate-800">' + 
+              w.date + (isSelected ? ' <span class="text-[10px] bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded ml-1 font-bold">當前選擇</span>' : '') + 
+            '</td>' +
             '<td class="p-3 font-bold text-amber-800">' + mwStr + '</td>' +
             '<td class="p-3 font-bold text-indigo-800">' + ewStr + '</td>' +
             '<td class="p-3 text-slate-400 font-normal">' + (w.notes || '-') + '</td>' +
