@@ -84,6 +84,7 @@ export const SettingsScreen: React.FC = () => {
   const [showCustomFoodModal, setShowCustomFoodModal] = useState(false);
   const [showCustomFoodsListModal, setShowCustomFoodsListModal] = useState(false);
   const [showExportHtmlModal, setShowExportHtmlModal] = useState(false);
+  const [showApiKeyModal, setShowApiKeyModal] = useState(false);
   const [customFoodsSearchQuery, setCustomFoodsSearchQuery] = useState('');
   const [editingCustomFood, setEditingCustomFood] = useState<CustomFood | undefined>(
     undefined
@@ -654,9 +655,22 @@ export const SettingsScreen: React.FC = () => {
 
       {/* 5. Gemini API Key Configuration */}
       <div className="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-2xs space-y-4">
-        <div className="flex items-center gap-2">
-          <Key className="w-5 h-5 text-purple-600" />
-          <h3 className="font-bold text-slate-900 text-sm">Gemini AI API 金鑰設定 (必填)</h3>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Key className="w-5 h-5 text-purple-600" />
+            <h3 className="font-bold text-slate-900 text-sm">Gemini AI API 金鑰設定 (必填)</h3>
+          </div>
+          <div>
+            {geminiKey ? (
+              <span className="px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full text-xs font-bold whitespace-nowrap">
+                已設定
+              </span>
+            ) : (
+              <span className="px-2.5 py-1 bg-amber-50 text-amber-700 border border-amber-200 rounded-full text-xs font-bold whitespace-nowrap">
+                尚未設定
+              </span>
+            )}
+          </div>
         </div>
         
         <div className="bg-purple-50/70 border border-purple-100 p-3.5 rounded-2xl text-xs text-purple-900 space-y-2">
@@ -666,53 +680,14 @@ export const SettingsScreen: React.FC = () => {
           </p>
         </div>
 
-        {/* Tutorial */}
-        <div className="bg-slate-50 border border-slate-200/80 p-4 rounded-2xl space-y-2 text-xs text-slate-700">
-          <p className="font-bold text-slate-900">📖 如何免費取得您的 Gemini API Key：</p>
-          <ol className="list-decimal list-inside space-y-1.5 text-slate-600 leading-relaxed">
-            <li>
-              前往官方網站：{' '}
-              <a
-                href="https://aistudio.google.com/"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-purple-600 font-bold underline hover:text-purple-800"
-              >
-                Google AI Studio
-              </a>
-            </li>
-            <li>使用您的 Google 帳號免費登入。</li>
-            <li>點擊左上角或頁面中的 <strong>「Get API key」</strong> 按鈕。</li>
-            <li>點擊 <strong>「Create API key」</strong>（建立 API 金鑰），並複製產生的金鑰。</li>
-            <li>將金鑰貼至下方輸入框並點擊「儲存金鑰」即可啟用！</li>
-          </ol>
-        </div>
-
-        <div className="flex gap-2 pt-1">
-          <input
-            type="password"
-            placeholder="請輸入您的 Gemini API Key..."
-            value={geminiKey}
-            onChange={(e) => setGeminiKey(e.target.value)}
-            className="flex-1 px-3 py-2 text-xs bg-slate-50 rounded-xl border border-slate-200 font-mono"
-          />
-          <div className="flex gap-1.5">
-            <button
-              type="button"
-              onClick={handleClearGeminiKey}
-              className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-bold rounded-xl transition cursor-pointer"
-            >
-              清空
-            </button>
-            <button
-              type="button"
-              onClick={() => handleSaveGeminiKey(geminiKey)}
-              className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-xl transition cursor-pointer"
-            >
-              儲存金鑰
-            </button>
-          </div>
-        </div>
+        <button
+          type="button"
+          onClick={() => setShowApiKeyModal(true)}
+          className="w-full py-3 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-2xl text-xs transition flex items-center justify-center gap-2 shadow-sm cursor-pointer"
+        >
+          <Key className="w-4 h-4" />
+          <span>{geminiKey ? '修改 / 更新 Gemini API Key' : '立即設定 Gemini API Key'}</span>
+        </button>
 
         {/* Dynamic Model Switcher */}
         <div className="mt-4 p-3 bg-slate-50 rounded-2xl border border-slate-100">
@@ -1074,6 +1049,93 @@ export const SettingsScreen: React.FC = () => {
               >
                 關閉
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* API Key Modal Popup */}
+      {showApiKeyModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-lg rounded-3xl shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95">
+            <div className="px-6 py-4 bg-purple-900 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2 font-black text-sm">
+                <Key className="w-4 h-4 text-purple-300" />
+                <span>設定 Gemini AI API 金鑰</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowApiKeyModal(false)}
+                className="p-1.5 text-purple-200 hover:text-white rounded-xl transition cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4 max-h-[80vh] overflow-y-auto text-xs text-slate-700">
+              {/* Tutorial */}
+              <div className="bg-slate-50 border border-slate-200/80 p-4 rounded-2xl space-y-2">
+                <p className="font-bold text-slate-900">📖 如何免費取得您的 Gemini API Key：</p>
+                <ol className="list-decimal list-inside space-y-1.5 text-slate-600 leading-relaxed">
+                  <li>
+                    前往官方專屬頁面：{' '}
+                    <a
+                      href="https://aistudio.google.com/app/apikey"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-purple-600 font-bold underline hover:text-purple-800"
+                    >
+                      Google AI Studio API Key 取得頁面
+                    </a>
+                  </li>
+                  <li>使用您的 Google 帳號免費登入。</li>
+                  <li>點擊 <strong>「Create API key」</strong>（建立 API 金鑰），並複製產生的金鑰。</li>
+                  <li>將金鑰貼至下方輸入框並點擊「儲存金鑰」即可啟用！</li>
+                </ol>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="block font-bold text-slate-700">API 金鑰 (API Key)</label>
+                <input
+                  type="password"
+                  placeholder="請貼上您的 Gemini API Key..."
+                  value={geminiKey}
+                  onChange={(e) => setGeminiKey(e.target.value)}
+                  className="w-full px-4 py-3 bg-slate-50 rounded-2xl border border-slate-200 font-mono text-xs focus:outline-none focus:border-purple-500 focus:bg-white transition"
+                />
+              </div>
+            </div>
+
+            <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => {
+                  handleClearGeminiKey();
+                  setShowApiKeyModal(false);
+                }}
+                className="py-2.5 px-4 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold rounded-xl transition cursor-pointer"
+              >
+                清空金鑰
+              </button>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowApiKeyModal(false)}
+                  className="py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold rounded-xl transition cursor-pointer"
+                >
+                  取消
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleSaveGeminiKey(geminiKey);
+                    setShowApiKeyModal(false);
+                  }}
+                  className="py-2.5 px-5 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-xl transition cursor-pointer shadow-sm"
+                >
+                  儲存金鑰
+                </button>
+              </div>
             </div>
           </div>
         </div>

@@ -10,16 +10,15 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
   const jsonString = JSON.stringify(exportData);
   const exportedAtStr = new Date().toLocaleString('zh-TW');
   const initialDate = options?.selectedDate || options?.endDate || getTodayString();
-  const dateRangeNotice = options?.startDate && options?.endDate 
-    ? `涵蓋區間：${options.startDate} ～ ${options.endDate} (往前7天)`
-    : '完整歷史數據';
+  const startDate = options?.startDate || addDays(initialDate, -6);
+  const endDate = options?.endDate || initialDate;
 
   return `<!DOCTYPE html>
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>FitPocket 健康與飲食訓練報表 (${initialDate})</title>
+  <title>FitPocket 7日報表 (${startDate} ～ ${endDate})</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
@@ -51,74 +50,115 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
 </head>
 <body class="bg-[#F7FAF7] text-slate-800 antialiased min-h-screen pb-16 selection:bg-emerald-500 selection:text-white">
 
-  <!-- Main App Header -->
-  <header class="bg-white/90 backdrop-blur-md border-b border-emerald-900/10 sticky top-0 z-50">
-    <div class="max-w-2xl mx-auto px-4 h-16 flex items-center justify-between">
-      <div class="flex items-center gap-3">
-        <!-- Exact FP Logo SVG -->
-        <svg width="36" height="36" viewBox="0 0 512 512" class="rounded-2xl shrink-0">
+  <!-- Main App Header: Beautiful, spacious, uncrowded layout -->
+  <header class="bg-white/95 backdrop-blur-md border-b border-emerald-900/10 sticky top-0 z-50 shadow-2xs">
+    <div class="max-w-2xl mx-auto px-4 py-3 sm:py-3.5 flex items-center justify-between gap-3">
+      <!-- Brand & Info Area -->
+      <div class="flex items-center gap-3 min-w-0 flex-1">
+        <!-- Logo -->
+        <svg width="40" height="40" viewBox="0 0 512 512" class="rounded-2xl shrink-0 shadow-2xs">
           <rect x="0" y="0" width="512" height="512" rx="128" fill="#E8F2EC"/>
           <path d="M 125 170 H 225 C 236 170 245 179 245 190 C 245 201 236 210 225 210 H 167 V 238 H 215 C 226 238 235 247 235 258 C 235 269 226 278 215 278 H 167 V 332 C 167 343 158 352 146 352 C 134 352 125 343 125 332 V 170 Z" fill="#0F172A"/>
           <path d="M 270 170 H 345 C 380 170 405 192 405 224 C 405 256 380 278 345 278 H 312 V 332 C 312 343 303 352 291 352 C 279 352 270 343 270 332 V 170 Z M 312 210 V 238 H 342 C 353 238 362 232 362 224 C 362 216 353 210 342 210 H 312 Z" fill="#0F172A"/>
         </svg>
-        <div>
-          <h1 class="text-base sm:text-lg font-black text-slate-900 tracking-tight leading-none">FitPocket 離線報表</h1>
-          <p class="text-[11px] text-slate-500 font-medium">${dateRangeNotice} ‧ 匯出於 ${exportedAtStr}</p>
+
+        <div class="min-w-0 flex-1 space-y-0.5">
+          <div class="flex items-center gap-2 flex-wrap">
+            <h1 class="text-base sm:text-lg font-black text-slate-900 tracking-tight leading-none">FitPocket 離線報表</h1>
+            <span class="text-[10px] bg-emerald-100/80 text-emerald-900 font-bold px-2 py-0.5 rounded-md border border-emerald-200 shrink-0">
+              7日數據
+            </span>
+          </div>
+          <div class="text-[11px] text-slate-500 font-medium truncate flex flex-wrap items-center gap-x-2">
+            <span>📅 <span class="font-semibold text-slate-700">${startDate}</span> 至 <span class="font-semibold text-slate-700">${endDate}</span></span>
+            <span class="text-slate-300 hidden sm:inline">|</span>
+            <span class="text-slate-400 text-[10px] hidden sm:inline">匯出於 ${exportedAtStr}</span>
+          </div>
         </div>
       </div>
-      <button onclick="window.print()" class="no-print text-xs font-bold px-3 py-1.5 bg-emerald-50 text-emerald-800 rounded-xl hover:bg-emerald-100 transition border border-emerald-200 cursor-pointer">
-        🖨️ 列印 / PDF
+
+      <!-- Action -->
+      <button 
+        onclick="window.print()" 
+        class="no-print text-xs font-bold px-3.5 py-2 bg-emerald-50 text-emerald-800 rounded-xl hover:bg-emerald-100 transition border border-emerald-200/80 cursor-pointer flex items-center gap-1.5 shadow-2xs shrink-0"
+      >
+        <span>🖨️</span>
+        <span class="hidden sm:inline">列印 / 存為 PDF</span>
+        <span class="sm:hidden">列印</span>
       </button>
     </div>
   </header>
 
   <!-- Main Container -->
-  <main class="max-w-2xl mx-auto px-4 py-5 space-y-4">
+  <main class="max-w-2xl mx-auto px-4 py-4 space-y-4">
 
-    <!-- Date Navigator Card -->
-    <div class="bg-white rounded-2xl shadow-xs border border-emerald-900/5 p-3 flex items-center justify-between gap-2">
-      <button
-        type="button"
-        onclick="prevDay()"
-        class="p-2 text-slate-600 hover:text-emerald-700 hover:bg-emerald-50 rounded-xl transition cursor-pointer"
-        aria-label="前一天"
-      >
-        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
-      </button>
+    <!-- 7-Day Quick Date Selector Pills Card -->
+    <div class="bg-white rounded-3xl shadow-xs border border-emerald-900/5 p-4 space-y-3">
+      <!-- Row 1: Active Date Display + Prev/Next Controls -->
+      <div class="flex items-center justify-between gap-2">
+        <button
+          type="button"
+          id="btn-prev-day"
+          onclick="prevDay()"
+          class="p-2 text-slate-600 hover:text-emerald-800 hover:bg-emerald-50 rounded-xl transition cursor-pointer disabled:opacity-30 disabled:pointer-events-none"
+          title="前一天"
+          aria-label="前一天"
+        >
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M15 19l-7-7 7-7"/></svg>
+        </button>
 
-      <div class="flex items-center gap-2 min-w-0">
-        <label class="relative flex items-center gap-2 px-3 py-1.5 rounded-xl hover:bg-slate-50 transition cursor-pointer min-w-0">
-          <svg class="w-4 h-4 text-emerald-700 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 002-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
-          <span id="date-display" class="font-semibold text-slate-800 text-xs sm:text-sm truncate">--</span>
-          <input
-            type="date"
-            id="datePicker"
-            onchange="setDate(this.value)"
-            class="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-          />
-        </label>
+        <div class="flex items-center gap-2 min-w-0">
+          <div class="relative flex items-center gap-2 px-3.5 py-1.5 bg-emerald-50/70 border border-emerald-100 rounded-2xl cursor-pointer min-w-0">
+            <svg class="w-4 h-4 text-emerald-800 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 002-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+            <span id="date-display" class="font-extrabold text-slate-900 text-xs sm:text-sm tracking-tight truncate">--</span>
+            <!-- Bounded Date input constrained to [minDate, maxDate] -->
+            <input
+              type="date"
+              id="datePicker"
+              min="${startDate}"
+              max="${endDate}"
+              oninput="setDate(this.value)"
+              onchange="setDate(this.value)"
+              class="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+            />
+          </div>
+
+          <button
+            id="today-btn"
+            onclick="todayDate()"
+            class="hidden px-2.5 py-1 bg-slate-100 text-slate-700 hover:bg-emerald-100 hover:text-emerald-900 text-xs font-bold rounded-xl transition shrink-0 cursor-pointer"
+          >
+            基準日
+          </button>
+        </div>
 
         <button
-          id="today-btn"
-          onclick="todayDate()"
-          class="hidden px-2.5 py-1 bg-emerald-100 text-emerald-800 text-xs font-bold rounded-lg hover:bg-emerald-200 transition shrink-0 cursor-pointer"
+          type="button"
+          id="btn-next-day"
+          onclick="nextDay()"
+          class="p-2 text-slate-600 hover:text-emerald-800 hover:bg-emerald-50 rounded-xl transition cursor-pointer disabled:opacity-30 disabled:pointer-events-none"
+          title="後一天"
+          aria-label="後一天"
         >
-          基準日
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7"/></svg>
         </button>
       </div>
 
-      <button
-        type="button"
-        onclick="nextDay()"
-        class="p-2 text-slate-600 hover:text-emerald-700 hover:bg-emerald-50 rounded-xl transition cursor-pointer"
-        aria-label="後一天"
-      >
-        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
-      </button>
+      <!-- Row 2: 7-Day Interactive Quick Jump Pills -->
+      <div class="pt-2 border-t border-slate-100">
+        <div class="flex items-center justify-between gap-1 overflow-x-auto scrollbar-none py-1" id="week-pills-container">
+          <!-- JS Rendered 7 day pills -->
+        </div>
+      </div>
+      
+      <!-- Range Boundary Hint -->
+      <p class="text-[11px] text-slate-400 text-center font-medium">
+        📌 本離線報表已鎖定為 <span class="font-semibold text-slate-600">${startDate}</span> 至 <span class="font-semibold text-slate-600">${endDate}</span> (往前 7 天) 完整數據
+      </p>
     </div>
 
     <!-- Navigation Tabs -->
-    <div class="bg-white/80 backdrop-blur-md rounded-2xl border border-emerald-900/5 p-1.5 flex items-center justify-around no-print shadow-xs">
+    <div class="bg-white/90 backdrop-blur-md rounded-2xl border border-emerald-900/5 p-1.5 flex items-center justify-around no-print shadow-2xs">
       <button id="tab-diet" onclick="switchTab('diet')" class="flex-1 py-2 text-xs font-bold rounded-xl transition text-center bg-emerald-800 text-white shadow-2xs cursor-pointer">
         🥗 飲食與水分
       </button>
@@ -393,6 +433,8 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
   <script>
     const APP_DATA = ${jsonString};
 
+    const MIN_DATE = "${startDate}";
+    const MAX_DATE = "${endDate}";
     let currentDate = "${initialDate}";
     const exportBaseDate = "${initialDate}";
 
@@ -407,7 +449,8 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
     let activeCycle = APP_DATA.activeCarbCycle || 'MEDIUM';
 
     // Chinese Day of Week Helper
-    const weekDays = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
+    const weekDays = ['週日', '週一', '週二', '週三', '週四', '週五', '週六'];
+    const fullWeekDays = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
     
     function formatChineseDisplayDate(dateStr) {
       if (!dateStr) return '';
@@ -417,7 +460,7 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
       const m = parseInt(parts[1], 10);
       const d = parseInt(parts[2], 10);
       const dt = new Date(parseInt(y, 10), m - 1, d);
-      const dayOfWeek = weekDays[dt.getDay()];
+      const dayOfWeek = fullWeekDays[dt.getDay()];
       return y + '年' + (m < 10 ? '0' + m : m) + '月' + (d < 10 ? '0' + d : d) + '日 ' + dayOfWeek;
     }
 
@@ -431,15 +474,84 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
       return y + '-' + m + '-' + day;
     }
 
+    function generate7DayDates() {
+      const dates = [];
+      let d = MIN_DATE;
+      while (d <= MAX_DATE) {
+        dates.push(d);
+        d = addDays(d, 1);
+      }
+      return dates;
+    }
+
     function init() {
       try {
+        if (currentDate < MIN_DATE) currentDate = MIN_DATE;
+        if (currentDate > MAX_DATE) currentDate = MAX_DATE;
         const picker = document.getElementById('datePicker');
-        if (picker) picker.value = currentDate;
+        if (picker) {
+          picker.setAttribute('min', MIN_DATE);
+          picker.setAttribute('max', MAX_DATE);
+          picker.min = MIN_DATE;
+          picker.max = MAX_DATE;
+          picker.value = currentDate;
+
+          picker.addEventListener('input', (e) => {
+            const val = e.target.value;
+            if (val > MAX_DATE) {
+              e.target.value = MAX_DATE;
+              setDate(MAX_DATE);
+            } else if (val < MIN_DATE) {
+              e.target.value = MIN_DATE;
+              setDate(MIN_DATE);
+            } else {
+              setDate(val);
+            }
+          });
+          picker.addEventListener('change', (e) => {
+            const val = e.target.value;
+            if (val > MAX_DATE) {
+              e.target.value = MAX_DATE;
+              setDate(MAX_DATE);
+            } else if (val < MIN_DATE) {
+              e.target.value = MIN_DATE;
+              setDate(MIN_DATE);
+            } else {
+              setDate(val);
+            }
+          });
+        }
+        renderWeekPills();
         renderCarbCyclePills();
         renderAll();
       } catch (e) {
         console.error('Init error:', e);
       }
+    }
+
+    function renderWeekPills() {
+      const container = document.getElementById('week-pills-container');
+      if (!container) return;
+      const dates = generate7DayDates();
+      
+      container.innerHTML = dates.map(dStr => {
+        const isSelected = dStr === currentDate;
+        const parts = dStr.split('-');
+        const m = parseInt(parts[1], 10);
+        const d = parseInt(parts[2], 10);
+        const dt = new Date(parseInt(parts[0], 10), m - 1, d);
+        const dayLabel = weekDays[dt.getDay()];
+        const shortDate = m + '/' + d;
+
+        const cls = isSelected
+          ? 'bg-emerald-800 text-white shadow-2xs font-extrabold border-emerald-800'
+          : 'bg-slate-50 text-slate-600 hover:bg-emerald-50 hover:text-emerald-900 border-slate-200/80 font-bold';
+
+        return '<button type="button" onclick="setDate(\\'' + dStr + '\\')" class="flex-1 min-w-[42px] py-1.5 px-1 rounded-xl text-center border transition flex flex-col items-center justify-center cursor-pointer ' + cls + '">' +
+          '<span class="text-[10px] leading-tight opacity-80">' + dayLabel + '</span>' +
+          '<span class="text-xs leading-tight mt-0.5">' + shortDate + '</span>' +
+        '</button>';
+      }).join('');
     }
 
     function renderCarbCyclePills() {
@@ -467,31 +579,30 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
 
     function setDate(val) {
       if (!val) return;
+      // Clamp within 7-day range
+      if (val < MIN_DATE) val = MIN_DATE;
+      if (val > MAX_DATE) val = MAX_DATE;
       currentDate = val;
       const picker = document.getElementById('datePicker');
       if (picker) picker.value = currentDate;
+      renderWeekPills();
       renderAll();
     }
 
     function prevDay() {
-      currentDate = addDays(currentDate, -1);
-      const picker = document.getElementById('datePicker');
-      if (picker) picker.value = currentDate;
-      renderAll();
+      if (currentDate <= MIN_DATE) return;
+      const newD = addDays(currentDate, -1);
+      setDate(newD);
     }
 
     function nextDay() {
-      currentDate = addDays(currentDate, 1);
-      const picker = document.getElementById('datePicker');
-      if (picker) picker.value = currentDate;
-      renderAll();
+      if (currentDate >= MAX_DATE) return;
+      const newD = addDays(currentDate, 1);
+      setDate(newD);
     }
 
     function todayDate() {
-      currentDate = exportBaseDate;
-      const picker = document.getElementById('datePicker');
-      if (picker) picker.value = currentDate;
-      renderAll();
+      setDate(exportBaseDate);
     }
 
     function switchTab(tab) {
@@ -527,6 +638,8 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
       // Update Date Display
       const dateDisplay = document.getElementById('date-display');
       const todayBtn = document.getElementById('today-btn');
+      const prevBtn = document.getElementById('btn-prev-day');
+      const nextBtn = document.getElementById('btn-next-day');
 
       if (dateDisplay) {
         dateDisplay.textContent = formatChineseDisplayDate(currentDate);
@@ -538,6 +651,20 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
         } else {
           todayBtn.classList.add('hidden');
         }
+      }
+
+      const picker = document.getElementById('datePicker');
+      if (picker) {
+        picker.value = currentDate;
+        picker.min = MIN_DATE;
+        picker.max = MAX_DATE;
+      }
+
+      if (prevBtn) {
+        prevBtn.disabled = currentDate <= MIN_DATE;
+      }
+      if (nextBtn) {
+        nextBtn.disabled = currentDate >= MAX_DATE;
       }
 
       try { renderDiet(); } catch (err) { console.error('Error rendering diet:', err); }

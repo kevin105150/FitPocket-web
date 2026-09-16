@@ -28,6 +28,7 @@ import { CloudFoodService } from '../services/cloudFoodService';
 import { CARB_CYCLE_INFO } from '../data/defaults';
 import { DateNavigator } from './DateNavigator';
 import { AddFoodModal, FoodTab } from './AddFoodModal';
+import { checkAiKeyOrWarn } from '../utils/aiHelper';
 import { PortionModal } from './PortionModal';
 import { CustomFoodModal } from './CustomFoodModal';
 import { GoalSettingModal } from './GoalSettingModal';
@@ -254,6 +255,7 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
 
   // Trigger direct camera capture
   const triggerDirectPhoto = (mealType: MealType = 'BREAKFAST') => {
+    if (!checkAiKeyOrWarn()) return;
     setSelectedMealForAdd(mealType);
     directPhotoMealTypeRef.current = mealType;
     directCameraRef.current?.click();
@@ -584,6 +586,7 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
             <button
               onClick={(e) => {
                 e.stopPropagation();
+                if (!checkAiKeyOrWarn()) return;
                 handleOpenAddFood('BREAKFAST', 'AI_SCAN');
               }}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-white text-purple-700 hover:bg-purple-50 rounded-lg transition font-black text-[10px] shadow-2xs active:scale-95 border border-purple-100"

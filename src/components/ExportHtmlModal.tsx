@@ -115,7 +115,16 @@ export const ExportHtmlModal: React.FC<ExportHtmlModalProps> = ({
               <input
                 type="date"
                 value={selectedDate}
-                onChange={(e) => setSelectedDate(e.target.value || getTodayString())}
+                max={getTodayString()}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  const today = getTodayString();
+                  if (val && val > today) {
+                    setSelectedDate(today);
+                  } else {
+                    setSelectedDate(val || today);
+                  }
+                }}
                 className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold text-slate-800 focus:outline-none focus:border-emerald-500 focus:bg-white transition"
               />
               <Calendar className="w-4 h-4 text-slate-400 absolute right-4 pointer-events-none" />

@@ -20,6 +20,7 @@ import { StorageService } from '../services/storage';
 import { isCardioExercise } from '../data/defaults';
 import { DateNavigator } from './DateNavigator';
 import { WorkoutTimerModal } from './WorkoutTimerModal';
+import { checkAiKeyOrWarn } from '../utils/aiHelper';
 
 interface TrainingTrackerProps {
   currentDate: string;
@@ -247,6 +248,7 @@ export const TrainingTracker: React.FC<TrainingTrackerProps> = ({
 
   // Fetch AI recommended exercises for selected muscle
   const handleFetchAiExercises = async () => {
+    if (!checkAiKeyOrWarn()) return;
     setAiLoading(true);
     try {
       const userKey = StorageService.getGeminiApiKey();

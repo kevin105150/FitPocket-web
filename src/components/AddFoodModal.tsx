@@ -19,6 +19,7 @@ import {
 import { CustomFood, FoodSearchResult, MealType } from '../types';
 import { StorageService } from '../services/storage';
 import { CloudFoodService } from '../services/cloudFoodService';
+import { checkAiKeyOrWarn } from '../utils/aiHelper';
 
 interface AddFoodModalProps {
   initialMealType: MealType;
@@ -289,6 +290,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
 
   // Handle AI text analyze
   const handleAiTextAnalyze = async () => {
+    if (!checkAiKeyOrWarn()) return;
     if (!aiPrompt.trim()) return;
     setAiLoading(true);
     setAiError('');
@@ -356,6 +358,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
 
   // Handle Photo Upload and Gemini Multimodal Analyze
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!checkAiKeyOrWarn()) return;
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -430,7 +433,10 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
             一般搜尋
           </button>
           <button
-            onClick={() => setActiveTab('AI_SCAN')}
+            onClick={() => {
+              if (!checkAiKeyOrWarn()) return;
+              setActiveTab('AI_SCAN');
+            }}
             className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition cursor-pointer ${
               activeTab === 'AI_SCAN' || activeTab === 'BARCODE'
                 ? 'bg-purple-700 text-white'

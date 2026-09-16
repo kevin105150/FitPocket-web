@@ -3,16 +3,18 @@ import { initializeFirestore, getFirestore } from 'firebase/firestore';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signOut, onAuthStateChanged, User, GoogleAuthProvider as GAuthProvider } from 'firebase/auth';
 import rawFirebaseConfig from '../../firebase-applet-config.json';
 
+const configAny = rawFirebaseConfig as any;
+
 // Guaranteed fallback config for standalone deployments (Render / Vercel / Cloud Run / GitHub Actions)
-export const FIREBASE_PROJECT_ID = rawFirebaseConfig?.projectId || 'quirky-gear-l0w9t';
-export const FIRESTORE_DATABASE_ID = rawFirebaseConfig?.firestoreDatabaseId || 'ai-studio-aidiettrackerapp-767063f9-4fee-46bc-9161-8aaabc23bda9';
-export const FIREBASE_API_KEY = rawFirebaseConfig?.apiKey || '';
+export const FIREBASE_PROJECT_ID = configAny?.projectId || 'quirky-gear-l0w9t';
+export const FIRESTORE_DATABASE_ID = configAny?.firestoreDatabaseId || 'ai-studio-aidiettrackerapp-767063f9-4fee-46bc-9161-8aaabc23bda9';
+export const FIREBASE_API_KEY = configAny?.apiKey || '';
 
 export const firebaseConfig = {
-  ...rawFirebaseConfig,
+  ...configAny,
   projectId: FIREBASE_PROJECT_ID,
   firestoreDatabaseId: FIRESTORE_DATABASE_ID,
-  authDomain: rawFirebaseConfig?.authDomain || `${FIREBASE_PROJECT_ID}.firebaseapp.com`,
+  authDomain: configAny?.authDomain || `${FIREBASE_PROJECT_ID}.firebaseapp.com`,
 };
 
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
