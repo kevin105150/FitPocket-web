@@ -1,11 +1,20 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
   <defs>
     <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#2563EB" />
-      <stop offset="100%" stop-color="#1E3A8A" />
+      <stop offset="0%" stop-color="#F3F8F5" />
+      <stop offset="100%" stop-color="#E5EFE8" />
     </linearGradient>
   </defs>
+  
+  <!-- Soft Light Green Background - NO borders -->
   <rect x="0" y="0" width="512" height="512" rx="128" fill="url(#bgGrad)" />
-  <text x="256" y="276" font-family="-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif" font-weight="900" font-size="74" fill="#FFFFFF" text-anchor="middle" letter-spacing="-2">FitPocket</text>
-  <rect x="186" y="320" width="140" height="10" rx="5" fill="#60A5FA" opacity="0.8" />
+
+  <!-- High Contrast Rich Black FP Monogram -->
+  <g fill="#0F172A">
+    <!-- Letter F -->
+    <path d="M 125 170 H 225 C 236 170 245 179 245 190 C 245 201 236 210 225 210 H 167 V 238 H 215 C 226 238 235 247 235 258 C 235 269 226 278 215 278 H 167 V 332 C 167 343 158 352 146 352 C 134 352 125 343 125 332 V 170 Z" />
+    
+    <!-- Letter P -->
+    <path d="M 270 170 H 345 C 380 170 405 192 405 224 C 405 256 380 278 345 278 H 312 V 332 C 312 343 303 352 291 352 C 279 352 270 343 270 332 V 170 Z M 312 210 V 238 H 342 C 353 238 362 232 362 224 C 362 216 353 210 342 210 H 312 Z" />
+  </g>
 </svg>

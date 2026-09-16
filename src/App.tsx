@@ -88,13 +88,10 @@ export default function App() {
         <div className="max-w-2xl mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <img 
-              src="/logo.jpg" 
+              src="/logo.svg" 
               alt="FitPocket Logo" 
-              className="w-10 h-10 rounded-2xl object-cover shadow-xs border border-blue-600/20"
+              className="w-10 h-10 rounded-2xl object-cover shadow-xs"
               referrerPolicy="no-referrer"
-              onError={(e) => {
-                (e.target as HTMLImageElement).src = '/logo.svg';
-              }}
             />
             <div>
               <h1 className="text-lg font-black text-slate-900 tracking-tight leading-none">
