@@ -253,10 +253,16 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
       const sodium = Math.round((Number(result.sodiumPer100g) || 0) * ratio * 10) / 10;
       const potassium = Math.round((Number(result.potassiumPer100g) || 0) * ratio * 10) / 10;
 
+      // Extract and normalize brand (e.g. 7-11, 全家, 萊爾富, OK) and barcode
+      const rawBrand = result.brand ? String(result.brand).trim() : '';
+      const normalizedBrand = rawBrand ? CloudFoodService.normalizeBrand(rawBrand) : '';
+      const detectedBarcode = result.barcode ? String(result.barcode).trim() : undefined;
+
       const foodItem: FoodSearchResult = {
         id: 'ai_photo_' + Date.now(),
         name: result.name || '相片辨識料理',
-        brand: '',
+        brand: normalizedBrand,
+        barcode: detectedBarcode,
         calories,
         carbs,
         protein,
@@ -276,6 +282,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
         id: foodItem.id,
         name: foodItem.name,
         brand: foodItem.brand,
+        barcode: foodItem.barcode,
         servingAmount: foodItem.servingAmount,
         servingUnit: foodItem.servingUnit,
         calories: foodItem.calories,

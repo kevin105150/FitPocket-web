@@ -24,6 +24,7 @@ import {
   NutritionGoalPreset,
 } from '../types';
 import { StorageService } from '../services/storage';
+import { CloudFoodService } from '../services/cloudFoodService';
 import { CARB_CYCLE_INFO } from '../data/defaults';
 import { DateNavigator } from './DateNavigator';
 import { AddFoodModal, FoodTab } from './AddFoodModal';
@@ -299,10 +300,16 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
         const sodium = Math.round((Number(result.sodiumPer100g) || 0) * ratio * 10) / 10;
         const potassium = Math.round((Number(result.potassiumPer100g) || 0) * ratio * 10) / 10;
 
+        // Extract and normalize brand (e.g. 7-11, 全家, 萊爾富, OK) and barcode
+        const rawBrand = result.brand ? String(result.brand).trim() : '';
+        const normalizedBrand = rawBrand ? CloudFoodService.normalizeBrand(rawBrand) : '';
+        const detectedBarcode = result.barcode ? String(result.barcode).trim() : undefined;
+
         const foodItem: FoodSearchResult = {
           id: 'ai_photo_' + Date.now(),
           name: result.name || '照片辨識料理',
-          brand: '', // Clean brand
+          brand: normalizedBrand,
+          barcode: detectedBarcode,
           calories,
           carbs,
           protein,
@@ -322,6 +329,7 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
           id: foodItem.id,
           name: foodItem.name,
           brand: foodItem.brand,
+          barcode: foodItem.barcode,
           servingAmount: foodItem.servingAmount,
           servingUnit: foodItem.servingUnit,
           calories: foodItem.calories,
@@ -929,6 +937,7 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
              id: aiReviewFood.id,
              name: aiReviewFood.name,
              brand: aiReviewFood.brand,
+             barcode: aiReviewFood.barcode,
              calories: aiReviewFood.calories,
              carbs: aiReviewFood.carbs,
              protein: aiReviewFood.protein,
@@ -952,6 +961,7 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
                 id: 'record_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
                 name: food.name,
                 brand: food.brand,
+                barcode: food.barcode,
                 mealType: selectedMealForAdd!,
                 date: currentDate,
                 calories: Math.round(food.calories * ratio * 10) / 10,

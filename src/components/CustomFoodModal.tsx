@@ -67,18 +67,13 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
     setCalories(calc);
   };
 
-  const executeSave = async (foodToSave: CustomFood, consumed: number, doUpload: boolean) => {
+  const executeSave = (foodToSave: CustomFood, consumed: number, doUpload: boolean) => {
+    // 1. If user chose to share to cloud and it's not TFDA, run upload in the background (fire-and-forget)
     if (doUpload && !isTfdaFood(foodToSave)) {
-      setIsSharing(true);
-      try {
-        await CloudFoodService.uploadToCloudDatabase(foodToSave);
-      } catch (err) {
-        console.warn('Cloud upload note:', err);
-      } finally {
-        setIsSharing(false);
-      }
+      CloudFoodService.uploadInBackground(foodToSave);
     }
 
+    // 2. Immediately persist locally and close modal without delay
     onSave(foodToSave, consumed);
     onClose();
   };
@@ -493,8 +488,11 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
                     <CloudUpload className="w-4 h-4" />
                   </div>
                   <div>
-                    <div className="text-xs font-bold text-sky-950">同步擴充至公共網路資料庫</div>
-                    <div className="text-[11px] text-sky-700 font-medium">超商將自動統一名稱（7-11、全家、萊爾富、OK）以防重複</div>
+                    <div className="text-xs font-bold text-sky-950 flex items-center gap-1.5">
+                      <span>同步擴充至公共網路資料庫</span>
+                      <span className="text-[10px] bg-sky-200/80 text-sky-900 font-extrabold px-1.5 py-0.25 rounded-md">背景執行</span>
+                    </div>
+                    <div className="text-[11px] text-sky-700 font-medium">背景自動同步不卡頓；超商名稱自動正規化（7-11、全家、萊爾富、OK）</div>
                   </div>
                 </div>
                 <label className="relative inline-flex items-center cursor-pointer">
@@ -576,21 +574,21 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
             <div className="space-y-2 pt-1">
               <button
                 type="button"
-                onClick={async () => {
+                onClick={() => {
                   const food = duplicateModal.pendingFood;
                   const consumed = duplicateModal.pendingConsumedAmount;
                   setDuplicateModal(null);
-                  await executeSave(food, consumed, true);
+                  executeSave(food, consumed, true);
                 }}
                 className="w-full py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs rounded-xl transition shadow-xs cursor-pointer flex items-center justify-center gap-1.5"
               >
                 <Save className="w-3.5 h-3.5" />
-                以我輸入的數值覆蓋更新雲端資料庫
+                以我輸入的數值覆蓋更新雲端資料庫（背景執行）
               </button>
 
               <button
                 type="button"
-                onClick={async () => {
+                onClick={() => {
                   const ef = duplicateModal.existingFood;
                   const adoptedFood: CustomFood = {
                     ...duplicateModal.pendingFood,
@@ -611,7 +609,7 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
                   };
                   const consumed = duplicateModal.pendingConsumedAmount;
                   setDuplicateModal(null);
-                  await executeSave(adoptedFood, consumed, false);
+                  executeSave(adoptedFood, consumed, false);
                 }}
                 className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5"
               >

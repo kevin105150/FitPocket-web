@@ -32,7 +32,7 @@ import { StorageService } from '../services/storage';
 import { CloudFoodService } from '../services/cloudFoodService';
 import { GoalSettingModal } from './GoalSettingModal';
 import { CustomFoodModal } from './CustomFoodModal';
-import { auth, loginWithGoogle, logout } from '../lib/firebase';
+import { auth, loginWithGoogle, logout, testFirebaseConnection } from '../lib/firebase';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 
 export const SettingsScreen: React.FC = () => {
@@ -199,6 +199,30 @@ export const SettingsScreen: React.FC = () => {
     latencyMs?: number;
     error?: string;
   } | null>(null);
+
+  // Firebase Connection Test
+  const [testingFirebase, setTestingFirebase] = useState(false);
+  const [firebaseStatus, setFirebaseStatus] = useState<{
+    success?: boolean;
+    message?: string;
+    latencyMs?: number;
+  } | null>(null);
+
+  const handleTestFirebase = async () => {
+    setTestingFirebase(true);
+    setFirebaseStatus(null);
+    try {
+      const result = await testFirebaseConnection();
+      setFirebaseStatus(result);
+    } catch (err: any) {
+      setFirebaseStatus({
+        success: false,
+        message: err?.message || '測試連線過程發生未知錯誤',
+      });
+    } finally {
+      setTestingFirebase(false);
+    }
+  };
 
   const handleTestConnection = async () => {
     setTestingAi(true);
@@ -748,6 +772,47 @@ export const SettingsScreen: React.FC = () => {
               )}
             </div>
           )}
+
+          {/* Firebase Firestore Connection Status & Test */}
+          <div className="pt-3 border-t border-slate-100">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700">
+                <Database className="w-3.5 h-3.5 text-amber-600" />
+                <span>Firebase 共享資料庫連線檢測</span>
+              </div>
+              <button
+                type="button"
+                onClick={handleTestFirebase}
+                disabled={testingFirebase}
+                className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-900 text-[11px] font-bold rounded-lg transition flex items-center gap-1 cursor-pointer disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3 h-3 ${testingFirebase ? 'animate-spin' : ''}`} />
+                {testingFirebase ? '檢測中...' : '即時測試連線'}
+              </button>
+            </div>
+
+            {firebaseStatus && (
+              <div
+                className={`p-3 rounded-xl text-xs flex items-start gap-2 border ${
+                  firebaseStatus.success
+                    ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                    : 'bg-rose-50 text-rose-800 border-rose-200'
+                }`}
+              >
+                {firebaseStatus.success ? (
+                  <Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                ) : (
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                )}
+                <div>
+                  <div className="font-bold">{firebaseStatus.message}</div>
+                  <div className="text-[11px] opacity-80 mt-0.5">
+                    資料庫安全規則（Rules）已設定放寬，支援公共食品庫擴充與即時讀寫。
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
         {apiKeyStatus === 'saved' && (

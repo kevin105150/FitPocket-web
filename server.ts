@@ -104,6 +104,26 @@ function extractJsonFromText(rawText: string): any {
   return JSON.parse(clean);
 }
 
+// Server-side normalization for 4 major Taiwan convenience stores
+function normalizeConvenienceStoreBrand(brandName?: string): string {
+  const b = (brandName || '').trim();
+  if (!b) return '';
+
+  if (/^(7-?11|7-?eleven|seven(-?eleven)?|統一超商|小七|711)$/i.test(b) || /7-?eleven/i.test(b) || /統一超商/.test(b)) {
+    return '7-11';
+  }
+  if (/^(全家(便利商店)?|familymart)$/i.test(b) || /全家便利商店/.test(b) || /familymart/i.test(b)) {
+    return '全家';
+  }
+  if (/^(萊爾富(便利商店)?|hi-?life)$/i.test(b) || /萊爾富/.test(b) || /hi-?life/i.test(b)) {
+    return '萊爾富';
+  }
+  if (/^(ok(超商|便利商店|mart|·mart)?)$/i.test(b) || /ok(超商|mart|·mart)/i.test(b)) {
+    return 'OK';
+  }
+  return b;
+}
+
 // 1. API Health
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: Date.now() });
@@ -213,10 +233,22 @@ app.post('/api/ai/estimate-image', async (req, res) => {
       return res.status(401).json({ error: '尚未設定 Gemini API Key。請至「設定」頁面輸入您的 API 金鑰以使用 AI 視覺辨識功能。' });
     }
 
-    const prompt = `請辨識這張照片中的食物或料理。請估算其食物名稱、每 100g 的營養素，以及這張照片中這道菜的總估計份量與熱量。
+    const prompt = `請仔細辨識這張照片中的食物、商品包裝或料理。
+特別注意：
+1. 品牌 (brand)：若包裝或畫面中有標籤、超商、品牌商標或店名，請務必辨識出來。如果是台灣 4 大超商，請嚴格按照以下標準超商名稱填寫：
+   - 統一超商 / 7-11 / 7-Eleven / 小七 -> "7-11"
+   - 全家 / FamilyMart -> "全家"
+   - 萊爾富 / Hi-Life -> "萊爾富"
+   - OK超商 / OKmart -> "OK"
+   若為其他品牌（例如：義美、光泉、好市多、麥當勞等）請填寫該品牌；若無品牌純自製料理請填 ""。
+2. 條碼 (barcode)：若照片中有商品國際條碼 (EAN-13, UPC 等數字)，請辨識並填寫其數字字串；若無或看不清楚請填 ""。
+3. 營養成分：請估算每 100g 的各項營養素，以及這份照片中總份量公克數與熱量。
+
 請嚴格輸出純 JSON 物件（不要包含任何 markdown 區塊反引號）：
 {
-  "name": "辨識出的食物名稱",
+  "name": "辨識出的食物品名 (例如: 經典茶葉蛋、原味優格)",
+  "brand": "辨識到的品牌 (4大超商請填 7-11、全家、萊爾富、OK；無品牌填空字串)",
+  "barcode": "商品條碼數字 (無則填空字串)",
   "caloriesPer100g": 數字(大卡),
   "carbsPer100g": 數字(公克),
   "proteinPer100g": 數字(公克),
@@ -227,8 +259,8 @@ app.post('/api/ai/estimate-image', async (req, res) => {
   "potassiumPer100g": 數字(毫克),
   "defaultServingAmount": 數字(此份照片目測總公克數),
   "servingUnit": "g",
-  "servingSizeText": "照片目測份量說明 (例如: 1盤 約250g)",
-  "explanation": "食材分析與建議"
+  "servingSizeText": "照片目測份量說明 (例如: 1份 約150g)",
+  "explanation": "食材分析、品牌與建議"
 }`;
 
     // Strip prefix if user passed full data URI
@@ -251,6 +283,12 @@ app.post('/api/ai/estimate-image', async (req, res) => {
     );
 
     const parsed = extractJsonFromText(text);
+    if (parsed.brand) {
+      parsed.brand = normalizeConvenienceStoreBrand(parsed.brand);
+    }
+    if (parsed.barcode) {
+      parsed.barcode = String(parsed.barcode).trim();
+    }
     parsed._modelUsed = modelUsed;
     res.json(parsed);
   } catch (error: any) {

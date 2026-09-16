@@ -15,12 +15,50 @@ const dynamicFirebaseConfig = {
 };
 
 const app = initializeApp(dynamicFirebaseConfig);
-export const db = getFirestore(app);
+export const db = firebaseConfig.firestoreDatabaseId 
+  ? getFirestore(app, firebaseConfig.firestoreDatabaseId)
+  : getFirestore(app);
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 
 // Add Drive scope
 googleProvider.addScope('https://www.googleapis.com/auth/drive.file');
+
+// Helper to test Firebase Firestore read/write connection
+export const testFirebaseConnection = async (): Promise<{ success: boolean; latencyMs: number; message: string }> => {
+  const startTime = performance.now();
+  try {
+    const { doc, setDoc, getDoc, deleteDoc } = await import('firebase/firestore');
+    const testDocId = `ping_${Date.now()}`;
+    const testRef = doc(db, '_connection_test', testDocId);
+    
+    // Test write
+    await setDoc(testRef, { timestamp: Date.now(), ping: 'pong' });
+    
+    // Test read
+    const snap = await getDoc(testRef);
+    if (!snap.exists()) {
+      throw new Error('Firestore 測試文件寫入後無法讀取');
+    }
+    
+    // Clean up test doc
+    await deleteDoc(testRef).catch(() => {});
+    
+    const latencyMs = Math.round(performance.now() - startTime);
+    return {
+      success: true,
+      latencyMs,
+      message: `Firebase Firestore 連線成功！延遲: ${latencyMs}ms`,
+    };
+  } catch (err: any) {
+    const latencyMs = Math.round(performance.now() - startTime);
+    return {
+      success: false,
+      latencyMs,
+      message: err?.message || 'Firebase 連線失敗',
+    };
+  }
+};
 
 // Cache access token in memory and localStorage for persistent sessions
 let cachedAccessToken: string | null = localStorage.getItem('fitpocket_google_access_token');

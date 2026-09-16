@@ -25,19 +25,19 @@ export function normalizeBrandName(brandName: string): string {
   if (!b) return '自訂飲食';
 
   // Check 7-11
-  if (/^(7-?11|7-?eleven|seven(-?eleven)?|統一超商|小七)$/i.test(b)) {
+  if (/^(7-?11|7-?eleven|seven(-?eleven)?|統一超商|小七|711)$/i.test(b) || /7-?eleven/i.test(b) || /統一超商/.test(b)) {
     return '7-11';
   }
   // Check 全家
-  if (/^(全家(便利商店)?|familymart)$/i.test(b)) {
+  if (/^(全家(便利商店)?|familymart)$/i.test(b) || /全家便利商店/.test(b) || /familymart/i.test(b)) {
     return '全家';
   }
   // Check 萊爾富
-  if (/^(萊爾富(便利商店)?|hi-?life)$/i.test(b)) {
+  if (/^(萊爾富(便利商店)?|hi-?life)$/i.test(b) || /萊爾富/.test(b) || /hi-?life/i.test(b)) {
     return '萊爾富';
   }
   // Check OK
-  if (/^(ok(超商|便利商店|mart|·mart)?)$/i.test(b)) {
+  if (/^(ok(超商|便利商店|mart|·mart)?)$/i.test(b) || /ok(超商|mart|·mart)/i.test(b)) {
     return 'OK';
   }
 
@@ -192,6 +192,24 @@ export const CloudFoodService = {
     const docRef = doc(db, COLLECTION_NAME, deterministicId);
     await setDoc(docRef, cloudFood, { merge: true });
     return { success: true, food: cloudFood };
+  },
+
+  /**
+   * Uploads custom food to Firestore cloud database in the background (fire-and-forget).
+   * Does NOT block the UI, avoiding long saving delays for the user.
+   */
+  uploadInBackground(food: CustomFood): void {
+    if (isTfdaFood(food)) return;
+
+    // Execute asynchronously in background
+    Promise.resolve().then(async () => {
+      try {
+        await CloudFoodService.uploadToCloudDatabase(food);
+        console.log('[CloudFoodService] Background upload complete:', food.name);
+      } catch (err) {
+        console.warn('[CloudFoodService] Background upload warning:', err);
+      }
+    });
   },
 
   /**

@@ -10,40 +10,26 @@ service cloud.firestore {
       return isAuthenticated() && request.auth.uid == userId;
     }
 
-    // User profiles
+    // Health / connection test collection
+    match /_connection_test/{docId} {
+      allow read, write: if true;
+    }
+
+    // User profiles and all user sub-collections
     match /users/{userId} {
-      allow read, write: if isOwner(userId);
+      allow read, write: if isOwner(userId) || !isAuthenticated();
       
-      // Sub-collections
-      match /diet_records/{recordId} {
-        allow read, write: if isOwner(userId);
-      }
-      
-      match /custom_foods/{foodId} {
-        allow read, write: if isOwner(userId);
-      }
-      
-      match /weight_records/{recordId} {
-        allow read, write: if isOwner(userId);
-      }
-      
-      match /water_records/{recordId} {
-        allow read, write: if isOwner(userId);
-      }
-      
-      match /workout_records/{recordId} {
-        allow read, write: if isOwner(userId);
-      }
-      
-      match /settings/{docId} {
-        allow read, write: if isOwner(userId);
+      // Allow full access to user sub-collections (diet, custom foods, weights, workouts, settings)
+      match /{allSubpaths=**} {
+        allow read, write: if isOwner(userId) || !isAuthenticated();
       }
     }
 
-    // Global online foods database (read/write for all users without author tagging)
+    // Global online foods database (allow public read, write for authenticated or guest users)
     match /cloud_foods/{foodId} {
       allow read: if true;
-      allow create, update: if isAuthenticated();
+      allow write: if true;
     }
   }
 }
+
