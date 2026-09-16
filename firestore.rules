@@ -39,5 +39,11 @@ service cloud.firestore {
         allow read, write: if isOwner(userId);
       }
     }
+
+    // Global online foods database (read/write for all users without author tagging)
+    match /cloud_foods/{foodId} {
+      allow read: if true;
+      allow create, update: if isAuthenticated();
+    }
   }
 }

@@ -57,6 +57,27 @@ export interface CustomFood {
   barcode?: string;
   updatedAt: number;
   aiSource?: 'vision' | 'estimation';
+  isSharedToCloud?: boolean;
+}
+
+export interface CloudFood {
+  id: string;
+  name: string;
+  brand: string;
+  servingAmount: number;
+  servingUnit: string;
+  calories: number;
+  carbs: number;
+  sugars: number;
+  fiber: number;
+  protein: number;
+  fat: number;
+  sodium: number;
+  potassium: number;
+  imageUrl?: string;
+  barcode?: string;
+  createdAt: number;
+  updatedAt: number;
 }
 
 export interface FoodSearchResult {
@@ -77,6 +98,7 @@ export interface FoodSearchResult {
   imageUrl?: string;
   isLocalPreset?: boolean;
   isUserCustom?: boolean;
+  isCloudPreset?: boolean;
   barcode?: string;
   aiSource?: 'vision' | 'estimation';
 }

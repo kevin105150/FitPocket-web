@@ -1,7 +1,8 @@
 import React, { useState, useRef } from 'react';
-import { X, Save, Sparkles, AlertCircle, ChevronDown } from 'lucide-react';
+import { X, Save, Sparkles, AlertCircle, ChevronDown, CloudUpload } from 'lucide-react';
 import { CustomFood } from '../types';
 import { MacroCalorieVerifier } from './MacroCalorieVerifier';
+import { CloudFoodService } from '../services/cloudFoodService';
 
 interface CustomFoodModalProps {
   onClose: () => void;
@@ -33,6 +34,8 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
   const [consumedAmount, setConsumedAmount] = useState<number | string>(initialConsumedAmount ?? initialFood?.servingAmount ?? 100);
   const [servingUnit, setServingUnit] = useState<string>(initialFood?.servingUnit || 'g');
   const [barcode, setBarcode] = useState<string>(initialFood?.barcode || '');
+  const [shareToCloud, setShareToCloud] = useState<boolean>(true);
+  const [isSharing, setIsSharing] = useState<boolean>(false);
   
   const [error, setError] = useState<string>('');
   const [isUnitDropdownOpen, setIsUnitDropdownOpen] = useState(false);
@@ -54,7 +57,7 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
     setCalories(calc);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
       setError('請輸入食品名稱');
@@ -80,7 +83,19 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
       potassium: Number(potassium) || 0,
       barcode: barcode.trim() || undefined,
       updatedAt: Date.now(),
+      isSharedToCloud: shareToCloud,
     };
+
+    if (shareToCloud) {
+      setIsSharing(true);
+      try {
+        await CloudFoodService.uploadToCloudDatabase(food);
+      } catch (err) {
+        console.warn('Cloud upload note:', err);
+      } finally {
+        setIsSharing(false);
+      }
+    }
 
     onSave(food, parsedConsumed);
     onClose();
@@ -405,6 +420,28 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
                 onChange={(e) => setBarcode(e.target.value)}
                 className="w-full px-3 py-2 rounded-xl border border-slate-200 font-medium text-slate-800"
               />
+            </div>
+
+            {/* Cloud Upload Switch */}
+            <div className="mt-4 p-3.5 bg-sky-50/80 border border-sky-100 rounded-2xl flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-sky-600 text-white rounded-xl shadow-xs">
+                  <CloudUpload className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="text-xs font-bold text-sky-950">同步擴充至公共網路資料庫</div>
+                  <div className="text-[11px] text-sky-700 font-medium">將這項食物資訊匿名備份至線上食品資料庫</div>
+                </div>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={shareToCloud}
+                  onChange={(e) => setShareToCloud(e.target.checked)}
+                  className="sr-only peer"
+                />
+                <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-sky-600"></div>
+              </label>
             </div>
           </div>
 

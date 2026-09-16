@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   X,
   Search,
@@ -14,9 +14,11 @@ import {
   AlertCircle,
   Upload,
   ChevronDown,
+  Cloud,
 } from 'lucide-react';
 import { CustomFood, FoodSearchResult, MealType } from '../types';
 import { StorageService } from '../services/storage';
+import { CloudFoodService } from '../services/cloudFoodService';
 
 interface AddFoodModalProps {
   initialMealType: MealType;
@@ -28,7 +30,7 @@ interface AddFoodModalProps {
   onOpenCustomFoodModal: () => void;
 }
 
-export type FoodTab = 'ALL' | '711' | 'FAMILYMART' | 'OFFICIAL' | 'CUSTOM' | 'AI_SCAN' | 'BARCODE';
+export type FoodTab = 'ALL' | 'OFFICIAL' | 'CUSTOM' | 'CLOUD' | 'AI_SCAN' | 'BARCODE';
 
 export const AddFoodModal: React.FC<AddFoodModalProps> = ({
   initialMealType,
@@ -64,6 +66,29 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
   const [isOnlineSearching, setIsOnlineSearching] = useState(false);
   const [onlineResults, setOnlineResults] = useState<FoodSearchResult[]>([]);
 
+  // Cloud foods state
+  const [cloudFoods, setCloudFoods] = useState<FoodSearchResult[]>([]);
+  const [isCloudLoading, setIsCloudLoading] = useState(false);
+
+  // Fetch cloud foods from Firestore
+  const loadCloudFoods = async (queryStr: string = '') => {
+    setIsCloudLoading(true);
+    try {
+      const results = await CloudFoodService.fetchCloudFoods(queryStr);
+      setCloudFoods(results);
+    } catch (e) {
+      console.warn('Error loading cloud foods:', e);
+    } finally {
+      setIsCloudLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'CLOUD') {
+      loadCloudFoods(searchQuery);
+    }
+  }, [activeTab, searchQuery]);
+
   // Get local presets + custom foods
   const allLocalFoods = useMemo(() => {
     return StorageService.searchFoods('');
@@ -74,11 +99,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
     const q = searchQuery.trim().toLowerCase();
     let list = allLocalFoods;
 
-    if (activeTab === '711') {
-      list = list.filter((f) => f.brand?.includes('7-ELEVEN') || f.brand?.includes('7-11'));
-    } else if (activeTab === 'FAMILYMART') {
-      list = list.filter((f) => f.brand?.includes('全家'));
-    } else if (activeTab === 'OFFICIAL') {
+    if (activeTab === 'OFFICIAL') {
       list = list.filter(
         (f) =>
           f.brand?.includes('衛福部') ||
@@ -431,7 +452,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
           <button
             onClick={() => setActiveTab('ALL')}
             className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition cursor-pointer ${
-              activeTab === 'ALL' || activeTab === '711' || activeTab === 'FAMILYMART' || activeTab === 'OFFICIAL' || activeTab === 'CUSTOM'
+              activeTab === 'ALL' || activeTab === 'OFFICIAL' || activeTab === 'CUSTOM' || activeTab === 'CLOUD'
                 ? 'bg-emerald-700 text-white'
                 : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
             }`}
@@ -451,13 +472,13 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
         </div>
 
         {/* Conditional Search/Tool Bar */}
-        {(activeTab === 'ALL' || activeTab === '711' || activeTab === 'FAMILYMART' || activeTab === 'OFFICIAL' || activeTab === 'CUSTOM') && (
+        {(activeTab === 'ALL' || activeTab === 'OFFICIAL' || activeTab === 'CUSTOM' || activeTab === 'CLOUD') && (
           <div className="px-4 pt-3 pb-2">
             <div className="relative flex items-center">
               <Search className="w-4 h-4 text-slate-400 absolute left-3.5 pointer-events-none" />
               <input
                 type="text"
-                placeholder="搜尋超商、官方資料庫或我的飲食..."
+                placeholder={activeTab === 'CLOUD' ? '搜尋公共網路食品資料庫...' : '搜尋衛福部官方資料庫或自訂飲食...'}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full pl-10 pr-10 py-2.5 bg-slate-100/80 rounded-2xl text-sm font-medium text-slate-800 placeholder-slate-400 focus:outline-emerald-600 focus:bg-white border border-transparent focus:border-emerald-200 transition"
@@ -475,10 +496,12 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
             {/* Categories Bar (Only in general search) */}
             <div className="flex gap-1.5 overflow-x-auto scrollbar-none pt-2">
               <button onClick={() => setActiveTab('ALL')} className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition cursor-pointer ${activeTab === 'ALL' ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600'}`}>全部</button>
-              <button onClick={() => setActiveTab('711')} className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition cursor-pointer ${activeTab === '711' ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600'}`}>7-11</button>
-              <button onClick={() => setActiveTab('FAMILYMART')} className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition cursor-pointer ${activeTab === 'FAMILYMART' ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600'}`}>全家</button>
-              <button onClick={() => setActiveTab('OFFICIAL')} className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition cursor-pointer ${activeTab === 'OFFICIAL' ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600'}`}>衛福部</button>
+              <button onClick={() => setActiveTab('OFFICIAL')} className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition cursor-pointer ${activeTab === 'OFFICIAL' ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600'}`}>衛福部資料庫</button>
               <button onClick={() => setActiveTab('CUSTOM')} className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition cursor-pointer ${activeTab === 'CUSTOM' ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600'}`}>自訂</button>
+              <button onClick={() => setActiveTab('CLOUD')} className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition cursor-pointer flex items-center gap-1.5 ${activeTab === 'CLOUD' ? 'bg-sky-600 text-white shadow-xs' : 'bg-sky-50 text-sky-700 hover:bg-sky-100'}`}>
+                <Cloud className="w-3.5 h-3.5" />
+                網路擴充庫
+              </button>
             </div>
           </div>
         )}
@@ -679,8 +702,86 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
             </div>
           )}
 
+          {/* TAB: CLOUD */}
+          {activeTab === 'CLOUD' && (
+            <div className="space-y-3">
+              <div className="p-3.5 bg-gradient-to-r from-sky-600 to-blue-700 rounded-2xl text-white shadow-sm flex items-center justify-between gap-3">
+                <div>
+                  <div className="flex items-center gap-1.5 font-bold text-sm">
+                    <Cloud className="w-4 h-4 text-sky-200" />
+                    公共網路食品資料庫
+                  </div>
+                  <p className="text-xs text-sky-100 mt-0.5">
+                    彙整線上擴充食品與特殊餐點的營養與熱量標示
+                  </p>
+                </div>
+                <button
+                  onClick={onOpenCustomFoodModal}
+                  className="px-3 py-1.5 bg-white text-sky-800 hover:bg-sky-50 font-bold text-xs rounded-xl shadow-xs shrink-0 transition cursor-pointer flex items-center gap-1"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  新增上傳
+                </button>
+              </div>
+
+              {isCloudLoading ? (
+                <div className="py-12 text-center space-y-2">
+                  <Loader2 className="w-8 h-8 animate-spin text-sky-600 mx-auto" />
+                  <p className="text-xs font-medium text-slate-500">正在讀取網路食品資料庫...</p>
+                </div>
+              ) : cloudFoods.length > 0 ? (
+                cloudFoods.map((food) => (
+                  <div
+                    key={food.id}
+                    onClick={() => onSelectFood(food, selectedMealType)}
+                    className="p-3 bg-white border border-slate-200 hover:border-sky-400 rounded-2xl hover:shadow-sm transition cursor-pointer flex items-center justify-between gap-3 group"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5 mb-0.5 font-sans flex-wrap">
+                        <span className="text-[11px] font-semibold px-2 py-0.5 bg-sky-50 text-sky-800 rounded-md flex items-center gap-1">
+                          <Cloud className="w-3 h-3 text-sky-600" />
+                          {food.brand || '網路資料庫'}
+                        </span>
+                      </div>
+                      <h4 className="font-bold text-sm text-slate-900 truncate group-hover:text-sky-800">
+                        {food.name}
+                      </h4>
+                      <div className="flex items-center gap-2 text-xs text-slate-500 mt-1">
+                        <span className="font-semibold text-slate-800">
+                          每份 ({food.servingAmount}{food.servingUnit}), {food.calories} kcal
+                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-1.5 py-0.25 rounded-full">C: {food.carbs}g</span>
+                          <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-1.5 py-0.25 rounded-full">P: {food.protein}g</span>
+                          <span className="text-[10px] font-bold text-rose-700 bg-rose-50 px-1.5 py-0.25 rounded-full">F: {food.fat}g</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="p-2 text-slate-400 group-hover:text-sky-600 group-hover:bg-sky-50 rounded-xl transition">
+                      <Plus className="w-5 h-5" />
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="py-10 text-center space-y-3 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                  <p className="text-sm font-medium text-slate-600">目前網路資料庫尚無符合的食品</p>
+                  <p className="text-xs text-slate-400">您可以手動新增並同步上傳擴充資料庫！</p>
+                  <button
+                    type="button"
+                    onClick={onOpenCustomFoodModal}
+                    className="px-4 py-2 bg-sky-600 text-white rounded-xl text-xs font-bold hover:bg-sky-700 transition inline-flex items-center gap-1 cursor-pointer"
+                  >
+                    <Plus className="w-4 h-4" />
+                    新增自訂食品
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* TAB: ALL, 7-11, FAMILYMART, OFFICIAL, CUSTOM */}
-          {activeTab !== 'AI_SCAN' && activeTab !== 'BARCODE' && (
+          {activeTab !== 'AI_SCAN' && activeTab !== 'BARCODE' && activeTab !== 'CLOUD' && (
             <div className="space-y-2">
               {filteredFoods.length > 0 ? (
                 filteredFoods.map((food) => (
