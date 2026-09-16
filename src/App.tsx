@@ -6,7 +6,7 @@ import { WaterTracker } from './components/WaterTracker';
 import { WeightTracker } from './components/WeightTracker';
 import { SettingsScreen } from './components/SettingsScreen';
 import { getTodayString } from './utils/dateUtils';
-import { auth, getAccessToken, logout } from './lib/firebase';
+import { auth, getAccessToken, logout, handleRedirectResult } from './lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { StorageService } from './services/storage';
 import { LoginScreen } from './components/LoginScreen';
@@ -30,21 +30,36 @@ export default function App() {
   };
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (u) => {
-      setUser(u);
-      setIsInitializing(false);
-      if (u) {
-        const token = await getAccessToken();
-        if (!token) {
-          // If no token, we still allow access, but Drive sync might fail gracefully
-          setNeedsDriveAuth(false);
-        } else {
-          setNeedsDriveAuth(false);
-          StorageService.syncFromCloud().catch(err => console.warn("Sync error (non-blocking):", err));
+    let active = true;
+    const initAuth = async () => {
+      // First, check and resolve any OAuth redirect result (saves Google token to localStorage)
+      await handleRedirectResult();
+      
+      if (!active) return;
+
+      const unsubscribe = onAuthStateChanged(auth, async (u) => {
+        if (!active) return;
+        setUser(u);
+        setIsInitializing(false);
+        if (u) {
+          const token = await getAccessToken();
+          if (!token) {
+            // If no token, we still allow access, but Drive sync might fail gracefully
+            setNeedsDriveAuth(false);
+          } else {
+            setNeedsDriveAuth(false);
+            StorageService.syncFromCloud().catch(err => console.warn("Sync error (non-blocking):", err));
+          }
         }
-      }
-    });
-    return () => unsubscribe();
+      });
+      return unsubscribe;
+    };
+
+    const unsubPromise = initAuth();
+    return () => {
+      active = false;
+      unsubPromise.then(unsub => unsub && unsub());
+    };
   }, []);
 
   if (isInitializing) {

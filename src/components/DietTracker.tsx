@@ -302,7 +302,7 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
         const foodItem: FoodSearchResult = {
           id: 'ai_photo_' + Date.now(),
           name: result.name || '照片辨識料理',
-          brand: 'AI 視覺辨識',
+          brand: '', // Clean brand
           calories,
           carbs,
           protein,
@@ -315,6 +315,7 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
           servingUnit: result.servingUnit || 'g',
           servingSizeText: result.servingSizeText || `1份 (${defaultAmount}${result.servingUnit || 'g'})`,
           isUserCustom: true,
+          aiSource: 'vision',
         };
 
         StorageService.saveCustomFood({
@@ -332,6 +333,7 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
           sodium: foodItem.sodium,
           potassium: foodItem.potassium,
           updatedAt: Date.now(),
+          aiSource: 'vision',
         });
 
         setAiReviewFood(foodItem);

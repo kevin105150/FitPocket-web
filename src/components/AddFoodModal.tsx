@@ -235,7 +235,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
       const foodItem: FoodSearchResult = {
         id: 'ai_photo_' + Date.now(),
         name: result.name || '相片辨識料理',
-        brand: 'AI 視覺辨識',
+        brand: '',
         calories,
         carbs,
         protein,
@@ -248,6 +248,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
         servingUnit: result.servingUnit || 'g',
         servingSizeText: result.servingSizeText || `1份 (${defaultAmount}${result.servingUnit || 'g'})`,
         isUserCustom: true,
+        aiSource: 'vision',
       };
 
       StorageService.saveCustomFood({
@@ -265,6 +266,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
         sodium: foodItem.sodium,
         potassium: foodItem.potassium,
         updatedAt: Date.now(),
+        aiSource: 'vision',
       });
 
       onSelectFood(foodItem);
@@ -319,7 +321,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
       const foodItem: FoodSearchResult = {
         id: 'ai_' + Date.now(),
         name: result.name || aiPrompt.trim(),
-        brand: 'AI 智慧估算',
+        brand: '',
         calories,
         carbs,
         protein,
@@ -332,6 +334,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
         servingUnit: result.servingUnit || 'g',
         servingSizeText: result.servingSizeText || `1份 (${defaultAmount}${result.servingUnit || 'g'})`,
         isUserCustom: true,
+        aiSource: 'estimation',
       };
 
       StorageService.saveCustomFood({
@@ -349,6 +352,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
         sodium: foodItem.sodium,
         potassium: foodItem.potassium,
         updatedAt: Date.now(),
+        aiSource: 'estimation',
       });
 
       onSelectFood(foodItem);
@@ -682,10 +686,30 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                 filteredFoods.map((food) => (
                     <div key={food.id} onClick={() => onSelectFood(food, selectedMealType)} className="p-3 bg-white border border-slate-100 hover:border-emerald-300 rounded-2xl hover:shadow-sm transition cursor-pointer flex items-center justify-between gap-3 group">
                       <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1.5 mb-0.5">
-                          <span className="text-[11px] font-semibold px-2 py-0.5 bg-slate-100 text-slate-700 rounded-md">
-                            {food.brand || '食材'}
-                          </span>
+                        <div className="flex items-center gap-1.5 mb-0.5 font-sans flex-wrap">
+                          {(() => {
+                            const isVision = food.aiSource === 'vision' || food.brand === 'AI 視覺辨識';
+                            const isEstimation = food.aiSource === 'estimation' || food.brand === 'AI 智慧估算';
+                            const displayBrand = (isVision || isEstimation) ? '' : food.brand;
+                            
+                            return (
+                              <>
+                                <span className="text-[11px] font-semibold px-2 py-0.5 bg-slate-100 text-slate-700 rounded-md">
+                                  {displayBrand || '食材'}
+                                </span>
+                                {isVision && (
+                                  <span className="text-[10px] font-bold px-1.5 py-0.5 bg-purple-50 text-purple-700 border border-purple-100 rounded-md">
+                                    AI 視覺辨識
+                                  </span>
+                                )}
+                                {isEstimation && (
+                                  <span className="text-[10px] font-bold px-1.5 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-md">
+                                    AI 智慧估算
+                                  </span>
+                                )}
+                              </>
+                            );
+                          })()}
                           {food.isUserCustom && (
                             <span className="text-[10px] font-bold px-1.5 py-0.5 bg-amber-100 text-amber-800 rounded-md">
                               我的自訂

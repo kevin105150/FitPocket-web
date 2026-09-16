@@ -36,6 +36,7 @@ export interface FoodRecord {
   potassium: number;
   note?: string;
   createdAt: number;
+  aiSource?: 'vision' | 'estimation';
 }
 
 export interface CustomFood {
@@ -55,6 +56,7 @@ export interface CustomFood {
   imageUrl?: string;
   barcode?: string;
   updatedAt: number;
+  aiSource?: 'vision' | 'estimation';
 }
 
 export interface FoodSearchResult {
@@ -76,6 +78,7 @@ export interface FoodSearchResult {
   isLocalPreset?: boolean;
   isUserCustom?: boolean;
   barcode?: string;
+  aiSource?: 'vision' | 'estimation';
 }
 
 export type CarbCycleType = 'HIGH' | 'MEDIUM' | 'LOW' | 'CUSTOM';

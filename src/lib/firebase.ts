@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, User, GoogleAuthProvider as GAuthProvider } from 'firebase/auth';
+import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signOut, onAuthStateChanged, User, GoogleAuthProvider as GAuthProvider } from 'firebase/auth';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
@@ -11,22 +11,46 @@ export const googleProvider = new GoogleAuthProvider();
 // Add Drive scope
 googleProvider.addScope('https://www.googleapis.com/auth/drive.file');
 
-// Cache access token in memory
-let cachedAccessToken: string | null = null;
+// Cache access token in memory and localStorage for persistent sessions
+let cachedAccessToken: string | null = localStorage.getItem('fitpocket_google_access_token');
+
+export const handleRedirectResult = async () => {
+  try {
+    const result = await getRedirectResult(auth);
+    if (result) {
+      const credential = GAuthProvider.credentialFromResult(result);
+      if (credential?.accessToken) {
+        cachedAccessToken = credential.accessToken;
+        localStorage.setItem('fitpocket_google_access_token', credential.accessToken);
+        console.log("Successfully loaded redirected Google Access Token.");
+      }
+    }
+  } catch (error) {
+    console.error("Redirect login resolution error:", error);
+  }
+};
 
 export const loginWithGoogle = async (forceSelectAccount = false) => {
   try {
-    if (forceSelectAccount) {
-      googleProvider.setCustomParameters({ prompt: 'select_account' });
+    googleProvider.setCustomParameters({ prompt: 'select_account' }); // Always force select account to ensure we can switch
+    
+    // Detect mobile browser to automatically switch to redirect mode (bypasses third-party popup cookie blocks)
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    
+    if (isMobile) {
+      console.log("Mobile device detected. Launching Google Sign-In with Redirect...");
+      await signInWithRedirect(auth, googleProvider);
+      return { user: null, accessToken: null, isRedirecting: true };
     } else {
-      googleProvider.setCustomParameters({ prompt: 'select_account' }); // Always force select account to ensure we can switch
+      console.log("Desktop device detected. Launching Google Sign-In with Popup...");
+      const result = await signInWithPopup(auth, googleProvider);
+      const credential = GAuthProvider.credentialFromResult(result);
+      if (credential?.accessToken) {
+        cachedAccessToken = credential.accessToken;
+        localStorage.setItem('fitpocket_google_access_token', credential.accessToken);
+      }
+      return { user: result.user, accessToken: cachedAccessToken };
     }
-    const result = await signInWithPopup(auth, googleProvider);
-    const credential = GAuthProvider.credentialFromResult(result);
-    if (credential?.accessToken) {
-      cachedAccessToken = credential.accessToken;
-    }
-    return { user: result.user, accessToken: cachedAccessToken };
   } catch (error) {
     console.error("Login failed:", error);
     throw error;
@@ -34,12 +58,16 @@ export const loginWithGoogle = async (forceSelectAccount = false) => {
 };
 
 export const getAccessToken = async (): Promise<string | null> => {
+  if (!cachedAccessToken) {
+    cachedAccessToken = localStorage.getItem('fitpocket_google_access_token');
+  }
   return cachedAccessToken;
 };
 
 export const logout = async () => {
   await signOut(auth);
   cachedAccessToken = null;
+  localStorage.removeItem('fitpocket_google_access_token');
 };
 
 // Error handling for Firestore

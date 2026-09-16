@@ -900,7 +900,31 @@ ${workouts
                     <div className="min-w-0">
                       <div className="font-bold text-slate-800 text-sm truncate">{cf.name}</div>
                       <div className="text-[11px] text-slate-400 flex flex-wrap items-center gap-x-2.5 gap-y-1 mt-0.5">
-                        {cf.brand && <span className="bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded-sm font-semibold">{cf.brand}</span>}
+                        {(() => {
+                          const isVision = cf.aiSource === 'vision' || cf.brand === 'AI 視覺辨識';
+                          const isEstimation = cf.aiSource === 'estimation' || cf.brand === 'AI 智慧估算';
+                          const displayBrand = (isVision || isEstimation) ? '' : cf.brand;
+                          
+                          return (
+                            <>
+                              {displayBrand && (
+                                <span className="bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded-sm font-semibold">
+                                  {displayBrand}
+                                </span>
+                              )}
+                              {isVision && (
+                                <span className="bg-purple-50 text-purple-700 border border-purple-100 px-1.5 py-0.5 rounded-sm font-semibold">
+                                  AI 視覺辨識
+                                </span>
+                              )}
+                              {isEstimation && (
+                                <span className="bg-indigo-50 text-indigo-700 border border-indigo-100 px-1.5 py-0.5 rounded-sm font-semibold">
+                                  AI 智慧估算
+                                </span>
+                              )}
+                            </>
+                          );
+                        })()}
                         <span>每份 ({cf.servingAmount}{cf.servingUnit}) {cf.calories} kcal</span>
                         <span className="text-slate-300">|</span>
                         <span>碳: {cf.carbs}g</span>
