@@ -325,25 +325,6 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
           aiSource: 'vision',
         };
 
-        StorageService.saveCustomFood({
-          id: foodItem.id,
-          name: foodItem.name,
-          brand: foodItem.brand,
-          barcode: foodItem.barcode,
-          servingAmount: foodItem.servingAmount,
-          servingUnit: foodItem.servingUnit,
-          calories: foodItem.calories,
-          carbs: foodItem.carbs,
-          protein: foodItem.protein,
-          fat: foodItem.fat,
-          sugars: foodItem.sugars,
-          fiber: foodItem.fiber,
-          sodium: foodItem.sodium,
-          potassium: foodItem.potassium,
-          updatedAt: Date.now(),
-          aiSource: 'vision',
-        });
-
         setAiReviewFood(foodItem);
       } catch (err: any) {
         setAiPhotoError(err.message || '無法辨識此照片，請嘗試重新拍攝');

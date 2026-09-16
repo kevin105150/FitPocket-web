@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { initializeFirestore } from 'firebase/firestore';
+import { getFirestore } from 'firebase/firestore';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signOut, onAuthStateChanged, User, GoogleAuthProvider as GAuthProvider } from 'firebase/auth';
 import firebaseConfig from '../../firebase-applet-config.json';
 
@@ -16,19 +16,9 @@ const dynamicFirebaseConfig = {
 
 const app = initializeApp(dynamicFirebaseConfig);
 
-// Initialize Firestore with robust long-polling settings
-// When running in container/Cloud Run/mobile proxies, WebChannel streaming (gRPC-web) frequently gets 
-// hung or blocked, causing 6s/10s timeout. experimentalForceLongPolling forces reliable HTTP long-polling.
-const firestoreSettings = {
-  experimentalForceLongPolling: true,
-  useFetchStreams: false,
-};
-
 export const db = firebaseConfig.firestoreDatabaseId 
-  ? initializeFirestore(app, firestoreSettings, firebaseConfig.firestoreDatabaseId)
-  : initializeFirestore(app, firestoreSettings);
-
-export const defaultDb = initializeFirestore(app, firestoreSettings);
+  ? getFirestore(app, firebaseConfig.firestoreDatabaseId)
+  : getFirestore(app);
 
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
@@ -44,38 +34,28 @@ export const testFirebaseConnection = async (): Promise<{
   details?: any;
 }> => {
   const startTime = performance.now();
-  const { doc, setDoc, getDoc, deleteDoc } = await import('firebase/firestore');
+  const { doc, setDoc, getDocFromServer, deleteDoc } = await import('firebase/firestore');
 
-  // Attempt test on a specific database instance
-  const runTestOnInstance = async (targetDb: any, dbLabel: string) => {
-    const testDocId = `ping_${Date.now()}`;
-    const testRef = doc(targetDb, '_connection_test', testDocId);
-    
-    // Test write with 8 second timeout
-    let writeError: any = null;
-    const writePromise = setDoc(testRef, { timestamp: Date.now(), ping: 'pong', target: dbLabel })
-      .catch((e) => {
-        writeError = e;
-        throw e;
-      });
+  const configuredDbId = firebaseConfig.firestoreDatabaseId || '(default)';
+  const testDocId = `ping_${Date.now()}`;
+  const testRef = doc(db, '_connection_test', testDocId);
+
+  try {
+    // Test write with timeout
+    const writePromise = setDoc(testRef, { timestamp: Date.now(), ping: 'pong', target: configuredDbId });
     const timeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error(`連線逾時 (8秒)：無法在限定時間內完成寫入 [${dbLabel}]`)), 8000)
+      setTimeout(() => reject(new Error(`連線逾時 (10秒)：無法在限定時間內完成寫入 [${configuredDbId}]`)), 10000)
     );
     await Promise.race([writePromise, timeoutPromise]);
     
-    // Test read
-    const snap = await getDoc(testRef);
+    // Test read directly from server
+    const snap = await getDocFromServer(testRef);
     if (!snap.exists()) {
-      throw new Error(`Firestore 測試文件寫入後無法讀取 [${dbLabel}]`);
+      throw new Error(`Firestore 測試文件寫入後無法從伺服器讀取 [${configuredDbId}]`);
     }
     
     // Clean up test doc
     await deleteDoc(testRef).catch(() => {});
-  };
-
-  try {
-    const configuredDbId = firebaseConfig.firestoreDatabaseId || '(default)';
-    await runTestOnInstance(db, configuredDbId);
     
     const latencyMs = Math.round(performance.now() - startTime);
     return {
@@ -88,29 +68,17 @@ export const testFirebaseConnection = async (): Promise<{
       }
     };
   } catch (err: any) {
-    const primaryError = err;
-    console.error('[Firebase Diagnostic Primary Error]', primaryError);
-
-    // If a custom databaseId failed, attempt fallback check on default database (default)
-    let fallbackResult: { success: boolean; error?: any } = { success: false };
-    if (firebaseConfig.firestoreDatabaseId) {
-      try {
-        await runTestOnInstance(defaultDb, '(default)');
-        fallbackResult = { success: true };
-      } catch (fbErr: any) {
-        fallbackResult = { success: false, error: fbErr };
-      }
-    }
-
     const latencyMs = Math.round(performance.now() - startTime);
-    let userMsg = primaryError?.message || 'Firebase 連線失敗';
+    console.error('[Firebase Diagnostic Error]', err);
+
+    let userMsg = err?.message || 'Firebase 連線失敗';
     
-    if (primaryError?.code === 'permission-denied') {
+    if (err?.code === 'permission-denied') {
       userMsg = '權限遭拒 (permission-denied)：Firestore 安全規則拒絕存取。請確認 Rules 是否已部署生效。';
-    } else if (primaryError?.code === 'unavailable') {
-      userMsg = '服務無法連線 (unavailable)：網路無法連線或 Firebase 尚未完成建立。';
-    } else if (primaryError?.code === 'not-found' || (primaryError?.message && primaryError.message.includes('not found'))) {
-      userMsg = `指定的命名資料庫未找到 [${firebaseConfig.firestoreDatabaseId}]。${fallbackResult.success ? '（但 (default) 預設資料庫連線正常，可切換至預設資料庫）' : ''}`;
+    } else if (err?.code === 'unavailable') {
+      userMsg = '服務無法連線 (unavailable)：網路無法連線或 Firebase 資料庫建立中。';
+    } else if (err?.code === 'not-found' || (err?.message && err.message.includes('not found'))) {
+      userMsg = `指定的命名資料庫未找到 [${configuredDbId}]。`;
     }
 
     return {
@@ -118,12 +86,11 @@ export const testFirebaseConnection = async (): Promise<{
       latencyMs,
       message: userMsg,
       details: {
-        code: primaryError?.code || 'UNKNOWN',
-        name: primaryError?.name,
-        rawMessage: primaryError?.message,
-        databaseId: firebaseConfig.firestoreDatabaseId || '(default)',
+        code: err?.code || 'UNKNOWN',
+        name: err?.name,
+        rawMessage: err?.message,
+        databaseId: configuredDbId,
         projectId: firebaseConfig.projectId,
-        defaultDbTestSuccess: fallbackResult.success,
       }
     };
   }

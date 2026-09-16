@@ -278,25 +278,6 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
         aiSource: 'vision',
       };
 
-      StorageService.saveCustomFood({
-        id: foodItem.id,
-        name: foodItem.name,
-        brand: foodItem.brand,
-        barcode: foodItem.barcode,
-        servingAmount: foodItem.servingAmount,
-        servingUnit: foodItem.servingUnit,
-        calories: foodItem.calories,
-        carbs: foodItem.carbs,
-        protein: foodItem.protein,
-        fat: foodItem.fat,
-        sugars: foodItem.sugars,
-        fiber: foodItem.fiber,
-        sodium: foodItem.sodium,
-        potassium: foodItem.potassium,
-        updatedAt: Date.now(),
-        aiSource: 'vision',
-      });
-
       onSelectFood(foodItem);
     } catch (e: any) {
       setAiError(e.message || 'AI 辨識發生錯誤');
@@ -364,24 +345,6 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
         isUserCustom: true,
         aiSource: 'estimation',
       };
-
-      StorageService.saveCustomFood({
-        id: foodItem.id,
-        name: foodItem.name,
-        brand: foodItem.brand,
-        servingAmount: foodItem.servingAmount,
-        servingUnit: foodItem.servingUnit,
-        calories: foodItem.calories,
-        carbs: foodItem.carbs,
-        protein: foodItem.protein,
-        fat: foodItem.fat,
-        sugars: foodItem.sugars,
-        fiber: foodItem.fiber,
-        sodium: foodItem.sodium,
-        potassium: foodItem.potassium,
-        updatedAt: Date.now(),
-        aiSource: 'estimation',
-      });
 
       onSelectFood(foodItem);
     } catch (e: any) {

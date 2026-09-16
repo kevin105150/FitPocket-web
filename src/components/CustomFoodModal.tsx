@@ -36,7 +36,7 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
   const [barcode, setBarcode] = useState<string>(initialFood?.barcode || '');
   
   const isOfficialTfda = isTfdaFood(initialFood || { brand });
-  const [shareToCloud, setShareToCloud] = useState<boolean>(!isOfficialTfda);
+  const [shareToCloud, setShareToCloud] = useState<boolean>(mode === 'CUSTOM' && !isOfficialTfda);
   const [isSharing, setIsSharing] = useState<boolean>(false);
   
   // Duplicate check dialog state
