@@ -108,19 +108,9 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
         </button>
 
         <div class="flex items-center gap-2 min-w-0">
-          <div class="relative flex items-center gap-2 px-3.5 py-1.5 bg-emerald-50/70 border border-emerald-100 rounded-2xl cursor-pointer min-w-0">
+          <div class="flex items-center gap-2 px-3.5 py-1.5 bg-emerald-50/70 border border-emerald-100 rounded-2xl min-w-0">
             <svg class="w-4 h-4 text-emerald-800 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 002-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
             <span id="date-display" class="font-extrabold text-slate-900 text-xs sm:text-sm tracking-tight truncate">--</span>
-            <!-- Bounded Date input constrained to [minDate, maxDate] -->
-            <input
-              type="date"
-              id="datePicker"
-              min="${startDate}"
-              max="${endDate}"
-              oninput="setDate(this.value)"
-              onchange="setDate(this.value)"
-              class="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-            />
           </div>
 
           <button
@@ -488,39 +478,6 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
       try {
         if (currentDate < MIN_DATE) currentDate = MIN_DATE;
         if (currentDate > MAX_DATE) currentDate = MAX_DATE;
-        const picker = document.getElementById('datePicker');
-        if (picker) {
-          picker.setAttribute('min', MIN_DATE);
-          picker.setAttribute('max', MAX_DATE);
-          picker.min = MIN_DATE;
-          picker.max = MAX_DATE;
-          picker.value = currentDate;
-
-          picker.addEventListener('input', (e) => {
-            const val = e.target.value;
-            if (val > MAX_DATE) {
-              e.target.value = MAX_DATE;
-              setDate(MAX_DATE);
-            } else if (val < MIN_DATE) {
-              e.target.value = MIN_DATE;
-              setDate(MIN_DATE);
-            } else {
-              setDate(val);
-            }
-          });
-          picker.addEventListener('change', (e) => {
-            const val = e.target.value;
-            if (val > MAX_DATE) {
-              e.target.value = MAX_DATE;
-              setDate(MAX_DATE);
-            } else if (val < MIN_DATE) {
-              e.target.value = MIN_DATE;
-              setDate(MIN_DATE);
-            } else {
-              setDate(val);
-            }
-          });
-        }
         renderWeekPills();
         renderCarbCyclePills();
         renderAll();
@@ -583,8 +540,6 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
       if (val < MIN_DATE) val = MIN_DATE;
       if (val > MAX_DATE) val = MAX_DATE;
       currentDate = val;
-      const picker = document.getElementById('datePicker');
-      if (picker) picker.value = currentDate;
       renderWeekPills();
       renderAll();
     }
