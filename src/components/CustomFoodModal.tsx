@@ -1,8 +1,8 @@
 import React, { useState, useRef } from 'react';
-import { X, Save, Sparkles, AlertCircle, ChevronDown, CloudUpload } from 'lucide-react';
-import { CustomFood } from '../types';
+import { X, Save, Sparkles, AlertCircle, ChevronDown, CloudUpload, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { CloudFood, CustomFood } from '../types';
 import { MacroCalorieVerifier } from './MacroCalorieVerifier';
-import { CloudFoodService } from '../services/cloudFoodService';
+import { CloudFoodService, isTfdaFood, normalizeBrandName } from '../services/cloudFoodService';
 
 interface CustomFoodModalProps {
   onClose: () => void;
@@ -34,9 +34,19 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
   const [consumedAmount, setConsumedAmount] = useState<number | string>(initialConsumedAmount ?? initialFood?.servingAmount ?? 100);
   const [servingUnit, setServingUnit] = useState<string>(initialFood?.servingUnit || 'g');
   const [barcode, setBarcode] = useState<string>(initialFood?.barcode || '');
-  const [shareToCloud, setShareToCloud] = useState<boolean>(true);
+  
+  const isOfficialTfda = isTfdaFood(initialFood || { brand });
+  const [shareToCloud, setShareToCloud] = useState<boolean>(!isOfficialTfda);
   const [isSharing, setIsSharing] = useState<boolean>(false);
   
+  // Duplicate check dialog state
+  const [duplicateModal, setDuplicateModal] = useState<{
+    show: boolean;
+    existingFood: CloudFood;
+    pendingFood: CustomFood;
+    pendingConsumedAmount: number;
+  } | null>(null);
+
   const [error, setError] = useState<string>('');
   const [isUnitDropdownOpen, setIsUnitDropdownOpen] = useState(false);
 
@@ -57,6 +67,22 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
     setCalories(calc);
   };
 
+  const executeSave = async (foodToSave: CustomFood, consumed: number, doUpload: boolean) => {
+    if (doUpload && !isTfdaFood(foodToSave)) {
+      setIsSharing(true);
+      try {
+        await CloudFoodService.uploadToCloudDatabase(foodToSave);
+      } catch (err) {
+        console.warn('Cloud upload note:', err);
+      } finally {
+        setIsSharing(false);
+      }
+    }
+
+    onSave(foodToSave, consumed);
+    onClose();
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
@@ -67,10 +93,13 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
     const parsedDefault = Number(servingAmount) || 100;
     const parsedConsumed = Number(consumedAmount) || 100;
 
+    // Normalize brand (e.g. 7-11, 全家, 萊爾富, OK)
+    const normalizedBrand = normalizeBrandName(brand.trim() || '自訂飲食');
+
     const food: CustomFood = {
       id: initialFood?.id || 'custom_' + Date.now(),
       name: name.trim(),
-      brand: brand.trim() || '自訂飲食',
+      brand: normalizedBrand,
       servingAmount: parsedDefault,
       servingUnit: servingUnit || 'g',
       calories: Number(calories) || 0,
@@ -83,22 +112,38 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
       potassium: Number(potassium) || 0,
       barcode: barcode.trim() || undefined,
       updatedAt: Date.now(),
-      isSharedToCloud: shareToCloud,
+      isSharedToCloud: shareToCloud && !isTfdaFood({ id: initialFood?.id, brand: normalizedBrand }),
     };
 
-    if (shareToCloud) {
+    // If uploading to cloud, perform duplicate pre-check
+    if (food.isSharedToCloud) {
       setIsSharing(true);
       try {
-        await CloudFoodService.uploadToCloudDatabase(food);
-      } catch (err) {
-        console.warn('Cloud upload note:', err);
+        const preCheck = await CloudFoodService.preCheckCloudFood({
+          name: food.name,
+          brand: food.brand,
+          servingUnit: food.servingUnit,
+        });
+
+        if (preCheck.exists && preCheck.existingFood) {
+          setIsSharing(false);
+          // Show duplicate resolution dialog
+          setDuplicateModal({
+            show: true,
+            existingFood: preCheck.existingFood,
+            pendingFood: food,
+            pendingConsumedAmount: parsedConsumed,
+          });
+          return;
+        }
+      } catch (checkErr) {
+        console.warn('Pre-check failed, continuing:', checkErr);
       } finally {
         setIsSharing(false);
       }
     }
 
-    onSave(food, parsedConsumed);
-    onClose();
+    await executeSave(food, parsedConsumed, !!food.isSharedToCloud);
   };
 
   return (
@@ -160,18 +205,26 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
                 className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-emerald-600 font-medium text-slate-800"
               />
               <div className="flex flex-wrap gap-1.5 mt-2">
-                {['自煮', '7-Eleven', '全家便利商店', '好市多 (Costco)', '麥當勞'].map((b) => (
+                {[
+                  { key: '7-11', label: '7-11' },
+                  { key: '全家', label: '全家' },
+                  { key: '萊爾富', label: '萊爾富' },
+                  { key: 'OK', label: 'OK' },
+                  { key: '自煮', label: '自煮' },
+                  { key: '好市多 (Costco)', label: '好市多' },
+                  { key: '麥當勞', label: '麥當勞' },
+                ].map((b) => (
                   <button
-                    key={b}
+                    key={b.key}
                     type="button"
-                    onClick={() => setBrand(b)}
+                    onClick={() => setBrand(b.key)}
                     className={`text-[11px] px-2.5 py-1 rounded-lg font-medium border transition cursor-pointer ${
-                      brand === b
+                      brand === b.key || normalizeBrandName(brand) === b.key
                         ? 'bg-emerald-700 text-white border-emerald-700 shadow-2xs'
                         : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
                     }`}
                   >
-                    {b}
+                    {b.label}
                   </button>
                 ))}
               </div>
@@ -423,29 +476,39 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
             </div>
 
             {/* Cloud Upload Switch */}
-            <div className="mt-4 p-3.5 bg-sky-50/80 border border-sky-100 rounded-2xl flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2.5">
-                <div className="p-2 bg-sky-600 text-white rounded-xl shadow-xs">
+            {isOfficialTfda ? (
+              <div className="mt-4 p-3.5 bg-slate-100 border border-slate-200 rounded-2xl flex items-center gap-3 text-slate-500">
+                <div className="p-2 bg-slate-200 text-slate-600 rounded-xl">
                   <CloudUpload className="w-4 h-4" />
                 </div>
                 <div>
-                  <div className="text-xs font-bold text-sky-950">同步擴充至公共網路資料庫</div>
-                  <div className="text-[11px] text-sky-700 font-medium">將這項食物資訊匿名備份至線上食品資料庫</div>
+                  <div className="text-xs font-bold text-slate-700">衛福部官方資料不提供上傳服務</div>
+                  <div className="text-[11px] text-slate-500">本項目屬於衛福部基礎食材庫，無法發佈至使用者共享雲端。</div>
                 </div>
               </div>
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={shareToCloud}
-                  onChange={(e) => setShareToCloud(e.target.checked)}
-                  className="sr-only peer"
-                />
-                <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-sky-600"></div>
-              </label>
-            </div>
+            ) : (
+              <div className="mt-4 p-3.5 bg-sky-50/80 border border-sky-100 rounded-2xl flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 bg-sky-600 text-white rounded-xl shadow-xs">
+                    <CloudUpload className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="text-xs font-bold text-sky-950">同步擴充至公共網路資料庫</div>
+                    <div className="text-[11px] text-sky-700 font-medium">超商將自動統一名稱（7-11、全家、萊爾富、OK）以防重複</div>
+                  </div>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={shareToCloud}
+                    onChange={(e) => setShareToCloud(e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-sky-600"></div>
+                </label>
+              </div>
+            )}
           </div>
-
-
 
           {/* Action buttons */}
           <div className="pt-2 flex justify-end gap-3">
@@ -458,14 +521,115 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
             </button>
             <button
               type="submit"
-              className="flex items-center gap-1.5 px-5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white text-sm font-semibold rounded-xl shadow-xs transition cursor-pointer"
+              disabled={isSharing}
+              className="flex items-center gap-1.5 px-5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white text-sm font-semibold rounded-xl shadow-xs transition cursor-pointer disabled:opacity-50"
             >
               <Save className="w-4 h-4" />
-              {mode === 'AI_REVIEW' || mode === 'ADD_RECORD' ? '確認並新增至紀錄' : mode === 'EDIT_RECORD' ? '儲存修改' : '儲存自訂飲食'}
+              {isSharing ? '檢查中...' : mode === 'AI_REVIEW' || mode === 'ADD_RECORD' ? '確認並新增至紀錄' : mode === 'EDIT_RECORD' ? '儲存修改' : '儲存自訂飲食'}
             </button>
           </div>
         </form>
       </div>
+
+      {/* Duplicate Pre-Check Resolution Dialog */}
+      {duplicateModal && duplicateModal.show && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div className="bg-white w-full max-w-md rounded-3xl p-5 shadow-2xl space-y-4 border border-slate-100">
+            <div className="flex items-start gap-3">
+              <div className="p-2.5 bg-amber-100 text-amber-700 rounded-2xl shrink-0">
+                <AlertTriangle className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-slate-900">雲端資料庫已存在相同品項</h3>
+                <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
+                  系統偵測到共享資料庫中已有「<span className="font-bold text-slate-800">{duplicateModal.existingFood.brand} - {duplicateModal.existingFood.name}</span>」。為保持資料庫乾淨，您可以選擇覆蓋更新或直接採用雲端現有數值。
+                </p>
+              </div>
+            </div>
+
+            {/* Comparison Box */}
+            <div className="grid grid-cols-2 gap-2.5 text-xs">
+              <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200">
+                <div className="font-bold text-slate-500 mb-1">雲端現有數據</div>
+                <div className="font-extrabold text-slate-800">{duplicateModal.existingFood.calories} kcal</div>
+                <div className="text-[11px] text-slate-500 mt-1">
+                  C: {duplicateModal.existingFood.carbs}g | P: {duplicateModal.existingFood.protein}g | F: {duplicateModal.existingFood.fat}g
+                </div>
+                <div className="text-[10px] text-slate-400 mt-1">
+                  每份 {duplicateModal.existingFood.servingAmount}{duplicateModal.existingFood.servingUnit}
+                </div>
+              </div>
+
+              <div className="p-3 bg-emerald-50 rounded-2xl border border-emerald-200">
+                <div className="font-bold text-emerald-800 mb-1">您本次輸入數據</div>
+                <div className="font-extrabold text-emerald-950">{duplicateModal.pendingFood.calories} kcal</div>
+                <div className="text-[11px] text-emerald-700 mt-1">
+                  C: {duplicateModal.pendingFood.carbs}g | P: {duplicateModal.pendingFood.protein}g | F: {duplicateModal.pendingFood.fat}g
+                </div>
+                <div className="text-[10px] text-emerald-600 mt-1">
+                  每份 {duplicateModal.pendingFood.servingAmount}{duplicateModal.pendingFood.servingUnit}
+                </div>
+              </div>
+            </div>
+
+            {/* Decision Buttons */}
+            <div className="space-y-2 pt-1">
+              <button
+                type="button"
+                onClick={async () => {
+                  const food = duplicateModal.pendingFood;
+                  const consumed = duplicateModal.pendingConsumedAmount;
+                  setDuplicateModal(null);
+                  await executeSave(food, consumed, true);
+                }}
+                className="w-full py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs rounded-xl transition shadow-xs cursor-pointer flex items-center justify-center gap-1.5"
+              >
+                <Save className="w-3.5 h-3.5" />
+                以我輸入的數值覆蓋更新雲端資料庫
+              </button>
+
+              <button
+                type="button"
+                onClick={async () => {
+                  const ef = duplicateModal.existingFood;
+                  const adoptedFood: CustomFood = {
+                    ...duplicateModal.pendingFood,
+                    name: ef.name,
+                    brand: ef.brand,
+                    calories: ef.calories,
+                    carbs: ef.carbs,
+                    protein: ef.protein,
+                    fat: ef.fat,
+                    sugars: ef.sugars,
+                    fiber: ef.fiber,
+                    sodium: ef.sodium,
+                    potassium: ef.potassium,
+                    servingAmount: ef.servingAmount,
+                    servingUnit: ef.servingUnit,
+                    barcode: ef.barcode || duplicateModal.pendingFood.barcode,
+                    isSharedToCloud: false,
+                  };
+                  const consumed = duplicateModal.pendingConsumedAmount;
+                  setDuplicateModal(null);
+                  await executeSave(adoptedFood, consumed, false);
+                }}
+                className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5"
+              >
+                <CheckCircle2 className="w-3.5 h-3.5 text-slate-600" />
+                採用雲端現有數值（不重複上傳）
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setDuplicateModal(null)}
+                className="w-full py-2 text-slate-500 hover:text-slate-700 font-semibold text-xs transition cursor-pointer"
+              >
+                返回修改
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

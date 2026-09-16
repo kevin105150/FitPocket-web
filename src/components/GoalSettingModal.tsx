@@ -47,6 +47,7 @@ export const GoalSettingModal: React.FC<GoalSettingModalProps> = ({
     for (const c of keys) {
       const p = editingPresets[c];
       finalPresets[c] = {
+        type: c,
         calories: Number(p.calories) || 0,
         carbs: Number(p.carbs) || 0,
         protein: Number(p.protein) || 0,
