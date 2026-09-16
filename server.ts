@@ -2,9 +2,16 @@ import express from 'express';
 import path from 'path';
 import { GoogleGenAI } from '@google/genai';
 import { createServer as createViteServer } from 'vite';
+import { createProxyMiddleware } from 'http-proxy-middleware';
 
 const app = express();
 const PORT = 3000;
+
+// First-party Firebase OAuth proxy (bypasses mobile browser third-party cookie restrictions)
+app.use('/__/auth', createProxyMiddleware({
+  target: 'https://quirky-gear-l0w9t.firebaseapp.com',
+  changeOrigin: true,
+}));
 
 app.use(express.json({ limit: '15mb' }));
 

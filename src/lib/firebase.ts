@@ -3,7 +3,18 @@ import { getFirestore } from 'firebase/firestore';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signOut, onAuthStateChanged, User, GoogleAuthProvider as GAuthProvider } from 'firebase/auth';
 import firebaseConfig from '../../firebase-applet-config.json';
 
-const app = initializeApp(firebaseConfig);
+const isProduction = typeof window !== 'undefined' && 
+  !window.location.hostname.includes('localhost') && 
+  !window.location.hostname.includes('127.0.0.1') && 
+  !window.location.hostname.includes('ais-dev-') && 
+  !window.location.hostname.includes('ais-pre-');
+
+const dynamicFirebaseConfig = {
+  ...firebaseConfig,
+  authDomain: isProduction ? window.location.host : firebaseConfig.authDomain
+};
+
+const app = initializeApp(dynamicFirebaseConfig);
 export const db = getFirestore(app);
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
