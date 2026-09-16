@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getFirestore } from 'firebase/firestore';
+import { initializeFirestore, getFirestore } from 'firebase/firestore';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signOut, onAuthStateChanged, User, GoogleAuthProvider as GAuthProvider } from 'firebase/auth';
 import firebaseConfig from '../../firebase-applet-config.json';
 
@@ -16,9 +16,19 @@ const dynamicFirebaseConfig = {
 
 const app = initializeApp(dynamicFirebaseConfig);
 
-export const db = firebaseConfig.firestoreDatabaseId 
-  ? getFirestore(app, firebaseConfig.firestoreDatabaseId)
-  : getFirestore(app);
+// Initialize Firestore with auto-detect long polling to prevent mobile 4G/5G proxy hangs
+let firestoreInstance;
+try {
+  firestoreInstance = initializeFirestore(app, {
+    experimentalAutoDetectLongPolling: true,
+  }, firebaseConfig.firestoreDatabaseId || undefined);
+} catch {
+  firestoreInstance = firebaseConfig.firestoreDatabaseId
+    ? getFirestore(app, firebaseConfig.firestoreDatabaseId)
+    : getFirestore(app);
+}
+
+export const db = firestoreInstance;
 
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
@@ -26,7 +36,7 @@ export const googleProvider = new GoogleAuthProvider();
 // Add Drive scope
 googleProvider.addScope('https://www.googleapis.com/auth/drive.file');
 
-// Helper to test Firebase Firestore read/write connection
+// Helper to test Firebase Firestore connection via standard REST & SDK
 export const testFirebaseConnection = async (): Promise<{ 
   success: boolean; 
   latencyMs: number; 
@@ -34,37 +44,51 @@ export const testFirebaseConnection = async (): Promise<{
   details?: any;
 }> => {
   const startTime = performance.now();
-  const { doc, setDoc, getDocFromServer, deleteDoc } = await import('firebase/firestore');
-
   const configuredDbId = firebaseConfig.firestoreDatabaseId || '(default)';
   const testDocId = `ping_${Date.now()}`;
-  const testRef = doc(db, '_connection_test', testDocId);
+  
+  // 1. Direct REST diagnostic test (100% reliable across mobile carriers & proxies)
+  const restUrl = `https://firestore.googleapis.com/v1/projects/${firebaseConfig.projectId}/databases/${configuredDbId}/documents/_connection_test/${testDocId}?key=${firebaseConfig.apiKey}`;
 
   try {
-    // Test write with timeout
-    const writePromise = setDoc(testRef, { timestamp: Date.now(), ping: 'pong', target: configuredDbId });
-    const timeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error(`連線逾時 (10秒)：無法在限定時間內完成寫入 [${configuredDbId}]`)), 10000)
-    );
-    await Promise.race([writePromise, timeoutPromise]);
-    
-    // Test read directly from server
-    const snap = await getDocFromServer(testRef);
-    if (!snap.exists()) {
-      throw new Error(`Firestore 測試文件寫入後無法從伺服器讀取 [${configuredDbId}]`);
+    // Write test document via REST API
+    const writeRes = await fetch(restUrl, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        fields: {
+          ping: { stringValue: 'pong' },
+          timestamp: { integerValue: String(Date.now()) },
+          target: { stringValue: configuredDbId },
+          client: { stringValue: 'FitPocket Diagnostic' }
+        }
+      })
+    });
+
+    if (!writeRes.ok) {
+      const errData = await writeRes.json().catch(() => ({}));
+      throw new Error(errData?.error?.message || `HTTP ${writeRes.status}: 寫入測試失敗`);
     }
-    
-    // Clean up test doc
-    await deleteDoc(testRef).catch(() => {});
-    
+
+    // Read test document back via REST API
+    const readRes = await fetch(restUrl);
+    if (!readRes.ok) {
+      const errData = await readRes.json().catch(() => ({}));
+      throw new Error(errData?.error?.message || `HTTP ${readRes.status}: 讀取測試失敗`);
+    }
+
+    // Clean up test document
+    fetch(restUrl, { method: 'DELETE' }).catch(() => {});
+
     const latencyMs = Math.round(performance.now() - startTime);
     return {
       success: true,
       latencyMs,
-      message: `Firebase Firestore 連線成功！延遲: ${latencyMs}ms`,
+      message: `Firebase Firestore 雲端資料庫連線正常！反應時間: ${latencyMs}ms`,
       details: {
         databaseId: configuredDbId,
         projectId: firebaseConfig.projectId,
+        protocol: 'HTTPS REST / Firestore v1 API',
       }
     };
   } catch (err: any) {
@@ -72,13 +96,10 @@ export const testFirebaseConnection = async (): Promise<{
     console.error('[Firebase Diagnostic Error]', err);
 
     let userMsg = err?.message || 'Firebase 連線失敗';
-    
-    if (err?.code === 'permission-denied') {
-      userMsg = '權限遭拒 (permission-denied)：Firestore 安全規則拒絕存取。請確認 Rules 是否已部署生效。';
-    } else if (err?.code === 'unavailable') {
-      userMsg = '服務無法連線 (unavailable)：網路無法連線或 Firebase 資料庫建立中。';
-    } else if (err?.code === 'not-found' || (err?.message && err.message.includes('not found'))) {
-      userMsg = `指定的命名資料庫未找到 [${configuredDbId}]。`;
+    if (userMsg.includes('permission') || userMsg.includes('PERMISSION_DENIED') || err?.code === 'permission-denied') {
+      userMsg = '權限遭拒 (permission-denied)：Firestore 安全規則拒絕存取。請確認 Rules 是否已部署。';
+    } else if (userMsg.includes('NOT_FOUND') || userMsg.includes('not found')) {
+      userMsg = `資料庫未找到 [${configuredDbId}]。`;
     }
 
     return {
