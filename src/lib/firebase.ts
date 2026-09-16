@@ -15,9 +15,15 @@ const dynamicFirebaseConfig = {
 };
 
 const app = initializeApp(dynamicFirebaseConfig);
+
+// Initialize Firestore with fallback support:
+// If firestoreDatabaseId is set, test/use it; if empty or if default is preferred, fall back gracefully
 export const db = firebaseConfig.firestoreDatabaseId 
   ? getFirestore(app, firebaseConfig.firestoreDatabaseId)
   : getFirestore(app);
+
+export const defaultDb = getFirestore(app);
+
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 
@@ -25,37 +31,89 @@ export const googleProvider = new GoogleAuthProvider();
 googleProvider.addScope('https://www.googleapis.com/auth/drive.file');
 
 // Helper to test Firebase Firestore read/write connection
-export const testFirebaseConnection = async (): Promise<{ success: boolean; latencyMs: number; message: string }> => {
+export const testFirebaseConnection = async (): Promise<{ 
+  success: boolean; 
+  latencyMs: number; 
+  message: string; 
+  details?: any;
+}> => {
   const startTime = performance.now();
-  try {
-    const { doc, setDoc, getDoc, deleteDoc } = await import('firebase/firestore');
+  const { doc, setDoc, getDoc, deleteDoc } = await import('firebase/firestore');
+
+  // Attempt test on a specific database instance
+  const runTestOnInstance = async (targetDb: any, dbLabel: string) => {
     const testDocId = `ping_${Date.now()}`;
-    const testRef = doc(db, '_connection_test', testDocId);
+    const testRef = doc(targetDb, '_connection_test', testDocId);
     
-    // Test write
-    await setDoc(testRef, { timestamp: Date.now(), ping: 'pong' });
+    // Test write with 6 second timeout
+    const writePromise = setDoc(testRef, { timestamp: Date.now(), ping: 'pong', target: dbLabel });
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error(`連線逾時 (6秒)：無法連線至 Firestore [${dbLabel}]`)), 6000)
+    );
+    await Promise.race([writePromise, timeoutPromise]);
     
     // Test read
     const snap = await getDoc(testRef);
     if (!snap.exists()) {
-      throw new Error('Firestore 測試文件寫入後無法讀取');
+      throw new Error(`Firestore 測試文件寫入後無法讀取 [${dbLabel}]`);
     }
     
     // Clean up test doc
     await deleteDoc(testRef).catch(() => {});
+  };
+
+  try {
+    const configuredDbId = firebaseConfig.firestoreDatabaseId || '(default)';
+    await runTestOnInstance(db, configuredDbId);
     
     const latencyMs = Math.round(performance.now() - startTime);
     return {
       success: true,
       latencyMs,
       message: `Firebase Firestore 連線成功！延遲: ${latencyMs}ms`,
+      details: {
+        databaseId: configuredDbId,
+        projectId: firebaseConfig.projectId,
+      }
     };
   } catch (err: any) {
+    const primaryError = err;
+    console.error('[Firebase Diagnostic Primary Error]', primaryError);
+
+    // If a custom databaseId failed, attempt fallback check on default database (default)
+    let fallbackResult: { success: boolean; error?: any } = { success: false };
+    if (firebaseConfig.firestoreDatabaseId) {
+      try {
+        await runTestOnInstance(defaultDb, '(default)');
+        fallbackResult = { success: true };
+      } catch (fbErr: any) {
+        fallbackResult = { success: false, error: fbErr };
+      }
+    }
+
     const latencyMs = Math.round(performance.now() - startTime);
+    let userMsg = primaryError?.message || 'Firebase 連線失敗';
+    
+    if (primaryError?.code === 'permission-denied') {
+      userMsg = '權限遭拒 (permission-denied)：Firestore 安全規則拒絕存取。請確認 Rules 是否已部署生效。';
+    } else if (primaryError?.code === 'unavailable') {
+      userMsg = '服務無法連線 (unavailable)：網路無法連線或 Firebase 尚未完成建立。';
+    } else if (primaryError?.code === 'not-found' || (primaryError?.message && primaryError.message.includes('not found'))) {
+      userMsg = `指定的命名資料庫未找到 [${firebaseConfig.firestoreDatabaseId}]。${fallbackResult.success ? '（但 (default) 預設資料庫連線正常，可切換至預設資料庫）' : ''}`;
+    }
+
     return {
       success: false,
       latencyMs,
-      message: err?.message || 'Firebase 連線失敗',
+      message: userMsg,
+      details: {
+        code: primaryError?.code || 'UNKNOWN',
+        name: primaryError?.name,
+        rawMessage: primaryError?.message,
+        databaseId: firebaseConfig.firestoreDatabaseId || '(default)',
+        projectId: firebaseConfig.projectId,
+        defaultDbTestSuccess: fallbackResult.success,
+      }
     };
   }
 };

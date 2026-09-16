@@ -206,6 +206,7 @@ export const SettingsScreen: React.FC = () => {
     success?: boolean;
     message?: string;
     latencyMs?: number;
+    details?: any;
   } | null>(null);
 
   const handleTestFirebase = async () => {
@@ -804,8 +805,18 @@ export const SettingsScreen: React.FC = () => {
                 ) : (
                   <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
                 )}
-                <div>
+                <div className="flex-1 space-y-1">
                   <div className="font-bold">{firebaseStatus.message}</div>
+                  {firebaseStatus.details && (
+                    <div className="font-mono text-[10px] bg-white/70 p-2 rounded-lg border border-rose-200 text-rose-900 leading-tight space-y-0.5">
+                      <div>錯誤代碼: {firebaseStatus.details.code}</div>
+                      <div>專案 ID: {firebaseStatus.details.projectId}</div>
+                      <div>資料庫 ID: {firebaseStatus.details.databaseId}</div>
+                      {firebaseStatus.details.rawMessage && (
+                        <div className="break-all opacity-80 mt-1">訊息: {firebaseStatus.details.rawMessage}</div>
+                      )}
+                    </div>
+                  )}
                   <div className="text-[11px] opacity-80 mt-0.5">
                     資料庫安全規則（Rules）已設定放寬，支援公共食品庫擴充與即時讀寫。
                   </div>
