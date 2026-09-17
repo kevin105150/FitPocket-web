@@ -24,7 +24,7 @@ import {
   NutritionGoalPreset,
 } from '../types';
 import { StorageService } from '../services/storage';
-import { CloudFoodService } from '../services/cloudFoodService';
+import { CloudFoodService, isTfdaFood } from '../services/cloudFoodService';
 import { CARB_CYCLE_INFO } from '../data/defaults';
 import { DateNavigator } from './DateNavigator';
 import { AddFoodModal, FoodTab } from './AddFoodModal';
@@ -917,7 +917,16 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
              servingUnit: foodForPortion.servingUnit || 'g',
              updatedAt: Date.now(),
           }}
-          initialConsumedAmount={foodForPortion.servingAmount || 100}
+          initialConsumedAmount={(() => {
+             const allRecords = StorageService.getAllFoodRecords();
+             const matching = allRecords
+                .filter(r => (r.sourceFoodId === foodForPortion.id) || (r.id === foodForPortion.id) || (r.name === foodForPortion.name))
+                .sort((a, b) => b.createdAt - a.createdAt);
+             if (matching.length > 0) {
+                return matching[0].loggedAmount;
+             }
+             return foodForPortion.servingAmount || 100;
+          })()}
           onClose={() => setFoodForPortion(null)}
           onSave={(food, consumedAmount) => {
              const ratio = consumedAmount / (food.servingAmount || 1);
@@ -1019,23 +1028,48 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
       {editingRecord && (
         <CustomFoodModal
           mode="EDIT_RECORD"
-          initialFood={{
-             id: editingRecord.id,
-             name: editingRecord.name,
-             brand: editingRecord.brand || '',
-             calories: editingRecord.calories,
-             carbs: editingRecord.carbs,
-             protein: editingRecord.protein,
-             fat: editingRecord.fat,
-             sugars: editingRecord.sugars,
-             fiber: editingRecord.fiber,
-             sodium: editingRecord.sodium,
-             potassium: editingRecord.potassium,
-             servingAmount: editingRecord.loggedAmount,
-             servingUnit: editingRecord.loggedUnit,
-             barcode: editingRecord.barcode,
-             updatedAt: Date.now(),
-          }}
+          initialFood={(() => {
+             const isTfda = isTfdaFood({ id: editingRecord.id, brand: editingRecord.brand });
+             if (isTfda) {
+                // For TFDA foods, always project the base serving size back to 100g,
+                // and scale the base nutrition values back to per-100g base.
+                const ratio = 100 / (editingRecord.loggedAmount || 1);
+                return {
+                   id: editingRecord.id,
+                   name: editingRecord.name,
+                   brand: editingRecord.brand || '台灣衛福部基礎食材庫',
+                   calories: Math.round(editingRecord.calories * ratio * 10) / 10,
+                   carbs: Math.round(editingRecord.carbs * ratio * 10) / 10,
+                   protein: Math.round(editingRecord.protein * ratio * 10) / 10,
+                   fat: Math.round(editingRecord.fat * ratio * 10) / 10,
+                   sugars: editingRecord.sugars ? Math.round(editingRecord.sugars * ratio * 10) / 10 : 0,
+                   fiber: editingRecord.fiber ? Math.round(editingRecord.fiber * ratio * 10) / 10 : 0,
+                   sodium: editingRecord.sodium ? Math.round(editingRecord.sodium * ratio * 10) / 10 : 0,
+                   potassium: editingRecord.potassium ? Math.round(editingRecord.potassium * ratio * 10) / 10 : 0,
+                   servingAmount: 100,
+                   servingUnit: 'g',
+                   barcode: editingRecord.barcode,
+                   updatedAt: Date.now(),
+                };
+             }
+             return {
+                id: editingRecord.id,
+                name: editingRecord.name,
+                brand: editingRecord.brand || '',
+                calories: editingRecord.calories,
+                carbs: editingRecord.carbs,
+                protein: editingRecord.protein,
+                fat: editingRecord.fat,
+                sugars: editingRecord.sugars,
+                fiber: editingRecord.fiber,
+                sodium: editingRecord.sodium,
+                potassium: editingRecord.potassium,
+                servingAmount: editingRecord.loggedAmount,
+                servingUnit: editingRecord.loggedUnit,
+                barcode: editingRecord.barcode,
+                updatedAt: Date.now(),
+             };
+          })()}
           initialConsumedAmount={editingRecord.loggedAmount}
           onClose={() => setEditingRecord(null)}
           onSave={(food, consumedAmount) => {

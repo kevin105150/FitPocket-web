@@ -66,7 +66,8 @@ export const StorageService = {
   // Preset foods
   getPresetFoods(): FoodSearchResult[] {
     return (presetFoodsData as any[]).map((item) => {
-      const defaultAmount = item.defaultServingAmount || 100;
+      const isTfda = item.brand === '台灣衛福部基礎食材庫' || (item.id && item.id.startsWith('tfda_'));
+      const defaultAmount = isTfda ? 100 : (item.defaultServingAmount || 100);
       const ratio = defaultAmount / 100;
       return {
         id: item.id,
