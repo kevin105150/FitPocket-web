@@ -63,6 +63,7 @@ export const TrainingTracker: React.FC<TrainingTrackerProps> = ({
       date: currentDate,
       bodyPart,
       exercises: [],
+      updatedAt: Date.now(),
     };
     StorageService.saveWorkoutRecord(newRecord);
     setShowAddWorkoutModal(false);

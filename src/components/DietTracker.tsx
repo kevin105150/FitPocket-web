@@ -173,15 +173,42 @@ const MealSection: React.FC<{
               {mealRecords.map((item) => (
                 <div key={item.id} className="py-2.5 flex items-center justify-between gap-3 group">
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5 font-bold text-sm text-slate-800">
-                      <span className="truncate">{item.name}</span>
-                      {item.brand && <span className="text-xs font-medium text-slate-400 shrink-0">{item.brand}</span>}
+                    {/* 1. 名稱 & 膠囊 */}
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="font-bold text-sm text-slate-800 truncate">{item.name}</span>
+                      {item.sourceFoodId && (
+                        <span className="text-[10px] font-bold px-1.5 py-0.25 bg-amber-100 text-amber-800 rounded-md shrink-0">
+                          我的自訂
+                        </span>
+                      )}
+                      {(item.sourceFoodId?.startsWith('cloud_') || item.barcode) && (
+                        <span className="text-[10px] font-bold px-1.5 py-0.25 bg-sky-100 text-sky-800 rounded-md shrink-0">
+                          網路資料庫
+                        </span>
+                      )}
+                      {item.aiSource === 'vision' && (
+                        <span className="text-[10px] font-bold px-1.5 py-0.25 bg-purple-50 text-purple-700 border border-purple-100 rounded-md shrink-0">
+                          AI 視覺辨識
+                        </span>
+                      )}
+                      {item.aiSource === 'estimation' && (
+                        <span className="text-[10px] font-bold px-1.5 py-0.25 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-md shrink-0">
+                          AI 智慧估算
+                        </span>
+                      )}
                     </div>
-                    <div className="flex items-center gap-2 text-xs text-slate-500 mt-0.5">
+
+                    {/* 2. 品牌 */}
+                    <div className="text-xs font-semibold text-slate-400 mt-0.5">
+                      {item.brand || '一般食材'}
+                    </div>
+
+                    {/* 3. 重量 熱量 三大營養素 */}
+                    <div className="flex items-center gap-2 text-xs text-slate-500 mt-1 flex-wrap">
                       <span className="font-semibold text-sky-800">
-                        {item.loggedAmount}{item.loggedUnit} , {item.calories} kcal
+                        {item.loggedAmount}{item.loggedUnit} · {item.calories} kcal
                       </span>
-                      <div className="flex items-center gap-1.5 mt-0.5">
+                      <div className="flex items-center gap-1.5">
                         <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-1.5 py-0.25 rounded-full">C: {item.carbs}g</span>
                         <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-1.5 py-0.25 rounded-full">P: {item.protein}g</span>
                         <span className="text-[10px] font-bold text-rose-700 bg-rose-50 px-1.5 py-0.25 rounded-full">F: {item.fat}g</span>
@@ -542,6 +569,7 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
       id: 'record_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
       name: customFood.name,
       brand: customFood.brand,
+      barcode: customFood.barcode,
       mealType: selectedMealForAdd!,
       date: currentDate,
       calories: Math.round(customFood.calories * ratio * 10) / 10,
@@ -876,6 +904,7 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
              id: foodForPortion.id,
              name: foodForPortion.name,
              brand: foodForPortion.brand || '',
+             barcode: foodForPortion.barcode,
              calories: foodForPortion.calories,
              carbs: foodForPortion.carbs,
              protein: foodForPortion.protein,
@@ -896,6 +925,7 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
                 id: 'record_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
                 name: food.name,
                 brand: food.brand,
+                barcode: food.barcode,
                 mealType: selectedMealForAdd!,
                 date: currentDate,
                 calories: Math.round(food.calories * ratio * 10) / 10,

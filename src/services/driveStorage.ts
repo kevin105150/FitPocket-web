@@ -1,9 +1,9 @@
-import { getAccessToken } from '../lib/firebase';
+import { getAccessToken, clearGoogleAccessToken } from '../lib/firebase';
 
 const DRIVE_FILE_NAME = 'fitpocket_data.json';
 
 const clearExpiredToken = () => {
-  localStorage.removeItem('fitpocket_google_access_token');
+  clearGoogleAccessToken();
 };
 
 export const DriveStorageService = {

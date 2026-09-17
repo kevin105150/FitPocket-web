@@ -33,29 +33,51 @@ import { CloudFoodService } from '../services/cloudFoodService';
 import { GoalSettingModal } from './GoalSettingModal';
 import { CustomFoodModal } from './CustomFoodModal';
 import { ExportHtmlModal } from './ExportHtmlModal';
-import { auth, loginWithGoogle, logout, testFirebaseConnection } from '../lib/firebase';
+import { auth, loginWithGoogle, logout, testFirebaseConnection, getAccessToken } from '../lib/firebase';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 
 export const SettingsScreen: React.FC = () => {
   const [user, setUser] = useState<FirebaseUser | null>(auth.currentUser);
+  const [hasDriveToken, setHasDriveToken] = useState<boolean>(
+    !!localStorage.getItem('fitpocket_google_access_token')
+  );
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (u) => setUser(u));
+    const unsubscribe = onAuthStateChanged(auth, (u) => {
+      setUser(u);
+      setHasDriveToken(!!localStorage.getItem('fitpocket_google_access_token'));
+    });
     return () => unsubscribe();
   }, []);
 
   const handleLogin = async () => {
     try {
       await loginWithGoogle(true);
+      setHasDriveToken(true);
       flashMessage('已成功登入並開始同步雲端資料！');
     } catch (err) {
       console.error(err);
     }
   };
 
+  const handleRestoreAuth = async () => {
+    try {
+      flashMessage('正在與 Google 帳號建立授權連線...');
+      const result = await loginWithGoogle(false);
+      if (result.accessToken) {
+        setHasDriveToken(true);
+        flashMessage('成功恢復 Google Drive 雲端同步授權！');
+      }
+    } catch (err) {
+      console.error(err);
+      flashMessage('修復失敗，請確認是否允許彈跳視窗或重新授權');
+    }
+  };
+
   const handleLogout = async () => {
     try {
       await logout();
+      setHasDriveToken(false);
       flashMessage('已登出雲端帳號。');
     } catch (err) {
       console.error(err);
@@ -339,9 +361,15 @@ export const SettingsScreen: React.FC = () => {
             </h3>
           </div>
           {user ? (
-            <span className="text-[10px] font-bold text-sky-700 bg-sky-50 px-2 py-0.5 rounded-lg flex items-center gap-1">
-              <Check className="w-3 h-3" /> 已連結雲端硬碟
-            </span>
+            hasDriveToken ? (
+              <span className="text-[10px] font-bold text-sky-700 bg-sky-50 px-2 py-0.5 rounded-lg flex items-center gap-1">
+                <Check className="w-3 h-3" /> 已連結雲端硬碟 (同步中)
+              </span>
+            ) : (
+              <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-lg flex items-center gap-1 animate-pulse">
+                ⚠️ 授權已失效 (同步暫停)
+              </span>
+            )
           ) : (
             <span className="text-[10px] font-bold text-slate-400 bg-slate-50 px-2 py-0.5 rounded-lg">
               尚未授權
@@ -350,7 +378,7 @@ export const SettingsScreen: React.FC = () => {
         </div>
 
         {user ? (
-          <div className="space-y-3">
+          <div className="space-y-4">
             <div className="flex items-center justify-between bg-slate-50 p-3 rounded-2xl border border-slate-100">
               <div className="flex items-center gap-3">
                 {user.photoURL ? (
@@ -373,15 +401,50 @@ export const SettingsScreen: React.FC = () => {
                 <RefreshCw className="w-5 h-5" />
               </button>
             </div>
+
+            {!hasDriveToken && (
+              <div className="bg-amber-50/80 border border-amber-200/50 p-4 rounded-2xl text-xs text-amber-800 space-y-2.5">
+                <div className="font-bold flex items-center gap-1.5 text-amber-900">
+                  <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>Google Drive 同步授權已過期</span>
+                </div>
+                <p className="leading-relaxed text-amber-700">
+                  Google 的安全機制規定<strong>第三方存取權限 (Access Token) 最長效期為 1 小時</strong>。為保護隱私，純前端架構不會永久儲存您的 Google 密碼。因此一段時間後需要手動修復以恢復背景同步。
+                </p>
+                <button
+                  onClick={handleRestoreAuth}
+                  className="w-full py-2 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-xl shadow-xs transition cursor-pointer flex items-center justify-center gap-1.5"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>立即一鍵修復 / 重新授權 Google Drive</span>
+                </button>
+              </div>
+            )}
             
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <button
                 onClick={async () => {
+                  const token = await getAccessToken();
+                  if (!token) {
+                    flashMessage('偵測到雲端授權已過期，正在啟動一鍵修復...');
+                    try {
+                      const resLogin = await loginWithGoogle(false);
+                      if (!resLogin.accessToken && resLogin.isRedirecting) return;
+                      setHasDriveToken(true);
+                    } catch (e) {
+                      flashMessage('授權更新失敗，請重新點擊「授權連結」');
+                      return;
+                    }
+                  }
                   flashMessage('正在與 Google Drive 同步...');
                   const res = await StorageService.syncFromCloud();
                   flashMessage(res.message);
                   if (res.success) {
                     setTimeout(() => window.location.reload(), 1200);
+                  } else {
+                    if (res.message.includes('授權已過期') || res.message.includes('權限')) {
+                      setHasDriveToken(false);
+                    }
                   }
                 }}
                 className="w-full py-2.5 bg-sky-50 hover:bg-sky-100 text-sky-800 text-xs font-black rounded-xl border border-sky-100 transition flex items-center justify-center gap-2 cursor-pointer"
@@ -392,11 +455,24 @@ export const SettingsScreen: React.FC = () => {
 
               <button
                 onClick={async () => {
+                  const token = await getAccessToken();
+                  if (!token) {
+                    flashMessage('偵測到雲端授權已過期，正在啟動一鍵修復...');
+                    try {
+                      const resLogin = await loginWithGoogle(false);
+                      if (!resLogin.accessToken && resLogin.isRedirecting) return;
+                      setHasDriveToken(true);
+                    } catch (e) {
+                      flashMessage('授權更新失敗，請重新點擊「授權連結」');
+                      return;
+                    }
+                  }
                   flashMessage('正在上傳備份至 Google Drive...');
                   const success = await StorageService.saveToCloud();
                   if (success) {
                     flashMessage('成功備份至 Google Drive！');
                   } else {
+                    setHasDriveToken(!!localStorage.getItem('fitpocket_google_access_token'));
                     flashMessage('備份失敗，請檢查權限或登入狀態');
                   }
                 }}

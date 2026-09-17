@@ -2,6 +2,7 @@ import { getTodayString } from '../utils/dateUtils';
 import {
   CarbCycleType,
   CustomFood,
+  DailyConfig,
   FoodRecord,
   FoodSearchResult,
   MealConfig,
@@ -19,7 +20,7 @@ import {
   DEFAULT_PRESETS,
   DEFAULT_USER_PROFILE,
 } from '../data/defaults';
-import { auth } from '../lib/firebase';
+import { auth, getAccessToken, loginWithGoogle } from '../lib/firebase';
 import { DriveStorageService } from './driveStorage';
 import { encryptApiKey, decryptApiKey } from '../utils/encryption';
 
@@ -94,10 +95,25 @@ export const StorageService = {
   async saveToCloud(): Promise<boolean> {
     if (!auth.currentUser) return false;
     try {
+      // Automatic token validation & self-repair using user's active click gesture
+      const token = await getAccessToken();
+      if (!token) {
+        console.log("Token expired during saveToCloud. Attempting automatic popup renewal...");
+        try {
+          const res = await loginWithGoogle(false);
+          if (!res.accessToken) {
+            console.warn("Automatic token renewal failed or was dismissed.");
+            return false;
+          }
+        } catch (err) {
+          console.error("Auto-credential renewal failed:", err);
+          return false;
+        }
+      }
+
       const json = this.exportData();
       
       // Before saving, verify cloud file timestamp to prevent race conditions
-      // (Optional optimization: only save if local is actually different or newer)
       return await DriveStorageService.saveAllData(json);
     } catch (e) {
       console.warn('Failed to save to Drive:', e);
@@ -608,17 +624,22 @@ export const StorageService = {
 
   mergeCollections<T extends any>(local: T[], incoming: T[], key: string, timeKey: string): T[] {
     const map = new Map<string, T>();
-    local.forEach(item => map.set(item[key], item));
+    local.forEach(item => {
+      const itemAny = item as any;
+      map.set(itemAny[key], item);
+    });
     
     incoming.forEach(item => {
-      const existing = map.get(item[key]);
+      const itemAny = item as any;
+      const existing = map.get(itemAny[key]);
       if (!existing) {
-        map.set(item[key], item);
+        map.set(itemAny[key], item);
       } else {
-        const localTime = existing[timeKey] || 0;
-        const incomingTime = item[timeKey] || 0;
+        const existingAny = existing as any;
+        const localTime = existingAny[timeKey] || 0;
+        const incomingTime = itemAny[timeKey] || 0;
         if (incomingTime > localTime) {
-          map.set(item[key], item);
+          map.set(itemAny[key], item);
         }
       }
     });

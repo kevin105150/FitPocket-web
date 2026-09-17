@@ -129,7 +129,8 @@ export const handleRedirectResult = async () => {
       if (credential?.accessToken) {
         cachedAccessToken = credential.accessToken;
         localStorage.setItem('fitpocket_google_access_token', credential.accessToken);
-        console.log("Successfully loaded redirected Google Access Token.");
+        localStorage.setItem('fitpocket_google_token_time', Date.now().toString());
+        console.log("Successfully loaded redirected Google Access Token with timestamp.");
       }
     }
   } catch (error) {
@@ -156,6 +157,7 @@ export const loginWithGoogle = async (forceSelectAccount = false, forceMethod?: 
       if (credential?.accessToken) {
         cachedAccessToken = credential.accessToken;
         localStorage.setItem('fitpocket_google_access_token', credential.accessToken);
+        localStorage.setItem('fitpocket_google_token_time', Date.now().toString());
       }
       return { user: result.user, accessToken: cachedAccessToken, isRedirecting: false };
     }
@@ -171,16 +173,33 @@ export const loginWithGoogle = async (forceSelectAccount = false, forceMethod?: 
 };
 
 export const getAccessToken = async (): Promise<string | null> => {
-  if (!cachedAccessToken) {
-    cachedAccessToken = localStorage.getItem('fitpocket_google_access_token');
+  const token = localStorage.getItem('fitpocket_google_access_token');
+  const timeStr = localStorage.getItem('fitpocket_google_token_time');
+  if (!token || !timeStr) {
+    return null;
   }
+  
+  const tokenTime = parseInt(timeStr, 10);
+  const elapsed = Date.now() - tokenTime;
+  if (elapsed > 55 * 60 * 1000) { // 55 minutes
+    console.log("Token expired according to timestamp cache. Clearing...");
+    clearGoogleAccessToken();
+    return null;
+  }
+  
+  cachedAccessToken = token;
   return cachedAccessToken;
+};
+
+export const clearGoogleAccessToken = () => {
+  cachedAccessToken = null;
+  localStorage.removeItem('fitpocket_google_access_token');
+  localStorage.removeItem('fitpocket_google_token_time');
 };
 
 export const logout = async () => {
   await signOut(auth);
-  cachedAccessToken = null;
-  localStorage.removeItem('fitpocket_google_access_token');
+  clearGoogleAccessToken();
 };
 
 // Error handling for Firestore

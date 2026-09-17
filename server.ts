@@ -244,7 +244,11 @@ app.post('/api/ai/estimate-nutrition', async (req, res) => {
 
     const prompt = `你是一位專業的台灣飲食營養師。使用者輸入了一道食物：「${query}」。
 請詳細估算此食物每一百公克 (per 100g) 的營養成分。
-對於「預設份量」，請優先以常見的「一份」或營養標示上的「單份」為基準。
+對於「預設份量」 (defaultServingAmount)：
+- 必須是常見的「單一份量」(例如 1 份 約 180g)，回傳 180。
+- 絕對不要乘上包裝內總份數！如果使用者提到「本包裝含 6 份，每份 180g」，你的 defaultServingAmount 必須回傳 180，絕對不可回傳 180 * 6 = 1080！
+- 請嚴格遵守此單份份量原則。
+
 請嚴格輸出合法 JSON 格式（不要使用 markdown 程式碼區塊標記，只輸出純 JSON 物件）：
 {
   "name": "食物標準名稱",
@@ -256,9 +260,9 @@ app.post('/api/ai/estimate-nutrition', async (req, res) => {
   "fiberPer100g": 數字(公克),
   "sodiumPer100g": 數字(毫克),
   "potassiumPer100g": 數字(毫克),
-  "defaultServingAmount": 數字(單份的公克數，例如150，不要回傳整包總重),
+  "defaultServingAmount": 數字(單份的公克數，例如180，絕對不要回傳整包總重或乘以份數的總重),
   "servingUnit": "g",
-  "servingSizeText": "單份份量說明 (例如: 1份 約160g)",
+  "servingSizeText": "單份份量說明 (例如: 1份 約180g)",
   "explanation": "營養師簡評與健康建議 (50字以內)"
 }`;
 
@@ -304,12 +308,12 @@ app.post('/api/ai/estimate-image', async (req, res) => {
    若為其他品牌（例如：義美、光泉、好市多、麥當勞等）請填寫該品牌；若無品牌純自製料理請填 ""。
 2. 條碼 (barcode)：若照片中有商品國際條碼 (EAN-13, UPC 等數字)，請辨識並填寫其數字字串；若無或看不清楚請填 ""。
 3. 營養成分：請估算每 100g 的各項營養素。若畫面中有營養標示表格，請優先參考其數據。
-4. 份量判定：若為商品包裝，請優先以營養標示上的「一份 (serving)」為基準回傳 defaultServingAmount，而非整包裝的總重。
-   - 核心原則：使用者希望紀錄「一份」的營養，而非整包的總合。
-   - 例如：若包裝標示「本包裝含 6 份，每份 180g」，請回傳 180 為 defaultServingAmount。
+4. 份量判定：若為商品包裝，請優先以營養標示上的「一份 (serving)」為基準回傳 defaultServingAmount，絕對不可回傳整包裝的總重，也不可乘以包裝總份數。
+   - 核心原則：使用者希望紀錄「單純一份」的營養，而非整個包裝袋的總合。
+   - 例如：若包裝標示「本包裝含 6 份，每份 180g」，你的 defaultServingAmount 必須回傳 180，絕對不可回傳 180 * 6 = 1080！
    - 若為散裝料理（如餐廳飯菜），則以目測單次食用的一份重量為準。
 
-請嚴格輸出純 JSON 物件（不要包含任何 markdown 區塊反引號）：
+請嚴格輸出純 JSON 物件（不要包含 any markdown 區塊反引號）：
 {
   "name": "辨識出的食物品名 (例如: 經典茶葉蛋、原味優格)",
   "brand": "辨識到的品牌 (4大超商請填 7-11、全家、萊爾富、OK；無品牌填空字串)",
@@ -322,7 +326,7 @@ app.post('/api/ai/estimate-image', async (req, res) => {
   "fiberPer100g": 數字(公克),
   "sodiumPer100g": 數字(毫克),
   "potassiumPer100g": 數字(毫克),
-  "defaultServingAmount": 數字(單份公克數，例如180，不要回傳整包總重),
+  "defaultServingAmount": 數字(單份公克數，例如180，絕對不要乘以份數的總重，不要回傳整包總重),
   "servingUnit": "g",
   "servingSizeText": "單份份量說明 (例如: 1份 約180g)",
   "explanation": "食材分析、品牌與建議"
