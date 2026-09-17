@@ -33,6 +33,7 @@ const STORAGE_KEYS = {
   CARB_PRESETS: 'fitpocket_carb_presets',
   ACTIVE_MEALS: 'fitpocket_active_meals',
   ACTIVE_CARB_CYCLE: 'fitpocket_active_carb_cycle',
+  DAILY_CONFIGS: 'fitpocket_daily_configs',
   USER_PROFILE: 'fitpocket_user_profile',
   EXERCISES: 'fitpocket_exercises',
   MUSCLE_GROUPS: 'fitpocket_muscle_groups',
@@ -385,6 +386,27 @@ export const StorageService = {
     setItem(STORAGE_KEYS.ACTIVE_CARB_CYCLE, type);
   },
 
+  // Daily Configs (Date-specific settings)
+  getDailyConfigs(): DailyConfig[] {
+    return getItem<DailyConfig[]>(STORAGE_KEYS.DAILY_CONFIGS, []);
+  },
+  getDailyConfig(date: string): DailyConfig | null {
+    const all = this.getDailyConfigs();
+    return all.find(c => c.date === date) || null;
+  },
+  saveDailyConfig(config: DailyConfig): void {
+    const all = this.getDailyConfigs();
+    const index = all.findIndex(c => c.date === config.date);
+    const updated = { ...config, updatedAt: Date.now() };
+    if (index >= 0) {
+      all[index] = updated;
+    } else {
+      all.push(updated);
+    }
+    setItem(STORAGE_KEYS.DAILY_CONFIGS, all);
+    this.saveToCloud();
+  },
+
   // Meals
   getActiveMeals(): MealConfig[] {
     return getItem<MealConfig[]>(STORAGE_KEYS.ACTIVE_MEALS, DEFAULT_MEALS);
@@ -461,6 +483,7 @@ export const StorageService = {
       workoutPresets: this.getTimerPresets(),
       geminiApiKey: rawKey, // already encrypted in storage
       geminiModel: this.getSelectedAiModel(),
+      dailyConfigs: this.getDailyConfigs(),
     };
     return JSON.stringify(data, null, 2);
   },
@@ -484,6 +507,7 @@ export const StorageService = {
       if (data.workoutPresets) setItem(STORAGE_KEYS.WORKOUT_PRESETS, data.workoutPresets);
       if (data.geminiApiKey) setItem(STORAGE_KEYS.GEMINI_KEY, data.geminiApiKey);
       if (data.geminiModel) setItem(STORAGE_KEYS.GEMINI_MODEL, data.geminiModel);
+      if (data.dailyConfigs) setItem(STORAGE_KEYS.DAILY_CONFIGS, data.dailyConfigs);
       
       // After manual import, immediately upload to cloud to make this the "latest" version
       this.saveToCloud();
@@ -542,6 +566,15 @@ export const StorageService = {
       const mergedWorkout = this.mergeCollections(localWorkout, incomingWorkout, 'id', 'updatedAt');
       if (JSON.stringify(mergedWorkout) !== JSON.stringify(localWorkout)) {
         setItem(STORAGE_KEYS.WORKOUT_RECORDS, mergedWorkout);
+        localChanged = true;
+      }
+
+      // 5b. Daily Configs (Merge by date, newer updatedAt wins)
+      const localDaily = this.getDailyConfigs();
+      const incomingDaily = incoming.dailyConfigs || [];
+      const mergedDaily = this.mergeCollections(localDaily, incomingDaily, 'date', 'updatedAt');
+      if (JSON.stringify(mergedDaily) !== JSON.stringify(localDaily)) {
+        setItem(STORAGE_KEYS.DAILY_CONFIGS, mergedDaily);
         localChanged = true;
       }
 

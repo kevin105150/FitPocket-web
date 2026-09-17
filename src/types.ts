@@ -113,6 +113,13 @@ export interface CarbCycleInfo {
   description: string;
 }
 
+export interface DailyConfig {
+  date: string; // YYYY-MM-DD
+  carbCycle: CarbCycleType;
+  customGoals?: Partial<NutritionGoalPreset>;
+  updatedAt: number;
+}
+
 export interface NutritionGoalPreset {
   type: CarbCycleType;
   calories: number;

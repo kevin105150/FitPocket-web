@@ -350,8 +350,15 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
   const refreshRecords = () => {
     setFoodRecords(StorageService.getFoodRecordsByDate(currentDate));
     setActiveMeals(StorageService.getActiveMeals());
-    setActiveCycle(StorageService.getActiveCarbCycle());
     setPresets(StorageService.getPresets());
+    
+    // Load daily config if exists, fallback to global active cycle
+    const dailyConfig = StorageService.getDailyConfig(currentDate);
+    if (dailyConfig) {
+      setActiveCycle(dailyConfig.carbCycle);
+    } else {
+      setActiveCycle(StorageService.getActiveCarbCycle());
+    }
   };
 
   // Custom modal states for iframe safety (replacing window.prompt / window.confirm)
@@ -439,8 +446,13 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
     refreshRecords();
   }, [currentDate]);
 
-  // Current active goal preset
-  const currentGoal = presets[activeCycle];
+  // Current active goal preset (merged with daily custom goals if any)
+  const basePreset = presets[activeCycle];
+  const dailyConfig = StorageService.getDailyConfig(currentDate);
+  const currentGoal: NutritionGoalPreset = {
+    ...basePreset,
+    ...(dailyConfig?.customGoals || {})
+  };
 
   // Calculate totals
   const totalCalories = foodRecords.reduce((sum, r) => sum + (r.calories || 0), 0);
@@ -458,7 +470,14 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
   // Change carb cycle
   const handleSelectCycle = (cycle: CarbCycleType) => {
     setActiveCycle(cycle);
-    StorageService.setActiveCarbCycle(cycle);
+    // Save to daily config instead of global
+    const existing = StorageService.getDailyConfig(currentDate);
+    StorageService.saveDailyConfig({
+      date: currentDate,
+      carbCycle: cycle,
+      customGoals: existing?.customGoals,
+      updatedAt: Date.now()
+    });
   };
 
   // Delete item
