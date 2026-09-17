@@ -365,20 +365,38 @@ export const SettingsScreen: React.FC = () => {
               </button>
             </div>
             
-            <button
-              onClick={async () => {
-                flashMessage('正在與 Google Drive 同步...');
-                const res = await StorageService.syncFromCloud();
-                flashMessage(res.message);
-                if (res.success) {
-                  setTimeout(() => window.location.reload(), 1200);
-                }
-              }}
-              className="w-full py-2.5 bg-sky-50 hover:bg-sky-100 text-sky-800 text-xs font-black rounded-xl border border-sky-100 transition flex items-center justify-center gap-2 cursor-pointer"
-            >
-              <Database className="w-4 h-4" />
-              <span>立即從雲端硬碟拉取最新數據</span>
-            </button>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <button
+                onClick={async () => {
+                  flashMessage('正在與 Google Drive 同步...');
+                  const res = await StorageService.syncFromCloud();
+                  flashMessage(res.message);
+                  if (res.success) {
+                    setTimeout(() => window.location.reload(), 1200);
+                  }
+                }}
+                className="w-full py-2.5 bg-sky-50 hover:bg-sky-100 text-sky-800 text-xs font-black rounded-xl border border-sky-100 transition flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <Database className="w-4 h-4" />
+                <span>從雲端拉取最新數據</span>
+              </button>
+
+              <button
+                onClick={async () => {
+                  flashMessage('正在上傳備份至 Google Drive...');
+                  const success = await StorageService.saveToCloud();
+                  if (success) {
+                    flashMessage('成功備份至 Google Drive！');
+                  } else {
+                    flashMessage('備份失敗，請檢查權限或登入狀態');
+                  }
+                }}
+                className="w-full py-2.5 bg-sky-600 hover:bg-sky-700 text-white text-xs font-black rounded-xl border border-sky-600 transition flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <Upload className="w-4 h-4" />
+                <span>立即備份至雲端硬碟</span>
+              </button>
+            </div>
           </div>
         ) : (
           <div className="space-y-3">

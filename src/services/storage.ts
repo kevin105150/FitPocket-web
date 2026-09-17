@@ -116,7 +116,10 @@ export const StorageService = {
       return { success: false, message: '尚未在 Google Drive 找到備份檔 (fitpocket_data.json)' };
     } catch (e: any) {
       console.warn('Drive sync notice:', e);
-      return { success: false, message: '連線至 Google Drive 失敗，請重新連線授權' };
+      if (e.message === 'AUTH_ERROR') {
+        return { success: false, message: '雲端授權已過期，請重新登入 Google 帳號以恢復同步' };
+      }
+      return { success: false, message: '連線至 Google Drive 失敗，請確認網路或重新連線授權' };
     }
   },
 
