@@ -161,6 +161,7 @@ export interface WorkoutExercise {
   supersetGroupId?: number | null;
   isCardio?: boolean;
   exerciseSets: ExerciseSet[];
+  updatedAt?: number;
 }
 
 export interface WorkoutRecord {
@@ -169,6 +170,7 @@ export interface WorkoutRecord {
   bodyPart: string;
   note?: string;
   exercises: WorkoutExercise[];
+  updatedAt: number;
 }
 
 export interface UserProfile {
@@ -179,4 +181,5 @@ export interface UserProfile {
   targetWeightKg: number;
   activityLevel: 'sedentary' | 'light' | 'moderate' | 'heavy' | 'athlete';
   fitnessGoal: 'fat_loss' | 'maintain' | 'muscle_gain';
+  updatedAt?: number;
 }

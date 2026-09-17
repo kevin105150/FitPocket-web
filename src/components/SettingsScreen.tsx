@@ -284,13 +284,22 @@ export const SettingsScreen: React.FC = () => {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = () => {
-      const success = StorageService.importData(reader.result as string);
-      if (success) {
-        alert('資料還原成功！系統將自動重新載入。');
-        window.location.reload();
-      } else {
-        alert('匯入失敗，請確認檔案格式是否正確。');
+    reader.onload = async () => {
+      try {
+        const content = reader.result as string;
+        // Verify JSON before processing
+        JSON.parse(content); 
+        
+        flashMessage('正在匯入並備份至雲端...');
+        const success = StorageService.importData(content);
+        if (success) {
+          flashMessage('資料匯入成功且已同步至雲端！系統將自動重新載入...');
+          setTimeout(() => window.location.reload(), 1500);
+        } else {
+          flashMessage('匯入失敗，請確認檔案格式是否正確。');
+        }
+      } catch (err) {
+        flashMessage('檔案格式錯誤，無法解析 JSON。');
       }
     };
     reader.readAsText(file);

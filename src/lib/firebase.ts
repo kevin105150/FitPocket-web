@@ -141,9 +141,9 @@ export const loginWithGoogle = async (forceSelectAccount = false, forceMethod?: 
   try {
     googleProvider.setCustomParameters({ prompt: 'select_account' }); // Always force select account to ensure we can switch
     
-    // Detect mobile browser to automatically switch to redirect mode (bypasses third-party popup cookie blocks)
-    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-    const useRedirect = forceMethod === 'redirect' || (forceMethod !== 'popup' && isMobile);
+    // Default to popup as requested, even on mobile. 
+    // Only use redirect if explicitly passed as 'redirect'.
+    const useRedirect = forceMethod === 'redirect';
     
     if (useRedirect) {
       console.log("Launching Google Sign-In with Redirect...");
@@ -159,7 +159,12 @@ export const loginWithGoogle = async (forceSelectAccount = false, forceMethod?: 
       }
       return { user: result.user, accessToken: cachedAccessToken, isRedirecting: false };
     }
-  } catch (error) {
+  } catch (error: any) {
+    // If popup is blocked, we might want to fallback to redirect automatically if it was an automated call,
+    // but since the user explicitly asked for popup default, we'll just log it.
+    if (error?.code === 'auth/popup-blocked') {
+      console.warn("Popup blocked. User might need to allow popups or use redirect manually.");
+    }
     console.error("Login failed:", error);
     throw error;
   }

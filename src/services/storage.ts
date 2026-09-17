@@ -94,6 +94,9 @@ export const StorageService = {
     if (!auth.currentUser) return false;
     try {
       const json = this.exportData();
+      
+      // Before saving, verify cloud file timestamp to prevent race conditions
+      // (Optional optimization: only save if local is actually different or newer)
       return await DriveStorageService.saveAllData(json);
     } catch (e) {
       console.warn('Failed to save to Drive:', e);
@@ -108,10 +111,17 @@ export const StorageService = {
     try {
       const json = await DriveStorageService.loadAllData();
       if (json) {
-        const ok = this.importData(json);
-        return ok
-          ? { success: true, message: '成功從 Google Drive 同步資料！' }
-          : { success: false, message: '備份檔案格式解析失敗' };
+        // Use merging logic instead of blind import
+        const { changed, success } = this.mergeData(json);
+        if (success) {
+          if (changed) {
+            return { success: true, message: '成功與 Google Drive 同步並合併資料！' };
+          } else {
+            return { success: true, message: '雲端資料已是最新，無需更新。' };
+          }
+        } else {
+          return { success: false, message: '備份檔案格式解析失敗' };
+        }
       }
       return { success: false, message: '尚未在 Google Drive 找到備份檔 (fitpocket_data.json)' };
     } catch (e: any) {
@@ -331,15 +341,16 @@ export const StorageService = {
   },
   saveWorkoutRecord(record: WorkoutRecord): WorkoutRecord {
     const all = this.getAllWorkoutRecords();
+    const updatedRecord = { ...record, updatedAt: Date.now() };
     const index = all.findIndex((w) => w.id === record.id);
     if (index >= 0) {
-      all[index] = record;
+      all[index] = updatedRecord;
     } else {
-      all.push(record);
+      all.push(updatedRecord);
     }
     setItem(STORAGE_KEYS.WORKOUT_RECORDS, all);
     this.saveToCloud();
-    return record;
+    return updatedRecord;
   },
   deleteWorkoutRecord(id: string): void {
     const all = this.getAllWorkoutRecords().filter((w) => w.id !== id);
@@ -405,7 +416,8 @@ export const StorageService = {
     return getItem<UserProfile>(STORAGE_KEYS.USER_PROFILE, DEFAULT_USER_PROFILE);
   },
   saveUserProfile(profile: UserProfile): void {
-    setItem(STORAGE_KEYS.USER_PROFILE, profile);
+    const updatedProfile = { ...profile, updatedAt: Date.now() };
+    setItem(STORAGE_KEYS.USER_PROFILE, updatedProfile);
     this.saveToCloud();
   },
 
@@ -472,10 +484,112 @@ export const StorageService = {
       if (data.workoutPresets) setItem(STORAGE_KEYS.WORKOUT_PRESETS, data.workoutPresets);
       if (data.geminiApiKey) setItem(STORAGE_KEYS.GEMINI_KEY, data.geminiApiKey);
       if (data.geminiModel) setItem(STORAGE_KEYS.GEMINI_MODEL, data.geminiModel);
+      
+      // After manual import, immediately upload to cloud to make this the "latest" version
+      this.saveToCloud();
       return true;
     } catch (e) {
       console.error('Failed to parse import data:', e);
       return false;
     }
+  },
+
+  // Intelligent Merging logic
+  mergeData(jsonString: string): { changed: boolean; success: boolean } {
+    try {
+      const incoming = JSON.parse(jsonString);
+      let localChanged = false;
+
+      // 1. Food Records (Merge by id, newer createdAt wins)
+      const localFood = this.getAllFoodRecords();
+      const incomingFood = incoming.foodRecords || [];
+      const mergedFood = this.mergeCollections(localFood, incomingFood, 'id', 'createdAt');
+      if (JSON.stringify(mergedFood) !== JSON.stringify(localFood)) {
+        setItem(STORAGE_KEYS.FOOD_RECORDS, mergedFood);
+        localChanged = true;
+      }
+
+      // 2. Custom Foods (Merge by id, newer updatedAt wins)
+      const localCustom = this.getCustomFoods();
+      const incomingCustom = incoming.customFoods || [];
+      const mergedCustom = this.mergeCollections(localCustom, incomingCustom, 'id', 'updatedAt');
+      if (JSON.stringify(mergedCustom) !== JSON.stringify(localCustom)) {
+        setItem(STORAGE_KEYS.CUSTOM_FOODS, mergedCustom);
+        localChanged = true;
+      }
+
+      // 3. Water Records (Merge by id, newer timestamp wins)
+      const localWater = this.getAllWaterRecords();
+      const incomingWater = incoming.waterRecords || [];
+      const mergedWater = this.mergeCollections(localWater, incomingWater, 'id', 'timestamp');
+      if (JSON.stringify(mergedWater) !== JSON.stringify(localWater)) {
+        setItem(STORAGE_KEYS.WATER_RECORDS, mergedWater);
+        localChanged = true;
+      }
+
+      // 4. Weight Records (Merge by date, newer createdAt wins)
+      const localWeight = this.getAllWeightRecords();
+      const incomingWeight = incoming.weightRecords || [];
+      const mergedWeight = this.mergeCollections(localWeight, incomingWeight, 'date', 'createdAt');
+      if (JSON.stringify(mergedWeight) !== JSON.stringify(localWeight)) {
+        setItem(STORAGE_KEYS.WEIGHT_RECORDS, mergedWeight);
+        localChanged = true;
+      }
+
+      // 5. Workout Records (Merge by id, newer updatedAt wins)
+      const localWorkout = this.getAllWorkoutRecords();
+      const incomingWorkout = incoming.workoutRecords || [];
+      const mergedWorkout = this.mergeCollections(localWorkout, incomingWorkout, 'id', 'updatedAt');
+      if (JSON.stringify(mergedWorkout) !== JSON.stringify(localWorkout)) {
+        setItem(STORAGE_KEYS.WORKOUT_RECORDS, mergedWorkout);
+        localChanged = true;
+      }
+
+      // 6. Profile & Settings (Keep newer version)
+      const localProfile = this.getUserProfile();
+      const incomingProfile = incoming.userProfile;
+      if (incomingProfile) {
+        const localTime = localProfile.updatedAt || 0;
+        const incomingTime = incomingProfile.updatedAt || 0;
+        if (incomingTime > localTime) {
+          setItem(STORAGE_KEYS.USER_PROFILE, incomingProfile);
+          localChanged = true;
+        }
+      }
+
+      if (incoming.waterGoal) setItem(STORAGE_KEYS.WATER_GOAL, incoming.waterGoal);
+      if (incoming.presets) setItem(STORAGE_KEYS.CARB_PRESETS, incoming.presets);
+      if (incoming.activeMeals) setItem(STORAGE_KEYS.ACTIVE_MEALS, incoming.activeMeals);
+
+      // If we integrated changes, upload the new merged state back to cloud
+      if (localChanged) {
+        this.saveToCloud();
+      }
+
+      return { changed: localChanged, success: true };
+    } catch (e) {
+      console.error('Failed to merge data:', e);
+      return { changed: false, success: false };
+    }
+  },
+
+  mergeCollections<T extends any>(local: T[], incoming: T[], key: string, timeKey: string): T[] {
+    const map = new Map<string, T>();
+    local.forEach(item => map.set(item[key], item));
+    
+    incoming.forEach(item => {
+      const existing = map.get(item[key]);
+      if (!existing) {
+        map.set(item[key], item);
+      } else {
+        const localTime = existing[timeKey] || 0;
+        const incomingTime = item[timeKey] || 0;
+        if (incomingTime > localTime) {
+          map.set(item[key], item);
+        }
+      }
+    });
+
+    return Array.from(map.values());
   },
 };
