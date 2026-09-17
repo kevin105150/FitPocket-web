@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FitPocket 應用程式下載 (APK)</title>
+    <style>
+        body {
+            font-family: 'Plus Jakarta Sans', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f0f9ff;
+            color: #0f172a;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+        .container {
+            background-color: white;
+            padding: 40px;
+            border-radius: 24px;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            max-width: 400px;
+            text-align: center;
+        }
+        h1 {
+            color: #0284c7;
+            margin-bottom: 8px;
+            font-size: 24px;
+        }
+        p {
+            color: #64748b;
+            margin-bottom: 24px;
+            line-height: 1.5;
+        }
+        .progress-container {
+            width: 100%;
+            background-color: #e0f2fe;
+            border-radius: 12px;
+            height: 12px;
+            overflow: hidden;
+            margin-bottom: 16px;
+        }
+        .progress-bar {
+            height: 100%;
+            background-color: #0ea5e9;
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+        .status {
+            font-size: 14px;
+            font-weight: 600;
+            color: #0284c7;
+            margin-bottom: 24px;
+        }
+        button {
+            background-color: #0ea5e9;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background-color 0.2s;
+            width: 100%;
+        }
+        button:hover {
+            background-color: #0284c7;
+        }
+        button:disabled {
+            background-color: #cbd5e1;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>📲 下載 FitPocket APK</h1>
+    <p>您的專屬 Android 應用程式已經準備就緒。點擊下方按鈕開始下載並自動重組為完整的安裝檔。</p>
+    
+    <div class="progress-container" id="progressContainer" style="display: none;">
+        <div class="progress-bar" id="progressBar"></div>
+    </div>
+    
+    <div class="status" id="statusText">準備下載...</div>
+    
+    <button id="downloadBtn" onclick="downloadAndAssemble()">開始下載安裝檔</button>
+</div>
+
+<script>
+    // These are the exact generated parts based on `split -b 3M` command.
+    const parts = [
+        'aa', 'ab', 'ac', 'ad', 'ae', 'af', 'ag', 'ah', 'ai', 'aj', 'ak', 'al', 'am', 'an', 'ao', 'ap', 'aq', 'ar'
+    ];
+    
+    async function downloadAndAssemble() {
+        const btn = document.getElementById('downloadBtn');
+        const progressBar = document.getElementById('progressBar');
+        const progressContainer = document.getElementById('progressContainer');
+        const statusText = document.getElementById('statusText');
+        
+        btn.disabled = true;
+        progressContainer.style.display = 'block';
+        
+        try {
+            const chunks = [];
+            
+            for (let i = 0; i < parts.length; i++) {
+                const part = parts[i];
+                statusText.innerText = `正在下載分卷 (${i + 1}/${parts.length})...`;
+                
+                const response = await fetch(`/DietApp.part${part}`);
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                
+                const blob = await response.blob();
+                chunks.push(blob);
+                
+                // Update progress
+                const percentage = Math.round(((i + 1) / parts.length) * 100);
+                progressBar.style.width = `${percentage}%`;
+            }
+            
+            statusText.innerText = '正在重組 APK 檔案...';
+            
+            // Assemble blobs
+            const finalBlob = new Blob(chunks, { type: 'application/vnd.android.package-archive' });
+            const url = window.URL.createObjectURL(finalBlob);
+            
+            // Trigger download
+            const a = document.createElement('a');
+            a.style.display = 'none';
+            a.href = url;
+            a.download = 'FitPocket.apk';
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            
+            statusText.innerText = '🎉 下載完成！請在手機上開啟安裝。';
+            statusText.style.color = '#10b981';
+            btn.innerText = '重新下載';
+            btn.disabled = false;
+            
+        } catch (error) {
+            console.error('Download failed:', error);
+            statusText.innerText = '下載失敗，請重新整理頁面再試一次。';
+            statusText.style.color = '#ef4444';
+            btn.innerText = '重試下載';
+            btn.disabled = false;
+        }
+    }
+</script>
+
+</body>
+</html>

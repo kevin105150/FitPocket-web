@@ -45,6 +45,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -444,6 +446,24 @@ fun PortionDialog(
                 }
 
                 Spacer(modifier = Modifier.height(10.dp))
+
+                val parsedAmount = amountText.toDoubleOrNull() ?: 0.0
+                Slider(
+                    value = parsedAmount.toFloat(),
+                    onValueChange = { 
+                        val rounded = round(it * 10) / 10.0 // 1 decimal place
+                        val intValue = rounded.toInt()
+                        amountText = if (rounded == intValue.toDouble()) intValue.toString() else rounded.toString()
+                        recalculateNutrients(rounded, selectedUnit)
+                    },
+                    valueRange = 0f..1000f,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                    colors = SliderDefaults.colors(
+                        thumbColor = MaterialTheme.colorScheme.primary,
+                        activeTrackColor = MaterialTheme.colorScheme.primary,
+                        inactiveTrackColor = MaterialTheme.colorScheme.surfaceVariant
+                    )
+                )
 
                 // Quick multipliers row
                 Row(

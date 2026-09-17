@@ -974,18 +974,54 @@ fun CalorieOverviewCard(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(16.dp))
 
                 val calProgress = if (calorieGoal > 0) (consumed / calorieGoal).toFloat().coerceIn(0f, 1f) else 0f
-                LinearProgressIndicator(
-                    progress = { calProgress },
+                val arcColor = if (consumed <= calorieGoal) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(8.dp)
-                        .clip(RoundedCornerShape(4.dp)),
-                    color = if (consumed <= calorieGoal) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
-                    trackColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                )
+                        .height(180.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    val trackColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    androidx.compose.foundation.Canvas(modifier = Modifier.size(160.dp)) {
+                        drawArc(
+                            color = trackColor,
+                            startAngle = 0f,
+                            sweepAngle = 360f,
+                            useCenter = false,
+                            style = androidx.compose.ui.graphics.drawscope.Stroke(
+                                width = 12.dp.toPx(),
+                                cap = androidx.compose.ui.graphics.StrokeCap.Round
+                            )
+                        )
+                        drawArc(
+                            color = arcColor,
+                            startAngle = -90f,
+                            sweepAngle = calProgress * 360f,
+                            useCenter = false,
+                            style = androidx.compose.ui.graphics.drawscope.Stroke(
+                                width = 12.dp.toPx(),
+                                cap = androidx.compose.ui.graphics.StrokeCap.Round
+                            )
+                        )
+                    }
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = consumed.toInt().toString(),
+                            style = MaterialTheme.typography.displayMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "/ ${calorieGoal.toInt()} kcal",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
             }
         }
 
@@ -1140,27 +1176,57 @@ fun NutrientMacroColumn(
     modifier: Modifier = Modifier
 ) {
     val progress = if (goal > 0) (current / goal).toFloat().coerceIn(0f, 1f) else 0f
-    Column(modifier = modifier) {
+    
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Box(
+            modifier = Modifier.size(64.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            val trackColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+            androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
+                drawArc(
+                    color = trackColor,
+                    startAngle = 0f,
+                    sweepAngle = 360f,
+                    useCenter = false,
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(
+                        width = 6.dp.toPx(),
+                        cap = androidx.compose.ui.graphics.StrokeCap.Round
+                    )
+                )
+                drawArc(
+                    color = barColor,
+                    startAngle = -90f,
+                    sweepAngle = progress * 360f,
+                    useCenter = false,
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(
+                        width = 6.dp.toPx(),
+                        cap = androidx.compose.ui.graphics.StrokeCap.Round
+                    )
+                )
+            }
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = "${current.toInt()}",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(8.dp))
         Text(
             text = label,
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
-        Spacer(modifier = Modifier.height(2.dp))
         Text(
-            text = "${current.toInt()} / ${goal.toInt()} $unit",
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.Bold
-        )
-        Spacer(modifier = Modifier.height(6.dp))
-        LinearProgressIndicator(
-            progress = { progress },
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(6.dp)
-                .clip(RoundedCornerShape(3.dp)),
-            color = barColor,
-            trackColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+            text = "/ ${goal.toInt()}$unit",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
         )
     }
 }

@@ -19,7 +19,7 @@ interface WaterRecordDao {
     suspend fun deleteWaterRecord(record: WaterRecord)
 
     @Query("SELECT SUM(amountMl) FROM water_records WHERE date = :date")
-    fun getTotalWaterForDate(date: String): Flow<Int?>
+    fun getTotalWaterForDate(date: String): Flow<Double?>
     
     @Query("SELECT * FROM water_records ORDER BY timestamp DESC")
     fun getAllWaterRecords(): Flow<List<WaterRecord>>

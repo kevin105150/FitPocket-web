@@ -4,6 +4,7 @@ import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
+import java.util.UUID
 
 @Entity(
     tableName = "workout_exercises",
@@ -18,12 +19,14 @@ import androidx.room.PrimaryKey
     indices = [Index("workoutId")]
 )
 data class WorkoutExercise(
-    @PrimaryKey(autoGenerate = true)
-    val id: Long = 0,
-    val workoutId: Long,
+    @PrimaryKey
+    val id: String = UUID.randomUUID().toString(),
+    val workoutId: String,
     val name: String,
+    val bodyPart: String? = null,
     val sets: Int,
     val reps: Int,
     val weight: Double,
-    val supersetGroupId: Int? = null
+    val supersetGroupId: Int? = null,
+    val isCardio: Boolean = false
 )

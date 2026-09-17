@@ -31,7 +31,7 @@ class MainActivity : ComponentActivity() {
       MyApplicationTheme {
         Surface(
           modifier = Modifier.fillMaxSize(),
-          color = Color(0xFFF7FAF7)
+          color = Color(0xFFF8FAFC)
         ) {
           FitPocketWebAppContainer(
             webUrl = "https://ais-dev-unijqvmex2t42oqyhiqv5h-644777657639.asia-northeast1.run.app",

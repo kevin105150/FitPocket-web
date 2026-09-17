@@ -12,10 +12,10 @@ import androidx.compose.ui.platform.LocalContext
 
 private val DarkColorScheme =
   darkColorScheme(
-    primary = EmeraldPrimaryDark,
-    onPrimary = EmeraldOnPrimaryDark,
-    primaryContainer = EmeraldContainerDark,
-    onPrimaryContainer = EmeraldOnContainerDark,
+    primary = SkyPrimaryDark,
+    onPrimary = SkyOnPrimaryDark,
+    primaryContainer = SkyContainerDark,
+    onPrimaryContainer = SkyOnContainerDark,
     secondary = TealSecondary,
     onSecondary = TealOnSecondary,
     background = SurfaceDark,
@@ -25,10 +25,10 @@ private val DarkColorScheme =
 
 private val LightColorScheme =
   lightColorScheme(
-    primary = EmeraldPrimary,
-    onPrimary = EmeraldOnPrimary,
-    primaryContainer = EmeraldContainer,
-    onPrimaryContainer = EmeraldOnContainer,
+    primary = SkyPrimary,
+    onPrimary = SkyOnPrimary,
+    primaryContainer = SkyContainer,
+    onPrimaryContainer = SkyOnContainer,
     secondary = TealSecondary,
     onSecondary = TealOnSecondary,
     background = SurfaceLight,
@@ -39,8 +39,8 @@ private val LightColorScheme =
 @Composable
 fun MyApplicationTheme(
   darkTheme: Boolean = isSystemInDarkTheme(),
-  // Dynamic color is available on Android 12+
-  dynamicColor: Boolean = true,
+  // Custom branding (Sky Blue) is consistently used instead of dynamic system colors
+  dynamicColor: Boolean = false,
   content: @Composable () -> Unit,
 ) {
   val colorScheme =

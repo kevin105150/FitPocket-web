@@ -27,5 +27,5 @@ interface WeightRecordDao {
     suspend fun deleteWeightRecord(record: WeightRecord)
 
     @Query("DELETE FROM weight_records WHERE id = :id")
-    suspend fun deleteWeightRecordById(id: Long)
+    suspend fun deleteWeightRecordById(id: String)
 }

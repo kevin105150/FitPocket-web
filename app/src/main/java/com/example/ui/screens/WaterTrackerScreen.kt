@@ -98,25 +98,29 @@ fun WaterTrackerScreen(viewModel: DietViewModel) {
                             style = MaterialTheme.typography.titleMedium,
                             color = MaterialTheme.colorScheme.onPrimaryContainer
                         )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "$totalWater / $waterGoal ml",
-                            style = MaterialTheme.typography.displaySmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
+                        Spacer(modifier = Modifier.height(16.dp))
                         
                         val progress = if (waterGoal > 0) (totalWater.toFloat() / waterGoal).coerceIn(0f, 1f) else 1f
-                        Spacer(modifier = Modifier.height(16.dp))
-                        LinearProgressIndicator(
-                            progress = { progress },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(12.dp)
-                                .clip(RoundedCornerShape(6.dp)),
-                            color = MaterialTheme.colorScheme.primary,
-                            trackColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
-                        )
+                        
+                        Box(contentAlignment = Alignment.Center) {
+                            WaveProgressIndicator(
+                                progress = progress,
+                                modifier = Modifier.size(180.dp)
+                            )
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(
+                                    text = "$totalWater",
+                                    style = MaterialTheme.typography.displayMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                                Text(
+                                    text = "/ $waterGoal ml",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                                )
+                            }
+                        }
                     }
                     IconButton(
                         onClick = { showGoalDialog = true },

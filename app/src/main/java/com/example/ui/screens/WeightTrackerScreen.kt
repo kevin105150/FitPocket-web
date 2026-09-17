@@ -751,6 +751,28 @@ fun CanvasChart(
                     cubicTo(controlX1, controlY1, controlX2, controlY2, p1.x, p1.y)
                 }
             }
+
+            // Create fill path for gradient
+            val fillPath = Path().apply {
+                addPath(path)
+                lineTo(points.last().x, height - paddingBottom)
+                lineTo(points.first().x, height - paddingBottom)
+                close()
+            }
+
+            drawPath(
+                path = fillPath,
+                brush = androidx.compose.ui.graphics.Brush.verticalGradient(
+                    colors = listOf(
+                        tealColor.copy(alpha = 0.3f),
+                        tealColor.copy(alpha = 0.05f),
+                        Color.Transparent
+                    ),
+                    startY = paddingTop,
+                    endY = height - paddingBottom
+                )
+            )
+
             drawPath(
                 path = path,
                 color = lineStrokeColor,

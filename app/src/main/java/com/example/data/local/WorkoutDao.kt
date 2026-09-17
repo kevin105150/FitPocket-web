@@ -24,13 +24,13 @@ interface WorkoutDao {
     fun getAllWorkouts(): Flow<List<WorkoutRecord>>
 
     @Query("SELECT * FROM workout_exercises WHERE workoutId = :workoutId")
-    fun getExercisesForWorkout(workoutId: Long): Flow<List<WorkoutExercise>>
+    fun getExercisesForWorkout(workoutId: String): Flow<List<WorkoutExercise>>
 
     @Query("SELECT * FROM exercise_sets WHERE exerciseId = :exerciseId ORDER BY setIndex ASC")
-    fun getSetsForExercise(exerciseId: Long): Flow<List<ExerciseSet>>
+    fun getSetsForExercise(exerciseId: String): Flow<List<ExerciseSet>>
 
     @Query("SELECT * FROM exercise_sets WHERE exerciseId = :exerciseId ORDER BY setIndex ASC")
-    suspend fun getSetsForExerciseSync(exerciseId: Long): List<ExerciseSet>
+    suspend fun getSetsForExerciseSync(exerciseId: String): List<ExerciseSet>
 
     @Transaction
     @Query("SELECT * FROM workout_records ORDER BY date DESC, id DESC")
@@ -62,7 +62,7 @@ interface WorkoutDao {
     suspend fun deleteExerciseSet(exerciseSet: ExerciseSet)
 
     @Query("DELETE FROM exercise_sets WHERE exerciseId = :exerciseId")
-    suspend fun deleteSetsForExercise(exerciseId: Long)
+    suspend fun deleteSetsForExercise(exerciseId: String)
 
     @Query("SELECT DISTINCT bodyPart FROM workout_records WHERE bodyPart != ''")
     fun getUniqueBodyParts(): Flow<List<String>>

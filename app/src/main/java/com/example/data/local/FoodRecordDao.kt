@@ -28,7 +28,7 @@ interface FoodRecordDao {
     suspend fun deleteRecord(record: FoodRecord)
 
     @Query("DELETE FROM food_records WHERE id = :id")
-    suspend fun deleteRecordById(id: Long)
+    suspend fun deleteRecordById(id: String)
 
     @Query("DELETE FROM food_records WHERE mealType = :mealType")
     suspend fun deleteRecordsByMealType(mealType: com.example.data.model.MealType)

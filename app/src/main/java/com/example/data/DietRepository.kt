@@ -192,7 +192,7 @@ class DietRepository(
         weightRecordDao.deleteWeightRecord(record)
     }
 
-    suspend fun deleteWeightRecordById(id: Long) = withContext(Dispatchers.IO) {
+    suspend fun deleteWeightRecordById(id: String) = withContext(Dispatchers.IO) {
         weightRecordDao.deleteWeightRecordById(id)
     }
 
@@ -210,16 +210,17 @@ class DietRepository(
     }
 
     suspend fun insertWorkout(workout: WorkoutRecord, exercises: List<WorkoutExercise>) = withContext(Dispatchers.IO) {
-        val workoutId = workoutDao.insertWorkout(workout)
+        workoutDao.insertWorkout(workout)
         exercises.forEach { ex ->
-            val exerciseId = workoutDao.insertExercise(ex.copy(workoutId = workoutId))
+            val copyEx = ex.copy(workoutId = workout.id)
+            workoutDao.insertExercise(copyEx)
             // Generate default sets if sets > 0
             val numSets = if (ex.sets > 0) ex.sets else 3
             val defaultReps = if (ex.reps > 0) ex.reps else 10
             val defaultWeight = if (ex.weight > 0.0) ex.weight else 20.0
             val setsList = (1..numSets).map { i ->
                 com.example.data.model.ExerciseSet(
-                    exerciseId = exerciseId,
+                    exerciseId = copyEx.id,
                     setIndex = i,
                     reps = defaultReps,
                     weight = defaultWeight
@@ -237,19 +238,19 @@ class DietRepository(
         workoutDao.deleteExercise(exercise)
     }
 
-    suspend fun insertExercise(exercise: WorkoutExercise, initialSets: Int = 3, initialReps: Int = 10, initialWeight: Double = 20.0): Long = withContext(Dispatchers.IO) {
-        val exerciseId = workoutDao.insertExercise(exercise)
+    suspend fun insertExercise(exercise: WorkoutExercise, initialSets: Int = 3, initialReps: Int = 10, initialWeight: Double = 20.0): String = withContext(Dispatchers.IO) {
+        workoutDao.insertExercise(exercise)
         val numSets = if (initialSets > 0) initialSets else 3
         val setsList = (1..numSets).map { i ->
             com.example.data.model.ExerciseSet(
-                exerciseId = exerciseId,
+                exerciseId = exercise.id,
                 setIndex = i,
                 reps = initialReps,
                 weight = initialWeight
             )
         }
         workoutDao.insertExerciseSets(setsList)
-        exerciseId
+        exercise.id
     }
 
     suspend fun updateExercise(exercise: WorkoutExercise) = withContext(Dispatchers.IO) {
@@ -306,7 +307,7 @@ class DietRepository(
         foodRecordDao.deleteRecord(record)
     }
 
-    suspend fun deleteRecordById(id: Long) = withContext(Dispatchers.IO) {
+    suspend fun deleteRecordById(id: String) = withContext(Dispatchers.IO) {
         foodRecordDao.deleteRecordById(id)
     }
 
@@ -413,10 +414,10 @@ class DietRepository(
 
             if (existingCustom != null) {
                 // Check if nutrition info is significantly different
-                val calDiff = Math.abs(food.caloriesPer100g - existingCustom.caloriesPer100g)
-                val carbDiff = Math.abs(food.carbsPer100g - existingCustom.carbsPer100g)
-                val proDiff = Math.abs(food.proteinPer100g - existingCustom.proteinPer100g)
-                val fatDiff = Math.abs(food.fatPer100g - existingCustom.fatPer100g)
+                val calDiff = Math.abs(food.calories - existingCustom.calories)
+                val carbDiff = Math.abs(food.carbs - existingCustom.carbs)
+                val proDiff = Math.abs(food.protein - existingCustom.protein)
+                val fatDiff = Math.abs(food.fat - existingCustom.fat)
 
                 if (calDiff > 1.0 || carbDiff > 0.5 || proDiff > 0.5 || fatDiff > 0.5) {
                     val updatedFood = food.copy(
@@ -472,7 +473,7 @@ class DietRepository(
         }
     }
 
-    suspend fun deleteCustomFood(id: Long) = withContext(Dispatchers.IO) {
+    suspend fun deleteCustomFood(id: String) = withContext(Dispatchers.IO) {
         customFoodDao.deleteCustomFoodById(id)
     }
 

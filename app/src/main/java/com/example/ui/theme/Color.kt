@@ -2,16 +2,16 @@ package com.example.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// Primary wellness greens
-val EmeraldPrimary = Color(0xFF1B6A45)
-val EmeraldOnPrimary = Color(0xFFFFFFFF)
-val EmeraldContainer = Color(0xFFD1F2DE)
-val EmeraldOnContainer = Color(0xFF002111)
+// Primary wellness sky blue
+val SkyPrimary = Color(0xFF0284C7)
+val SkyOnPrimary = Color(0xFFFFFFFF)
+val SkyContainer = Color(0xFFE0F2FE)
+val SkyOnContainer = Color(0xFF0369A1)
 
-val EmeraldPrimaryDark = Color(0xFF81D7A4)
-val EmeraldOnPrimaryDark = Color(0xFF003920)
-val EmeraldContainerDark = Color(0xFF005230)
-val EmeraldOnContainerDark = Color(0xFF9DF4BF)
+val SkyPrimaryDark = Color(0xFF38BDF8)
+val SkyOnPrimaryDark = Color(0xFF0369A1)
+val SkyContainerDark = Color(0xFF0C4A6E)
+val SkyOnContainerDark = Color(0xFFE0F2FE)
 
 // Secondary teals
 val TealSecondary = Color(0xFF006874)

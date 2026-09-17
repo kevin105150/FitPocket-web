@@ -45,6 +45,7 @@ credentials = "1.5.0"
 googleid = "1.1.1"
 vico = "2.0.0-alpha.22"
 security-crypto = "1.1.0-alpha06"
+googleGenai = "0.9.0"
 
 
 [libraries]
@@ -108,6 +109,7 @@ vico-compose = { group = "com.patrykandpatrick.vico", name = "compose", version.
 vico-compose-m3 = { group = "com.patrykandpatrick.vico", name = "compose-m3", version.ref = "vico" }
 vico-core = { group = "com.patrykandpatrick.vico", name = "core", version.ref = "vico" }
 androidx-security-crypto = { group = "androidx.security", name = "security-crypto", version.ref = "security-crypto" }
+google-genai = { group = "com.google.ai.client.generativeai", name = "generativeai", version.ref = "googleGenai" }
 
 
 [plugins]

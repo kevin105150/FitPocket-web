@@ -40,5 +40,5 @@ interface CustomFoodDao {
     suspend fun deleteCustomFood(food: CustomFood)
 
     @Query("DELETE FROM custom_foods WHERE id = :id")
-    suspend fun deleteCustomFoodById(id: Long)
+    suspend fun deleteCustomFoodById(id: String)
 }

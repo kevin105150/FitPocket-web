@@ -640,15 +640,59 @@ fun TrainingCard(
                                                                 }
                                                             }
                                                         } else if (sets.isNotEmpty()) {
-                                                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                            Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth().padding(end = 16.dp)) {
                                                                 sets.forEachIndexed { i, set ->
                                                                     val weightText = if (set.weight % 1.0 == 0.0) "${set.weight.toInt()}kg" else "${set.weight}kg"
-                                                                    Text(
-                                                                        text = "第 ${i + 1} 組: ${set.reps} 次數 / $weightText",
-                                                                        style = MaterialTheme.typography.labelSmall,
-                                                                        fontWeight = FontWeight.Bold,
-                                                                        color = MaterialTheme.colorScheme.primary
-                                                                    )
+                                                                    Row(
+                                                                        modifier = Modifier.fillMaxWidth(),
+                                                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                                                        verticalAlignment = Alignment.CenterVertically
+                                                                    ) {
+                                                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                                                            Box(
+                                                                                modifier = Modifier
+                                                                                    .size(22.dp)
+                                                                                    .clip(CircleShape)
+                                                                                    .background(MaterialTheme.colorScheme.primaryContainer),
+                                                                                contentAlignment = Alignment.Center
+                                                                            ) {
+                                                                                Text(
+                                                                                    text = "${i + 1}",
+                                                                                    style = MaterialTheme.typography.labelSmall,
+                                                                                    fontWeight = FontWeight.Bold,
+                                                                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                                                                )
+                                                                            }
+                                                                            Spacer(modifier = Modifier.width(12.dp))
+                                                                            Text(
+                                                                                text = "${set.reps} 次 / $weightText",
+                                                                                style = MaterialTheme.typography.bodyMedium,
+                                                                                fontWeight = FontWeight.SemiBold,
+                                                                                color = if (set.isCompleted) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f) else MaterialTheme.colorScheme.onSurface
+                                                                            )
+                                                                        }
+                                                                        
+                                                                        // Checkmark
+                                                                        Box(
+                                                                            modifier = Modifier
+                                                                                .size(28.dp)
+                                                                                .clip(RoundedCornerShape(8.dp))
+                                                                                .background(if (set.isCompleted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+                                                                                .clickable {
+                                                                                    viewModel.updateExerciseSet(set.copy(isCompleted = !set.isCompleted))
+                                                                                },
+                                                                            contentAlignment = Alignment.Center
+                                                                        ) {
+                                                                            if (set.isCompleted) {
+                                                                                Icon(
+                                                                                    imageVector = Icons.Default.Check,
+                                                                                    contentDescription = "已完成",
+                                                                                    tint = MaterialTheme.colorScheme.onPrimary,
+                                                                                    modifier = Modifier.size(18.dp)
+                                                                                )
+                                                                            }
+                                                                        }
+                                                                    }
                                                                 }
                                                             }
                                                         } else {
@@ -804,18 +848,60 @@ fun TrainingCard(
                                                                                 }
                                                                             }
                                                                         } else if (sets.isNotEmpty()) {
-                                                                            val firstSet = sets.first()
-                                                                            val weightText = if (firstSet.weight % 1.0 == 0.0) {
-                                                                                "${firstSet.weight.toInt()} kg"
-                                                                            } else {
-                                                                                "${firstSet.weight} kg"
+                                                                            Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth().padding(end = 8.dp)) {
+                                                                                sets.forEachIndexed { i, set ->
+                                                                                    val weightText = if (set.weight % 1.0 == 0.0) "${set.weight.toInt()}kg" else "${set.weight}kg"
+                                                                                    Row(
+                                                                                        modifier = Modifier.fillMaxWidth(),
+                                                                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                                                                        verticalAlignment = Alignment.CenterVertically
+                                                                                    ) {
+                                                                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                                                                            Box(
+                                                                                                modifier = Modifier
+                                                                                                    .size(20.dp)
+                                                                                                    .clip(CircleShape)
+                                                                                                    .background(MaterialTheme.colorScheme.primaryContainer),
+                                                                                                contentAlignment = Alignment.Center
+                                                                                            ) {
+                                                                                                Text(
+                                                                                                    text = "${i + 1}",
+                                                                                                    style = MaterialTheme.typography.labelSmall,
+                                                                                                    fontWeight = FontWeight.Bold,
+                                                                                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                                                                                )
+                                                                                            }
+                                                                                            Spacer(modifier = Modifier.width(8.dp))
+                                                                                            Text(
+                                                                                                text = "${set.reps} 次 / $weightText",
+                                                                                                style = MaterialTheme.typography.bodySmall,
+                                                                                                fontWeight = FontWeight.SemiBold,
+                                                                                                color = if (set.isCompleted) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f) else MaterialTheme.colorScheme.onSurface
+                                                                                            )
+                                                                                        }
+                                                                                        // Checkmark
+                                                                                        Box(
+                                                                                            modifier = Modifier
+                                                                                                .size(24.dp)
+                                                                                                .clip(RoundedCornerShape(6.dp))
+                                                                                                .background(if (set.isCompleted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+                                                                                                .clickable {
+                                                                                                    viewModel.updateExerciseSet(set.copy(isCompleted = !set.isCompleted))
+                                                                                                },
+                                                                                            contentAlignment = Alignment.Center
+                                                                                        ) {
+                                                                                            if (set.isCompleted) {
+                                                                                                Icon(
+                                                                                                    imageVector = Icons.Default.Check,
+                                                                                                    contentDescription = "已完成",
+                                                                                                    tint = MaterialTheme.colorScheme.onPrimary,
+                                                                                                    modifier = Modifier.size(16.dp)
+                                                                                                )
+                                                                                            }
+                                                                                        }
+                                                                                    }
+                                                                                }
                                                                             }
-                                                                            Text(
-                                                                                text = "${sets.size} 組 · 第1組 ${firstSet.reps}次數 $weightText 等",
-                                                                                style = MaterialTheme.typography.labelSmall,
-                                                                                fontWeight = FontWeight.Bold,
-                                                                                color = MaterialTheme.colorScheme.primary
-                                                                            )
                                                                         }
                                                                     }
                                                                 }

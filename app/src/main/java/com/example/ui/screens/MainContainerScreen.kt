@@ -1,11 +1,14 @@
 package com.example.ui.screens
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FitnessCenter
 import androidx.compose.material.icons.filled.MonitorWeight
@@ -24,15 +27,19 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import com.example.ui.DietViewModel
+import kotlinx.coroutines.launch
 
 enum class MainTab(
     val title: String,
@@ -51,7 +58,9 @@ enum class MainTab(
 fun MainContainerScreen(
     viewModel: DietViewModel
 ) {
-    var selectedTab by rememberSaveable { mutableStateOf(MainTab.DIET) }
+    val tabs = MainTab.entries
+    val pagerState = rememberPagerState(pageCount = { tabs.size })
+    val coroutineScope = rememberCoroutineScope()
 
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
@@ -60,15 +69,28 @@ fun MainContainerScreen(
                 containerColor = MaterialTheme.colorScheme.surface,
                 windowInsets = WindowInsets.navigationBars
             ) {
-                MainTab.entries.forEach { tab ->
-                    val isSelected = selectedTab == tab
+                tabs.forEachIndexed { index, tab ->
+                    val isSelected = pagerState.currentPage == index
+                    
+                    // Scale animation for icon
+                    val scale by animateFloatAsState(
+                        targetValue = if (isSelected) 1.2f else 1.0f,
+                        animationSpec = tween(durationMillis = 300),
+                        label = "icon_scale_anim"
+                    )
+
                     NavigationBarItem(
                         selected = isSelected,
-                        onClick = { selectedTab = tab },
+                        onClick = {
+                            coroutineScope.launch {
+                                pagerState.animateScrollToPage(index)
+                            }
+                        },
                         icon = {
                             Icon(
                                 imageVector = if (isSelected) tab.activeIcon else tab.inactiveIcon,
-                                contentDescription = tab.title
+                                contentDescription = tab.title,
+                                modifier = Modifier.scale(scale)
                             )
                         },
                         label = {
@@ -83,15 +105,17 @@ fun MainContainerScreen(
             }
         }
     ) { innerPadding ->
-        Box(
+        HorizontalPager(
+            state = pagerState,
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding)
-        ) {
-            when (selectedTab) {
+                .padding(innerPadding),
+            userScrollEnabled = true
+        ) { page ->
+            when (tabs[page]) {
                 MainTab.DIET -> DietTrackerScreen(viewModel = viewModel)
-                MainTab.WATER -> WaterTrackerScreen(viewModel = viewModel)
                 MainTab.TRAINING -> TrainingTrackerScreen(viewModel = viewModel)
+                MainTab.WATER -> WaterTrackerScreen(viewModel = viewModel)
                 MainTab.WEIGHT -> WeightTrackerScreen(viewModel = viewModel)
                 MainTab.SETTINGS -> SettingsScreen(viewModel = viewModel)
             }

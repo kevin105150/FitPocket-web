@@ -4,16 +4,12 @@ import com.example.BuildConfig
 import com.example.data.model.FoodSearchResult
 import android.graphics.Bitmap
 import android.util.Base64
-import java.io.ByteArrayOutputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
-import java.util.concurrent.TimeUnit
+import com.google.ai.client.generativeai.GenerativeModel
+import com.google.ai.client.generativeai.type.content
 
 data class AiEstimatedNutrition(
     val name: String,
@@ -64,10 +60,6 @@ data class GeminiResponse<T>(
 )
 
 object GeminiNutritionEstimator {
-    private val okHttpClient = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(20, TimeUnit.SECONDS)
-        .build()
 
     private fun getDecryptedDeveloperKey(): String {
         return try {
@@ -125,115 +117,28 @@ object GeminiNutritionEstimator {
         Result.failure(lastException ?: Exception("API 請求失敗"))
     }
 
-    private fun callGeminiTextRaw(prompt: String, apiKey: String): GeminiRawResult {
-        val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=$apiKey"
-        val jsonBody = JSONObject().apply {
-            put("contents", JSONArray().apply {
-                put(JSONObject().apply {
-                    put("parts", JSONArray().apply {
-                        put(JSONObject().apply { put("text", prompt) })
-                    })
-                })
-            })
-            put("generationConfig", JSONObject().apply { put("temperature", 0.2) })
-        }
-        
-        val request = Request.Builder()
-            .url(url)
-            .post(jsonBody.toString().toRequestBody("application/json".toMediaType()))
-            .build()
-
-        val response = okHttpClient.newCall(request).execute()
-        if (!response.isSuccessful) {
-            val errorBody = response.body?.string() ?: "Unknown error"
-            throw Exception("API Error ${response.code}: $errorBody")
-        }
-        val responseBody = response.body?.string() ?: throw Exception("API 回傳結果為空")
-        return try {
-            val jsonObject = JSONObject(responseBody)
-            var textResult: String? = null
-            val candidates = jsonObject.optJSONArray("candidates")
-            if (candidates != null && candidates.length() > 0) {
-                val firstCandidate = candidates.getJSONObject(0)
-                val content = firstCandidate.optJSONObject("content")
-                val parts = content?.optJSONArray("parts")
-                if (parts != null && parts.length() > 0) {
-                    textResult = parts.getJSONObject(0).optString("text", "")
-                }
-            }
-            val usageMetadata = jsonObject.optJSONObject("usageMetadata")
-            val tokens = if (usageMetadata != null && usageMetadata.has("totalTokenCount")) {
-                usageMetadata.optInt("totalTokenCount", 0)
-            } else {
-                (prompt.length / 3) + ((textResult?.length ?: 0) / 3) + 30
-            }
-            GeminiRawResult(textResult, if (tokens > 0) tokens else (prompt.length / 3 + 30))
-        } catch (e: Exception) {
-            GeminiRawResult(null, 0)
-        }
+    private suspend fun callGeminiTextRaw(prompt: String, apiKey: String): GeminiRawResult {
+        val model = GenerativeModel(
+            modelName = "gemini-3.5-flash",
+            apiKey = apiKey
+        )
+        val response = model.generateContent(prompt)
+        val tokens = response.usageMetadata?.totalTokenCount ?: ((prompt.length / 3) + (response.text?.length ?: 0) / 3 + 30)
+        return GeminiRawResult(response.text, tokens)
     }
 
-    private fun callGeminiImageRaw(prompt: String, bitmap: Bitmap, apiKey: String): GeminiRawResult {
-        val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=$apiKey"
-        
-        val base64Image = try {
-            val outputStream = ByteArrayOutputStream()
-            bitmap.compress(Bitmap.CompressFormat.JPEG, 70, outputStream)
-            Base64.encodeToString(outputStream.toByteArray(), Base64.NO_WRAP)
-        } catch (e: Exception) {
-            throw Exception("圖片處理失敗: ${e.message}")
+    private suspend fun callGeminiImageRaw(prompt: String, bitmap: Bitmap, apiKey: String): GeminiRawResult {
+        val model = GenerativeModel(
+            modelName = "gemini-3.5-flash",
+            apiKey = apiKey
+        )
+        val input = content {
+            image(bitmap)
+            text(prompt)
         }
-
-        val jsonBody = JSONObject().apply {
-            put("contents", JSONArray().apply {
-                put(JSONObject().apply {
-                    put("parts", JSONArray().apply {
-                        put(JSONObject().apply { put("text", prompt) })
-                        put(JSONObject().apply {
-                            put("inlineData", JSONObject().apply {
-                                put("mimeType", "image/jpeg")
-                                put("data", base64Image)
-                            })
-                        })
-                    })
-                })
-            })
-            put("generationConfig", JSONObject().apply { put("temperature", 0.2) })
-        }
-        
-        val request = Request.Builder()
-            .url(url)
-            .post(jsonBody.toString().toRequestBody("application/json".toMediaType()))
-            .build()
-
-        val response = okHttpClient.newCall(request).execute()
-        if (!response.isSuccessful) {
-            val errorBody = response.body?.string() ?: "Unknown error"
-            throw Exception("API Error ${response.code}: $errorBody")
-        }
-        val responseBody = response.body?.string() ?: throw Exception("API 回傳結果為空")
-        return try {
-            val jsonObject = JSONObject(responseBody)
-            var textResult: String? = null
-            val candidates = jsonObject.optJSONArray("candidates")
-            if (candidates != null && candidates.length() > 0) {
-                val firstCandidate = candidates.getJSONObject(0)
-                val content = firstCandidate.optJSONObject("content")
-                val parts = content?.optJSONArray("parts")
-                if (parts != null && parts.length() > 0) {
-                    textResult = parts.getJSONObject(0).optString("text", "")
-                }
-            }
-            val usageMetadata = jsonObject.optJSONObject("usageMetadata")
-            val tokens = if (usageMetadata != null && usageMetadata.has("totalTokenCount")) {
-                usageMetadata.optInt("totalTokenCount", 0)
-            } else {
-                (prompt.length / 3) + ((textResult?.length ?: 0) / 3) + 260
-            }
-            GeminiRawResult(textResult, if (tokens > 0) tokens else 260)
-        } catch (e: Exception) {
-            GeminiRawResult(null, 0)
-        }
+        val response = model.generateContent(input)
+        val tokens = response.usageMetadata?.totalTokenCount ?: 260
+        return GeminiRawResult(response.text, tokens)
     }
 
     private fun parseEstimatedNutrition(jsonStr: String): AiEstimatedNutrition {
@@ -302,30 +207,31 @@ object GeminiNutritionEstimator {
         }
     }
 
-    suspend fun estimateNutrition(foodDescription: String, userApiKey: String? = null): Result<GeminiResponse<AiEstimatedNutrition>> = withContext(Dispatchers.IO) {
+    suspend fun estimateNutrition(query: String, userApiKey: String? = null): Result<GeminiResponse<AiEstimatedNutrition>> = withContext(Dispatchers.IO) {
         val apiKey = resolveApiKey(userApiKey)
         if (apiKey.isBlank()) {
             return@withContext Result.failure(Exception("請先設定 Gemini API Key"))
         }
 
         val prompt = """
-        請分析「$foodDescription」的熱量與營養成分標示。
-        請以純 JSON 格式回傳，欄位必須包含以下內容（請注意都是數值，且以該食物一份的常見公克數為基準，並標示明確的份量）：
-        - name: 食物或餐點名稱（例如：滷肉飯）
-        - brand: 品牌或分類來源（例如：一般外食、家常菜、超商便當 等，如果是外食請填「一般外食」）
-        - calories: 該份量之熱量卡路里（單位：kcal，數值）
-        - carbs: 碳水化合物公克數（數值）
-        - sugars: 糖公克數（數值，若無請填0）
-        - fiber: 膳食纖維公克數（數值，若無請填0）
-        - protein: 蛋白質公克數（數值）
-        - fat: 脂肪公克數（數值）
-        - sodium: 鈉毫克數（單位：mg，數值）
-        - potassium: 鉀毫克數（單位：mg，數值）
-        - servingAmount: 此估算餐點一份的常見重量或液體量（單位：g 或 ml，數值）
-        - servingUnit: 份量單位（字串，例如 "g" 或 "ml"）
-        - note: 營養分析簡要說明或小提示
-
-        只需回傳純 JSON 格式，不要包含 ```json 或 Markdown 格式。
+            請分析以下食物的營養成分：「$query」。
+            如果這是一個完整的餐點或多項食物組合，請預估合理的總份量與總熱量。
+            請以 JSON 格式回傳，必須包含以下欄位，且不要有額外的 Markdown (如 ```json)：
+            {
+                "name": "食物名稱(精煉後的官方名稱)",
+                "brand": "品牌或來源(例如：自製、麥當勞、統一)",
+                "calories": 總熱量(數值, kcal),
+                "carbs": 總碳水化合物(數值, g),
+                "sugars": 總糖分(數值, g),
+                "fiber": 總膳食纖維(數值, g),
+                "protein": 總蛋白質(數值, g),
+                "fat": 總脂肪(數值, g),
+                "sodium": 總鈉含量(數值, mg),
+                "potassium": 總鉀含量(數值, mg),
+                "servingAmount": 食物總重量(數值, 例如 100, 350 等),
+                "servingUnit": "g 或 ml 等",
+                "note": "簡短的備註，例如 '依據標準便當預估' 或 '1份'"
+            }
         """.trimIndent()
 
         try {
@@ -348,23 +254,24 @@ object GeminiNutritionEstimator {
         }
 
         val prompt = """
-        請辨識這張圖片中的食物、飲料或餐點，並分析其估計的熱量與營養成分標示。
-        請以純 JSON 格式回傳，欄位必須包含以下內容（請注意都是數值，且以該食物一份的常見公克數為基準，並標示明確的份量）：
-        - name: 辨識出的食物或餐點名稱（例如：起司蛋餅）
-        - brand: 品牌或分類來源（例如：一般外食、家常菜、超商便當 等，如果是外食請填「一般外食」）
-        - calories: 該份量之熱量卡路里（單位：kcal，數值）
-        - carbs: 碳水化合物公克數（數值）
-        - sugars: 糖公克數（數值，若無請填0）
-        - fiber: 膳食纖維公克數（數值，若無請填0）
-        - protein: 蛋白質公克數（數值）
-        - fat: 脂肪公克數（數值）
-        - sodium: 鈉毫克數（單位：mg，數值）
-        - potassium: 鉀毫克數（單位：mg，數值）
-        - servingAmount: 此估算餐點一份的常見重量或液體量（單位：g 或 ml，數值）
-        - servingUnit: 份量單位（字串，例如 "g" 或 "ml"）
-        - note: 營養分析簡要說明或辨識提示
-
-        只需回傳純 JSON 格式，不要包含 ```json 或 Markdown 格式。
+            請分析圖片中的食物，並估算其營養成分與份量。
+            如果這是一個完整的餐點或多項食物組合，請預估合理的總份量與總熱量。
+            請以 JSON 格式回傳，必須包含以下欄位，且不要有額外的 Markdown (如 ```json)：
+            {
+                "name": "畫面中主要食物名稱的組合(簡潔明瞭)",
+                "brand": "品牌或來源(若無法辨識請填寫 '視覺預估')",
+                "calories": 總熱量(數值, kcal),
+                "carbs": 總碳水化合物(數值, g),
+                "sugars": 總糖分(數值, g),
+                "fiber": 總膳食纖維(數值, g),
+                "protein": 總蛋白質(數值, g),
+                "fat": 總脂肪(數值, g),
+                "sodium": 總鈉含量(數值, mg),
+                "potassium": 總鉀含量(數值, mg),
+                "servingAmount": 食物總重量(數值, 例如 100, 350 等),
+                "servingUnit": "g 或 ml 等",
+                "note": "簡短的備註，說明判斷依據或份量假設"
+            }
         """.trimIndent()
 
         try {
@@ -373,7 +280,7 @@ object GeminiNutritionEstimator {
                 val parsed = parseEstimatedNutrition(rawResult.text)
                 Result.success(GeminiResponse(parsed, rawResult.totalTokens))
             } else {
-                Result.failure(Exception("API 圖片辨識回傳結果為空"))
+                Result.failure(Exception("API 回傳結果為空"))
             }
         } catch (e: Exception) {
             Result.failure(e)
