@@ -42,7 +42,12 @@ export default function App() {
         const token = await getAccessToken();
         if (token) {
           setNeedsDriveAuth(false);
-          StorageService.syncFromCloud().catch(err => console.warn("Sync error (non-blocking):", err));
+          if (localStorage.getItem('fitpocket_sync_pending') === 'true') {
+            console.log("Found pending unsaved data on startup. Uploading to Drive...");
+            StorageService.saveToCloud().catch(err => console.warn("Catch-up sync error:", err));
+          } else {
+            StorageService.syncFromCloud().catch(err => console.warn("Sync error (non-blocking):", err));
+          }
         }
       }
     });
@@ -55,7 +60,12 @@ export default function App() {
         if (auth.currentUser) {
           const token = await getAccessToken();
           if (token) {
-            StorageService.syncFromCloud().catch(err => console.warn("Sync error (non-blocking):", err));
+            if (localStorage.getItem('fitpocket_sync_pending') === 'true') {
+              console.log("Found pending unsaved data on redirect. Uploading to Drive...");
+              StorageService.saveToCloud().catch(err => console.warn("Catch-up sync error:", err));
+            } else {
+              StorageService.syncFromCloud().catch(err => console.warn("Sync error (non-blocking):", err));
+            }
           }
         }
       })

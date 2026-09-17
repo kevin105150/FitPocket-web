@@ -94,6 +94,8 @@ export const StorageService = {
   // Helper for Google Drive
   async saveToCloud(): Promise<boolean> {
     if (!auth.currentUser) return false;
+    // Set pending sync flag immediately so we know there are unsaved local changes
+    localStorage.setItem('fitpocket_sync_pending', 'true');
     try {
       // Automatic token validation & self-repair using user's active click gesture
       const token = await getAccessToken();
@@ -114,7 +116,11 @@ export const StorageService = {
       const json = this.exportData();
       
       // Before saving, verify cloud file timestamp to prevent race conditions
-      return await DriveStorageService.saveAllData(json);
+      const success = await DriveStorageService.saveAllData(json);
+      if (success) {
+        localStorage.removeItem('fitpocket_sync_pending');
+      }
+      return success;
     } catch (e) {
       console.warn('Failed to save to Drive:', e);
       return false;
