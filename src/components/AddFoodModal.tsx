@@ -3,6 +3,8 @@ import {
   X,
   Search,
   Plus,
+  Pencil,
+  Check,
   Camera,
   Sparkles,
   Barcode,
@@ -29,6 +31,7 @@ interface AddFoodModalProps {
   initialTab?: FoodTab;
   onClose: () => void;
   onSelectFood: (food: FoodSearchResult, mealType?: MealType) => void;
+  onFastAddFood?: (food: FoodSearchResult, mealType?: MealType) => void;
   onOpenCustomFoodModal: () => void;
 }
 
@@ -40,12 +43,36 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
   initialTab = 'ALL',
   onClose,
   onSelectFood,
+  onFastAddFood,
   onOpenCustomFoodModal,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState<FoodTab>(initialTab);
   const [selectedMealType, setSelectedMealType] = useState<MealType>(initialMealType);
   const [showMealSelector, setShowMealSelector] = useState(false);
+
+  // Fast add animation & feedback
+  const [addedIds, setAddedIds] = useState<Record<string, boolean>>({});
+  const [fastAddNotice, setFastAddNotice] = useState<string | null>(null);
+
+  const handleFastAdd = (food: FoodSearchResult) => {
+    if (onFastAddFood) {
+      onFastAddFood(food, selectedMealType);
+    } else {
+      onSelectFood(food, selectedMealType);
+      return;
+    }
+    setAddedIds((prev) => ({ ...prev, [food.id]: true }));
+    setFastAddNotice(`已快速新增「${food.name}」！`);
+
+    setTimeout(() => {
+      setAddedIds((prev) => ({ ...prev, [food.id]: false }));
+    }, 1500);
+
+    setTimeout(() => {
+      setFastAddNotice(null);
+    }, 2500);
+  };
 
   const selectedMealName = availableMeals.find(m => m.type === selectedMealType)?.name || '餐點';
 
@@ -762,15 +789,28 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                     className="p-3 bg-white border border-slate-200 hover:border-sky-400 rounded-2xl hover:shadow-sm transition cursor-pointer flex items-center justify-between gap-3 group"
                   >
                     <div className="min-w-0 flex-1">
-                      {/* 1. 名稱 & 膠囊 */}
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <h4 className="font-bold text-sm text-slate-900 truncate group-hover:text-sky-800">
+                      {/* 1. 名稱 & 膠囊 & 編輯 */}
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <h4 className="font-bold text-sm text-slate-900 group-hover:text-sky-800 truncate min-w-0 shrink">
                           {food.name}
                         </h4>
-                        <span className="text-[10px] font-bold px-1.5 py-0.25 bg-sky-100 text-sky-800 rounded-md shrink-0 flex items-center gap-0.5">
-                          <Cloud className="w-2.5 h-2.5 text-sky-600" />
-                          網路資料庫
-                        </span>
+                        <div className="inline-flex items-center gap-1 shrink-0">
+                          <span className="text-[10px] font-bold px-1.5 py-0.25 bg-sky-100 text-sky-800 rounded-md flex items-center gap-0.5 whitespace-nowrap">
+                            <Cloud className="w-2.5 h-2.5 text-sky-600" />
+                            網路資料庫
+                          </span>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onSelectFood(food, selectedMealType);
+                            }}
+                            className="p-1 text-slate-400 hover:text-sky-700 hover:bg-sky-50 rounded-lg transition cursor-pointer"
+                            title="點擊修改/設定份量"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </div>
 
                       {/* 2. 品牌 */}
@@ -778,22 +818,38 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                         {food.brand || '一般食材'}
                       </div>
 
-                      {/* 3. 重量 熱量 三大營養素 */}
-                      <div className="flex items-center gap-2 text-xs text-slate-500 mt-1 flex-wrap">
-                        <span className="font-semibold text-sky-800">
-                          每份 ({food.servingAmount}{food.servingUnit}) · {food.calories} kcal
-                        </span>
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-1.5 py-0.25 rounded-full">C: {food.carbs}g</span>
-                          <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-1.5 py-0.25 rounded-full">P: {food.protein}g</span>
-                          <span className="text-[10px] font-bold text-rose-700 bg-rose-50 px-1.5 py-0.25 rounded-full">F: {food.fat}g</span>
-                        </div>
+                      {/* 3. 重量 熱量 */}
+                      <div className="text-xs font-semibold text-sky-800 mt-1">
+                        每份 ({food.servingAmount}{food.servingUnit}) · {food.calories} kcal
+                      </div>
+
+                      {/* 4. 三大營養素 (CPF 獨立在下一排) */}
+                      <div className="flex items-center gap-1.5 mt-1">
+                        <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-1.5 py-0.25 rounded-full">C: {food.carbs}g</span>
+                        <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-1.5 py-0.25 rounded-full">P: {food.protein}g</span>
+                        <span className="text-[10px] font-bold text-rose-700 bg-rose-50 px-1.5 py-0.25 rounded-full">F: {food.fat}g</span>
                       </div>
                     </div>
 
-                    <div className="p-2 text-slate-400 group-hover:text-sky-600 group-hover:bg-sky-50 rounded-xl transition">
-                      <Plus className="w-5 h-5" />
-                    </div>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleFastAdd(food);
+                      }}
+                      className={`p-2 rounded-xl transition-all duration-200 shrink-0 cursor-pointer flex items-center justify-center ${
+                        addedIds[food.id]
+                          ? 'bg-emerald-500 text-white scale-105 shadow-xs'
+                          : 'text-slate-400 group-hover:text-sky-600 group-hover:bg-sky-50'
+                      }`}
+                      title="快速新增至餐點（不關閉搜尋）"
+                    >
+                      {addedIds[food.id] ? (
+                        <Check className="w-5 h-5 animate-in zoom-in-50 duration-200" />
+                      ) : (
+                        <Plus className="w-5 h-5" />
+                      )}
+                    </button>
                   </div>
                 ))
               ) : (
@@ -820,31 +876,45 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                 filteredFoods.map((food) => (
                     <div key={food.id} onClick={() => onSelectFood(food, selectedMealType)} className="p-3 bg-white border border-slate-100 hover:border-sky-300 rounded-2xl hover:shadow-sm transition cursor-pointer flex items-center justify-between gap-3 group">
                       <div className="min-w-0 flex-1">
-                        {/* 1. 名稱 & 膠囊 */}
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <h4 className="font-bold text-sm text-slate-900 truncate group-hover:text-sky-800">
+                        {/* 1. 名稱 & 膠囊 & 編輯 */}
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <h4 className="font-bold text-sm text-slate-900 group-hover:text-sky-800 truncate min-w-0 shrink">
                             {food.name}
                           </h4>
-                          {food.isUserCustom && (
-                            <span className="text-[10px] font-bold px-1.5 py-0.25 bg-amber-100 text-amber-800 rounded-md shrink-0">
-                              我的自訂
-                            </span>
-                          )}
-                          {food.id.startsWith('cloud_') && (
-                            <span className="text-[10px] font-bold px-1.5 py-0.25 bg-sky-100 text-sky-800 rounded-md shrink-0">
-                              網路資料庫
-                            </span>
-                          )}
-                          {(food.aiSource === 'vision' || food.brand === 'AI 視覺辨識') && (
-                            <span className="text-[10px] font-bold px-1.5 py-0.25 bg-purple-50 text-purple-700 border border-purple-100 rounded-md shrink-0">
-                              AI 視覺辨識
-                            </span>
-                          )}
-                          {(food.aiSource === 'estimation' || food.brand === 'AI 智慧估算') && (
-                            <span className="text-[10px] font-bold px-1.5 py-0.25 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-md shrink-0">
-                              AI 智慧估算
-                            </span>
-                          )}
+                          <div className="inline-flex items-center gap-1 shrink-0">
+                            {food.isUserCustom && (
+                              <span className="text-[10px] font-bold px-1.5 py-0.25 bg-amber-100 text-amber-800 rounded-md whitespace-nowrap">
+                                我的自訂
+                              </span>
+                            )}
+                            {food.id.startsWith('cloud_') && (
+                              <span className="text-[10px] font-bold px-1.5 py-0.25 bg-sky-100 text-sky-800 rounded-md whitespace-nowrap">
+                                網路資料庫
+                              </span>
+                            )}
+                            {(food.aiSource === 'vision' || food.brand === 'AI 視覺辨識') && (
+                              <span className="text-[10px] font-bold px-1.5 py-0.25 bg-purple-50 text-purple-700 border border-purple-100 rounded-md whitespace-nowrap">
+                                AI 視覺辨識
+                              </span>
+                            )}
+                            {(food.aiSource === 'estimation' || food.brand === 'AI 智慧估算') && (
+                              <span className="text-[10px] font-bold px-1.5 py-0.25 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-md whitespace-nowrap">
+                                AI 智慧估算
+                              </span>
+                            )}
+
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onSelectFood(food, selectedMealType);
+                              }}
+                              className="p-1 text-slate-400 hover:text-sky-700 hover:bg-sky-50 rounded-lg transition cursor-pointer"
+                              title="點擊修改/設定份量"
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </div>
 
                         {/* 2. 品牌 */}
@@ -857,22 +927,38 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                           })()}
                         </div>
 
-                        {/* 3. 重量 熱量 三大營養素 */}
-                        <div className="flex items-center gap-2 text-xs text-slate-500 mt-1 flex-wrap">
-                          <span className="font-semibold text-sky-800">
-                            每份 ({food.servingAmount}{food.servingUnit}) · {food.calories} kcal
-                          </span>
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-1.5 py-0.25 rounded-full">C: {food.carbs}g</span>
-                            <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-1.5 py-0.25 rounded-full">P: {food.protein}g</span>
-                            <span className="text-[10px] font-bold text-rose-700 bg-rose-50 px-1.5 py-0.25 rounded-full">F: {food.fat}g</span>
-                          </div>
+                        {/* 3. 重量 熱量 */}
+                        <div className="text-xs font-semibold text-sky-800 mt-1">
+                          每份 ({food.servingAmount}{food.servingUnit}) · {food.calories} kcal
+                        </div>
+
+                        {/* 4. 三大營養素 (CPF 獨立在下一排) */}
+                        <div className="flex items-center gap-1.5 mt-1">
+                          <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-1.5 py-0.25 rounded-full">C: {food.carbs}g</span>
+                          <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-1.5 py-0.25 rounded-full">P: {food.protein}g</span>
+                          <span className="text-[10px] font-bold text-rose-700 bg-rose-50 px-1.5 py-0.25 rounded-full">F: {food.fat}g</span>
                         </div>
                       </div>
 
-                      <div className="p-2 text-slate-400 group-hover:text-sky-700 group-hover:bg-sky-50 rounded-xl transition">
-                        <Plus className="w-5 h-5" />
-                      </div>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleFastAdd(food);
+                        }}
+                        className={`p-2 rounded-xl transition-all duration-200 shrink-0 cursor-pointer flex items-center justify-center ${
+                          addedIds[food.id]
+                            ? 'bg-emerald-500 text-white scale-105 shadow-xs'
+                            : 'text-slate-400 group-hover:text-sky-700 group-hover:bg-sky-50'
+                        }`}
+                        title="快速新增至餐點（不關閉搜尋）"
+                      >
+                        {addedIds[food.id] ? (
+                          <Check className="w-5 h-5 animate-in zoom-in-50 duration-200" />
+                        ) : (
+                          <Plus className="w-5 h-5" />
+                        )}
+                      </button>
                     </div>
                 ))
               ) : (
@@ -914,14 +1000,27 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                       className="p-3 bg-blue-50/50 border border-blue-100 rounded-2xl hover:border-blue-300 transition cursor-pointer flex items-center justify-between gap-3 group"
                     >
                       <div className="min-w-0 flex-1">
-                        {/* 1. 名稱 & 膠囊 */}
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <h4 className="font-bold text-sm text-slate-800 truncate group-hover:text-blue-900">
+                        {/* 1. 名稱 & 膠囊 & 編輯 */}
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <h4 className="font-bold text-sm text-slate-800 group-hover:text-blue-900 truncate min-w-0 shrink">
                             {food.name}
                           </h4>
-                          <span className="text-[10px] font-bold px-1.5 py-0.25 bg-blue-100 text-blue-800 rounded-md shrink-0">
-                            全球資料庫
-                          </span>
+                          <div className="inline-flex items-center gap-1 shrink-0">
+                            <span className="text-[10px] font-bold px-1.5 py-0.25 bg-blue-100 text-blue-800 rounded-md whitespace-nowrap">
+                              全球資料庫
+                            </span>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onSelectFood(food, selectedMealType);
+                              }}
+                              className="p-1 text-slate-400 hover:text-blue-700 hover:bg-blue-100 rounded-lg transition cursor-pointer"
+                              title="點擊修改/設定份量"
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </div>
 
                         {/* 2. 品牌 */}
@@ -929,19 +1028,37 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                           {food.brand || '一般食材'}
                         </div>
 
-                        {/* 3. 重量 熱量 三大營養素 */}
-                        <div className="flex items-center gap-2 text-xs text-slate-500 mt-1 flex-wrap">
-                          <span className="font-semibold text-blue-900">
-                            每份 ({food.servingAmount}{food.servingUnit}) · {food.calories} kcal
-                          </span>
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-1.5 py-0.25 rounded-full">C: {food.carbs}g</span>
-                            <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-1.5 py-0.25 rounded-full">P: {food.protein}g</span>
-                            <span className="text-[10px] font-bold text-rose-700 bg-rose-50 px-1.5 py-0.25 rounded-full">F: {food.fat}g</span>
-                          </div>
+                        {/* 3. 重量 熱量 */}
+                        <div className="text-xs font-semibold text-blue-900 mt-1">
+                          每份 ({food.servingAmount}{food.servingUnit}) · {food.calories} kcal
+                        </div>
+
+                        {/* 4. 三大營養素 (CPF 獨立在下一排) */}
+                        <div className="flex items-center gap-1.5 mt-1">
+                          <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-1.5 py-0.25 rounded-full">C: {food.carbs}g</span>
+                          <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-1.5 py-0.25 rounded-full">P: {food.protein}g</span>
+                          <span className="text-[10px] font-bold text-rose-700 bg-rose-50 px-1.5 py-0.25 rounded-full">F: {food.fat}g</span>
                         </div>
                       </div>
-                      <Plus className="w-5 h-5 text-blue-600 shrink-0" />
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleFastAdd(food);
+                        }}
+                        className={`p-2 rounded-xl transition-all duration-200 shrink-0 cursor-pointer flex items-center justify-center ${
+                          addedIds[food.id]
+                            ? 'bg-emerald-500 text-white scale-105 shadow-xs'
+                            : 'text-blue-600 group-hover:bg-blue-100 rounded-xl'
+                        }`}
+                        title="快速新增至餐點（不關閉搜尋）"
+                      >
+                        {addedIds[food.id] ? (
+                          <Check className="w-5 h-5 animate-in zoom-in-50 duration-200" />
+                        ) : (
+                          <Plus className="w-5 h-5" />
+                        )}
+                      </button>
                     </div>
                   ))}
                 </div>
@@ -968,6 +1085,14 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
             關閉
           </button>
         </div>
+
+        {/* Floating Fast Add Notification Toast */}
+        {fastAddNotice && (
+          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-slate-900/90 text-white px-4 py-2.5 rounded-2xl shadow-xl font-bold text-xs flex items-center gap-2 backdrop-blur-md animate-in fade-in slide-in-from-bottom-2 duration-200">
+            <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span>{fastAddNotice}</span>
+          </div>
+        )}
       </div>
     </div>
   );

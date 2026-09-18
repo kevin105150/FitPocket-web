@@ -83,6 +83,9 @@ export default function App() {
   const handleRestoreAuth = async () => {
     try {
       const result = await loginWithGoogle(false);
+      if (result.isRedirecting) {
+        return;
+      }
       if (result.accessToken) {
         setNeedsDriveAuth(false);
         // Trigger a catch-up sync
@@ -90,6 +93,7 @@ export default function App() {
       }
     } catch (err) {
       console.error("Restore auth error:", err);
+      setNeedsDriveAuth(false);
     }
   };
 
@@ -101,6 +105,12 @@ export default function App() {
       try {
         await StorageService.init();
         if (!active) return;
+
+        // Check for redirect result immediately
+        const redirectedToken = await handleRedirectResult();
+        if (redirectedToken) {
+          setNeedsDriveAuth(false);
+        }
         
         // After storage is ready, handle auth state
         const unsubscribe = onAuthStateChanged(auth, async (u) => {
@@ -109,10 +119,6 @@ export default function App() {
           
           try {
             if (u) {
-              // Check for pending sync and redirect results
-              await handleRedirectResult();
-              if (!active) return;
-
               const token = await getAccessToken();
               if (token) {
                 setNeedsDriveAuth(false);
@@ -283,7 +289,7 @@ export default function App() {
       </header>
 
       {/* Main Tab Content */}
-      <main className="flex-1 max-w-2xl w-full mx-auto p-4 sm:p-6 overflow-x-hidden">
+      <main className="flex-1 max-w-2xl w-full mx-auto px-4 pb-4 pt-2 sm:px-6 sm:pb-6 sm:pt-4 overflow-x-clip">
         {activeTab === 'DIET' && (
           <DietTracker currentDate={currentDate} onDateChange={setCurrentDate} />
         )}

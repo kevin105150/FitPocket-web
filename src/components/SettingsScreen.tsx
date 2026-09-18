@@ -27,14 +27,18 @@ import {
 import {
   CustomFood,
   UserProfile,
+  CarbCycleType,
+  NutritionGoalPreset,
 } from '../types';
 import { StorageService } from '../services/storage';
 import { CloudFoodService } from '../services/cloudFoodService';
+import { CARB_CYCLE_INFO, getCarbCycleBadgeStyle } from '../data/defaults';
 import { GoalSettingModal } from './GoalSettingModal';
 import { CustomFoodModal } from './CustomFoodModal';
 import { ExportHtmlModal } from './ExportHtmlModal';
 import { auth, loginWithGoogle, logout, testFirebaseConnection, getAccessToken } from '../lib/firebase';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
+import { motion } from 'motion/react';
 
 export const SettingsScreen: React.FC = () => {
   const [user, setUser] = useState<FirebaseUser | null>(auth.currentUser);
@@ -103,6 +107,8 @@ export const SettingsScreen: React.FC = () => {
   }, []);
 
   // Modals
+  const [showGoalModal, setShowGoalModal] = useState(false);
+  const [presets, setPresets] = useState<Record<CarbCycleType, NutritionGoalPreset>>(() => StorageService.getPresets());
   const [showCustomFoodModal, setShowCustomFoodModal] = useState(false);
   const [showCustomFoodsListModal, setShowCustomFoodsListModal] = useState(false);
   const [showExportHtmlModal, setShowExportHtmlModal] = useState(false);
@@ -688,8 +694,8 @@ export const SettingsScreen: React.FC = () => {
 
           <div className="flex flex-col gap-3 pt-2 border-t border-sky-200/50 text-xs">
             <div className="text-slate-600">
-              建議分配：碳 <strong className="text-amber-800">{calculated.targetCarbs}g</strong> ·
-              蛋 <strong className="text-blue-800">{calculated.targetProtein}g</strong> · 脂{' '}
+              建議分配：C <strong className="text-amber-800">{calculated.targetCarbs}g</strong> ·
+              P <strong className="text-blue-800">{calculated.targetProtein}g</strong> · F{' '}
               <strong className="text-rose-800">{calculated.targetFat}g</strong>
             </div>
 
@@ -701,6 +707,48 @@ export const SettingsScreen: React.FC = () => {
               <Sparkles className="w-3.5 h-3.5" />
               一鍵套用至循環日
             </button>
+          </div>
+
+          {/* Carb Cycle Goals Preview */}
+          <div className="pt-3 border-t border-sky-200/50 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-slate-700">各循環日目標 (高/中/低/自訂碳)</span>
+              <button
+                type="button"
+                onClick={() => setShowGoalModal(true)}
+                className="px-2.5 py-1 bg-white hover:bg-sky-100 text-sky-800 text-[11px] font-bold rounded-lg border border-sky-200 transition flex items-center gap-1 cursor-pointer"
+              >
+                <span>編輯目標</span>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              {(['HIGH', 'MEDIUM', 'LOW', 'CUSTOM'] as CarbCycleType[]).map((c) => {
+                const info = CARB_CYCLE_INFO[c];
+                const p = presets[c];
+                const badgeStyle = getCarbCycleBadgeStyle(c, true);
+                return (
+                  <div
+                    key={c}
+                    onClick={() => setShowGoalModal(true)}
+                    className="p-2.5 bg-white border border-slate-200/80 rounded-xl hover:border-sky-300 transition cursor-pointer space-y-1.5 shadow-2xs"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className={`px-2 py-0.5 rounded-md text-[10px] font-black flex items-center gap-1 ${badgeStyle}`}>
+                        <span>{info.emoji}</span>
+                        <span>{info.shortName}</span>
+                      </span>
+                      <span className="text-xs font-black text-slate-800">{p?.calories || 0} <span className="text-[10px] text-slate-400 font-normal">kcal</span></span>
+                    </div>
+                    <div className="text-[10px] font-bold flex items-center justify-between text-slate-600 pt-1 border-t border-slate-100">
+                      <span className="text-amber-700">C {p?.carbs || 0}g</span>
+                      <span className="text-blue-700">P {p?.protein || 0}g</span>
+                      <span className="text-rose-700">F {p?.fat || 0}g</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </div>
       </div>
@@ -1042,70 +1090,87 @@ export const SettingsScreen: React.FC = () => {
                 }
 
                 return filtered.map((cf) => (
-                  <div key={cf.id} className="py-3.5 flex items-center justify-between gap-4">
-                    <div className="min-w-0">
-                      <div className="font-bold text-slate-800 text-sm truncate">{cf.name}</div>
-                      <div className="text-[11px] text-slate-400 flex flex-wrap items-center gap-x-2.5 gap-y-1 mt-0.5">
-                        {(() => {
-                          const isVision = cf.aiSource === 'vision' || cf.brand === 'AI 視覺辨識';
-                          const isEstimation = cf.aiSource === 'estimation' || cf.brand === 'AI 智慧估算';
-                          const displayBrand = (isVision || isEstimation) ? '' : cf.brand;
-                          
-                          return (
-                            <>
-                              {displayBrand && (
-                                <span className="bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded-sm font-semibold">
-                                  {displayBrand}
-                                </span>
-                              )}
-                              {isVision && (
-                                <span className="bg-purple-50 text-purple-700 border border-purple-100 px-1.5 py-0.5 rounded-sm font-semibold">
-                                  AI 視覺辨識
-                                </span>
-                              )}
-                              {isEstimation && (
-                                <span className="bg-indigo-50 text-indigo-700 border border-indigo-100 px-1.5 py-0.5 rounded-sm font-semibold">
-                                  AI 智慧估算
-                                </span>
-                              )}
-                            </>
-                          );
-                        })()}
-                        <span>每份 ({cf.servingAmount}{cf.servingUnit}) {cf.calories} kcal</span>
-                        <span className="text-slate-300">|</span>
-                        <span>碳: {cf.carbs}g</span>
-                        <span>蛋: {cf.protein}g</span>
-                        <span>脂: {cf.fat}g</span>
-                      </div>
+                  <div key={cf.id} className="relative overflow-hidden py-1">
+                    {/* Beneath Action Row */}
+                    <div className="absolute inset-y-1.5 right-1 flex items-stretch gap-1 z-0">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          StorageService.deleteCustomFood(cf.id);
+                          const updated = StorageService.getCustomFoods();
+                          setCustomFoods(updated);
+                          setConfirmDeleteId(null);
+                          if (updated.length === 0) {
+                            setShowCustomFoodsListModal(false);
+                          }
+                        }}
+                        className="px-3.5 bg-rose-600 hover:bg-rose-700 text-white font-black text-xs rounded-xl flex items-center justify-center transition cursor-pointer"
+                      >
+                        確定
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmDeleteId(null)}
+                        className="px-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-xs rounded-xl flex items-center justify-center transition cursor-pointer"
+                      >
+                        取消
+                      </button>
                     </div>
-                    
-                    {confirmDeleteId === cf.id ? (
-                      <div className="flex items-center gap-1 bg-rose-50/80 px-2 py-1 rounded-xl border border-rose-100 shrink-0">
-                        <span className="text-[10px] font-bold text-rose-700 mr-1">確認刪除？</span>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            StorageService.deleteCustomFood(cf.id);
-                            const updated = StorageService.getCustomFoods();
-                            setCustomFoods(updated);
-                            setConfirmDeleteId(null);
-                            if (updated.length === 0) {
-                              setShowCustomFoodsListModal(false);
-                            }
-                          }}
-                          className="px-2 py-1 bg-rose-600 hover:bg-rose-700 text-white text-[10px] font-bold rounded-lg transition cursor-pointer"
-                        >
-                          確定
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setConfirmDeleteId(null)}
-                          className="px-1.5 py-1 bg-slate-200 hover:bg-slate-300 text-slate-700 text-[10px] font-bold rounded-lg transition cursor-pointer"
-                        >
-                          取消
-                        </button>
+
+                    {/* Sliding Card Content */}
+                    <motion.div
+                      animate={{ x: confirmDeleteId === cf.id ? -125 : 0 }}
+                      transition={{ type: 'spring', damping: 24, stiffness: 220 }}
+                      className="relative z-10 bg-white py-2 flex items-center justify-between gap-3 w-full"
+                    >
+                      <div className="min-w-0 flex-1">
+                        {/* 1. 名稱 & 膠囊 */}
+                        <div className="flex items-center gap-1.5 min-w-0 max-w-full">
+                          <span className="font-bold text-sm text-slate-800 truncate min-w-0 shrink">{cf.name}</span>
+                          <div className="inline-flex items-center gap-1 shrink-0">
+                            <span className="text-[10px] font-bold px-1.5 py-0.25 bg-amber-100 text-amber-800 rounded-md whitespace-nowrap shrink-0">
+                              我的自訂
+                            </span>
+                            {(() => {
+                              const isVision = cf.aiSource === 'vision' || cf.brand === 'AI 視覺辨識';
+                              const isEstimation = cf.aiSource === 'estimation' || cf.brand === 'AI 智慧估算';
+                              if (isVision) {
+                                return (
+                                  <span className="text-[10px] font-bold px-1.5 py-0.25 bg-purple-50 text-purple-700 border border-purple-100 rounded-md whitespace-nowrap shrink-0">
+                                    AI 視覺辨識
+                                  </span>
+                                );
+                              }
+                              if (isEstimation) {
+                                return (
+                                  <span className="text-[10px] font-bold px-1.5 py-0.25 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-md whitespace-nowrap shrink-0">
+                                    AI 智慧估算
+                                  </span>
+                                );
+                              }
+                              return null;
+                            })()}
+                          </div>
+                        </div>
+
+                        {/* 2. 品牌 */}
+                        <div className="text-xs font-semibold text-slate-400 mt-0.5">
+                          {cf.brand && cf.brand !== 'AI 視覺辨識' && cf.brand !== 'AI 智慧估算' ? cf.brand : '一般食材'}
+                        </div>
+
+                        {/* 3. 重量 熱量 */}
+                        <div className="text-xs font-semibold text-sky-800 mt-1">
+                          每份 ({cf.servingAmount}{cf.servingUnit}) · {cf.calories} kcal
+                        </div>
+
+                        {/* 4. 三大營養素 */}
+                        <div className="flex items-center gap-1.5 mt-1">
+                          <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-1.5 py-0.25 rounded-full">C: {cf.carbs}g</span>
+                          <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-1.5 py-0.25 rounded-full">P: {cf.protein}g</span>
+                          <span className="text-[10px] font-bold text-rose-700 bg-rose-50 px-1.5 py-0.25 rounded-full">F: {cf.fat}g</span>
+                        </div>
                       </div>
-                    ) : (
+
                       <div className="flex items-center gap-1.5 shrink-0">
                         <button
                           type="button"
@@ -1113,7 +1178,7 @@ export const SettingsScreen: React.FC = () => {
                             setEditingCustomFood(cf);
                             setShowCustomFoodModal(true);
                           }}
-                          className="p-2 text-slate-500 hover:text-sky-700 hover:bg-sky-50 rounded-xl transition cursor-pointer"
+                          className="p-1.5 text-slate-400 hover:text-sky-600 hover:bg-sky-50 rounded-lg transition cursor-pointer"
                           title="編輯"
                         >
                           <Edit2 className="w-4 h-4" />
@@ -1121,13 +1186,13 @@ export const SettingsScreen: React.FC = () => {
                         <button
                           type="button"
                           onClick={() => setConfirmDeleteId(cf.id)}
-                          className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition cursor-pointer"
+                          className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
                           title="刪除"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
-                    )}
+                    </motion.div>
                   </div>
                 ));
               })()}
@@ -1157,6 +1222,20 @@ export const SettingsScreen: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Goal Setting Modal */}
+      {showGoalModal && (
+        <GoalSettingModal
+          currentCycle={StorageService.getActiveCarbCycle()}
+          presets={presets}
+          onClose={() => setShowGoalModal(false)}
+          onSave={(newPresets) => {
+            StorageService.savePresets(newPresets);
+            setPresets(newPresets);
+            flashMessage('已成功儲存碳循環目標！');
+          }}
+        />
       )}
 
       {/* API Key Modal Popup */}

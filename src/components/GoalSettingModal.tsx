@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { X, Save, RotateCcw } from 'lucide-react';
 import { CarbCycleType, NutritionGoalPreset } from '../types';
-import { CARB_CYCLE_INFO, DEFAULT_PRESETS } from '../data/defaults';
+import { CARB_CYCLE_INFO, DEFAULT_PRESETS, getCarbCycleBadgeStyle } from '../data/defaults';
 import { MacroCalorieVerifier } from './MacroCalorieVerifier';
 
 interface GoalSettingModalProps {
@@ -81,27 +81,25 @@ export const GoalSettingModal: React.FC<GoalSettingModalProps> = ({
 
         {/* Cycle selector pills */}
         <div className="px-6 pt-4 pb-2">
-          <div className="grid grid-cols-4 gap-1.5 p-1 bg-slate-100 rounded-2xl">
+          <div className="grid grid-cols-4 gap-2">
             {carbCycles.map((c) => {
               const info = CARB_CYCLE_INFO[c];
               const isSelected = selectedCycle === c;
+              const badgeStyle = getCarbCycleBadgeStyle(c, isSelected);
               return (
                 <button
                   key={c}
+                  type="button"
                   onClick={() => setSelectedCycle(c)}
-                  className={`py-2 px-1 text-center rounded-xl text-xs font-bold transition cursor-pointer flex flex-col items-center gap-0.5 ${
-                    isSelected
-                      ? 'bg-white text-sky-800 shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
+                  className={`py-2 px-1 text-center rounded-2xl text-xs font-bold transition-all cursor-pointer flex flex-col items-center gap-0.5 active:scale-95 ${badgeStyle}`}
                 >
-                  <span className="text-sm">{info.emoji}</span>
+                  <span className="text-base">{info.emoji}</span>
                   <span>{info.shortName}</span>
                 </button>
               );
             })}
           </div>
-          <div className="text-xs text-slate-500 mt-2 text-center">
+          <div className="text-xs font-medium text-slate-500 mt-2.5 text-center">
             {CARB_CYCLE_INFO[selectedCycle].description}
           </div>
         </div>
@@ -120,52 +118,52 @@ export const GoalSettingModal: React.FC<GoalSettingModalProps> = ({
             />
           </div>
 
-          <div className="grid grid-cols-3 gap-3">
-            <div>
-              <label className="block text-xs font-semibold text-amber-700 mb-1">
-                碳水化合物 (g)
-              </label>
-              <input
-                type="number"
-                value={activePreset.carbs}
-                onChange={(e) => updateField('carbs', e.target.value)}
-                className="w-full px-3.5 py-2 rounded-xl border border-amber-200 focus:outline-amber-600 font-semibold text-slate-800"
-              />
-              <span className="text-[11px] text-slate-400 mt-1 block">
-                約 {Math.round((Number(activePreset.carbs) || 0) * 4)} kcal
-              </span>
-            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-amber-700 mb-1">
+                  碳水 (C)
+                </label>
+                <input
+                  type="number"
+                  value={activePreset.carbs}
+                  onChange={(e) => updateField('carbs', e.target.value)}
+                  className="w-full px-3.5 py-2 rounded-xl border border-amber-200 focus:outline-amber-600 font-semibold text-slate-800"
+                />
+                <span className="text-[11px] text-slate-400 mt-1 block">
+                  約 {Math.round((Number(activePreset.carbs) || 0) * 4)} kcal
+                </span>
+              </div>
 
-            <div>
-              <label className="block text-xs font-semibold text-blue-700 mb-1">
-                蛋白質 (g)
-              </label>
-              <input
-                type="number"
-                value={activePreset.protein}
-                onChange={(e) => updateField('protein', e.target.value)}
-                className="w-full px-3.5 py-2 rounded-xl border border-blue-200 focus:outline-blue-600 font-semibold text-slate-800"
-              />
-              <span className="text-[11px] text-slate-400 mt-1 block">
-                約 {Math.round((Number(activePreset.protein) || 0) * 4)} kcal
-              </span>
-            </div>
+              <div>
+                <label className="block text-xs font-semibold text-blue-700 mb-1">
+                  蛋白質 (P)
+                </label>
+                <input
+                  type="number"
+                  value={activePreset.protein}
+                  onChange={(e) => updateField('protein', e.target.value)}
+                  className="w-full px-3.5 py-2 rounded-xl border border-blue-200 focus:outline-blue-600 font-semibold text-slate-800"
+                />
+                <span className="text-[11px] text-slate-400 mt-1 block">
+                  約 {Math.round((Number(activePreset.protein) || 0) * 4)} kcal
+                </span>
+              </div>
 
-            <div>
-              <label className="block text-xs font-semibold text-rose-700 mb-1">
-                脂肪 (g)
-              </label>
-              <input
-                type="number"
-                value={activePreset.fat}
-                onChange={(e) => updateField('fat', e.target.value)}
-                className="w-full px-3.5 py-2 rounded-xl border border-rose-200 focus:outline-rose-600 font-semibold text-slate-800"
-              />
-              <span className="text-[11px] text-slate-400 mt-1 block">
-                約 {Math.round((Number(activePreset.fat) || 0) * 9)} kcal
-              </span>
+              <div>
+                <label className="block text-xs font-semibold text-rose-700 mb-1">
+                  脂肪 (F)
+                </label>
+                <input
+                  type="number"
+                  value={activePreset.fat}
+                  onChange={(e) => updateField('fat', e.target.value)}
+                  className="w-full px-3.5 py-2 rounded-xl border border-rose-200 focus:outline-rose-600 font-semibold text-slate-800"
+                />
+                <span className="text-[11px] text-slate-400 mt-1 block">
+                  約 {Math.round((Number(activePreset.fat) || 0) * 9)} kcal
+                </span>
+              </div>
             </div>
-          </div>
 
           <MacroCalorieVerifier
             calories={Number(activePreset.calories) || 0}

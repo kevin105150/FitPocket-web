@@ -31,6 +31,28 @@ export const CARB_CYCLE_INFO: Record<CarbCycleType, CarbCycleInfo> = {
   },
 };
 
+export function getCarbCycleBadgeStyle(type: CarbCycleType, isSelected: boolean): string {
+  switch (type) {
+    case 'HIGH':
+      return isSelected
+        ? 'bg-rose-500 text-white shadow-xs border-rose-500'
+        : 'bg-rose-50 text-rose-700 border border-rose-200/80 hover:bg-rose-100/80';
+    case 'MEDIUM':
+      return isSelected
+        ? 'bg-amber-500 text-white shadow-xs border-amber-500'
+        : 'bg-amber-50 text-amber-700 border border-amber-200/80 hover:bg-amber-100/80';
+    case 'LOW':
+      return isSelected
+        ? 'bg-emerald-600 text-white shadow-xs border-emerald-600'
+        : 'bg-emerald-50 text-emerald-700 border border-emerald-200/80 hover:bg-emerald-100/80';
+    case 'CUSTOM':
+    default:
+      return isSelected
+        ? 'bg-indigo-600 text-white shadow-xs border-indigo-600'
+        : 'bg-indigo-50 text-indigo-700 border border-indigo-200/80 hover:bg-indigo-100/80';
+  }
+}
+
 export const DEFAULT_PRESETS: Record<CarbCycleType, NutritionGoalPreset> = {
   HIGH: {
     type: 'HIGH',
@@ -80,12 +102,16 @@ export const DEFAULT_MEALS: MealConfig[] = [
 export const DEFAULT_MUSCLE_GROUPS = [
   '胸',
   '背',
-  '腿',
   '肩',
+  '腿',
+  '臀',
   '手臂',
+  '推',
+  '拉',
   '核心',
   '有氧',
-  '臀',
+  '上半身',
+  '下半身',
   '全身',
 ];
 

@@ -215,7 +215,7 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
           <!-- Carbs -->
           <div class="bg-amber-50/60 border border-amber-200/50 p-2.5 rounded-2xl">
             <div class="flex items-center justify-between text-xs font-bold text-amber-800 mb-1">
-              <span>C (碳水)</span>
+              <span>碳水 (C)</span>
               <span id="pct-carbs" class="text-[10px] text-amber-600 font-semibold">0%</span>
             </div>
             <div class="flex items-baseline gap-1">
@@ -230,7 +230,7 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
           <!-- Protein -->
           <div class="bg-blue-50/60 border border-blue-200/50 p-2.5 rounded-2xl">
             <div class="flex items-center justify-between text-xs font-bold text-blue-800 mb-1">
-              <span>P (蛋白)</span>
+              <span>蛋白質 (P)</span>
               <span id="pct-protein" class="text-[10px] text-blue-600 font-semibold">0%</span>
             </div>
             <div class="flex items-baseline gap-1">
@@ -245,7 +245,7 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
           <!-- Fat -->
           <div class="bg-rose-50/60 border border-rose-200/50 p-2.5 rounded-2xl">
             <div class="flex items-center justify-between text-xs font-bold text-rose-800 mb-1">
-              <span>F (脂肪)</span>
+              <span>脂肪 (F)</span>
               <span id="pct-fat" class="text-[10px] text-rose-600 font-semibold">0%</span>
             </div>
             <div class="flex items-baseline gap-1">
@@ -444,7 +444,12 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
       CUSTOM: { name: '自訂目標', shortName: '自訂', emoji: '⚙️' },
     };
 
-    let activeCycle = APP_DATA.activeCarbCycle || 'MEDIUM';
+    const activeCycle = APP_DATA.activeCarbCycle || 'MEDIUM';
+
+    function formatWeight(val) {
+      if (val === null || val === undefined || isNaN(Number(val))) return '--';
+      return parseFloat(Number(val).toFixed(1)).toString();
+    }
 
     // Chinese Day of Week Helper
     const weekDays = ['週日', '週一', '週二', '週三', '週四', '週五', '週六'];
@@ -757,12 +762,12 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
 
         html += '<div class="bg-white rounded-3xl border border-slate-200/70 shadow-2xs overflow-hidden">' +
           '<div class="px-5 py-3.5 flex items-center justify-between bg-white">' +
-            '<div class="flex items-center gap-2.5 flex-1 min-w-0">' +
-              '<span class="font-black text-base text-slate-900 truncate">' + meal.customName + '</span>' +
-              '<span class="text-[11px] font-bold text-sky-800 bg-sky-50 px-2 py-0.5 rounded-full whitespace-nowrap">' + mCal + ' kcal</span>';
+            '<div class="flex flex-col gap-1 flex-1 min-w-0">' +
+              '<div class="font-black text-base text-slate-900 truncate">' + meal.customName + '</div>' +
+              '<div><span class="text-[11px] font-bold text-sky-800 bg-sky-50 px-2 py-0.5 rounded-full inline-block whitespace-nowrap">' + mCal + ' kcal</span></div>';
 
         if (mRecords.length > 0) {
-          html += '<div class="hidden sm:flex items-center gap-1.5 ml-2">' +
+          html += '<div class="flex items-center gap-1.5 mt-0.5 flex-wrap">' +
             '<span class="text-[10px] font-bold text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded-full">C: ' + mC + 'g</span>' +
             '<span class="text-[10px] font-bold text-blue-800 bg-blue-50 px-1.5 py-0.5 rounded-full">P: ' + mP + 'g</span>' +
             '<span class="text-[10px] font-bold text-rose-800 bg-rose-50 px-1.5 py-0.5 rounded-full">F: ' + mF + 'g</span>' +
@@ -781,13 +786,11 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
                   '<span class="truncate">' + item.name + '</span>' +
                   (item.brand ? '<span class="text-xs font-medium text-slate-400 shrink-0">' + item.brand + '</span>' : '') +
                 '</div>' +
-                '<div class="flex flex-wrap items-center gap-2 text-xs text-slate-500 mt-0.5">' +
-                  '<span class="font-semibold text-sky-800">' + item.loggedAmount + unit + ' , ' + item.calories + ' kcal</span>' +
-                  '<div class="flex items-center gap-1">' +
-                    '<span class="text-[10px] font-bold text-amber-700 bg-amber-50 px-1.5 py-0.25 rounded-full">C: ' + item.carbs + 'g</span>' +
-                    '<span class="text-[10px] font-bold text-blue-700 bg-blue-50 px-1.5 py-0.25 rounded-full">P: ' + item.protein + 'g</span>' +
-                    '<span class="text-[10px] font-bold text-rose-700 bg-rose-50 px-1.5 py-0.25 rounded-full">F: ' + item.fat + 'g</span>' +
-                  '</div>' +
+                '<div class="font-semibold text-sky-800 text-xs mt-0.5">' + item.loggedAmount + unit + ' · ' + item.calories + ' kcal</div>' +
+                '<div class="flex items-center gap-1 mt-1">' +
+                  '<span class="text-[10px] font-bold text-amber-700 bg-amber-50 px-1.5 py-0.25 rounded-full">C: ' + item.carbs + 'g</span>' +
+                  '<span class="text-[10px] font-bold text-blue-700 bg-blue-50 px-1.5 py-0.25 rounded-full">P: ' + item.protein + 'g</span>' +
+                  '<span class="text-[10px] font-bold text-rose-700 bg-rose-50 px-1.5 py-0.25 rounded-full">F: ' + item.fat + 'g</span>' +
                 '</div>' +
               '</div>' +
             '</div>';
@@ -957,7 +960,7 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
       if (dayMorningEl) {
         const mw = dayRecord ? (dayRecord.morningWeightKg || (dayRecord.weightKg && !dayRecord.eveningWeightKg ? dayRecord.weightKg : null)) : null;
         if (mw) {
-          dayMorningEl.innerHTML = mw + ' <span class="text-xs font-medium">kg</span>' + (dayRecord && dayRecord.morningTime ? ' <span class="text-[10px] text-amber-600 font-normal">(' + dayRecord.morningTime + ')</span>' : '');
+          dayMorningEl.innerHTML = formatWeight(mw) + ' <span class="text-xs font-medium">kg</span>' + (dayRecord && dayRecord.morningTime ? ' <span class="text-[10px] text-amber-600 font-normal">(' + dayRecord.morningTime + ')</span>' : '');
         } else {
           dayMorningEl.innerHTML = '<span class="text-slate-400 font-normal text-sm">尚未記錄</span>';
         }
@@ -966,7 +969,7 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
       if (dayEveningEl) {
         const ew = dayRecord ? dayRecord.eveningWeightKg : null;
         if (ew) {
-          dayEveningEl.innerHTML = ew + ' <span class="text-xs font-medium">kg</span>' + (dayRecord && dayRecord.eveningTime ? ' <span class="text-[10px] text-indigo-600 font-normal">(' + dayRecord.eveningTime + ')</span>' : '');
+          dayEveningEl.innerHTML = formatWeight(ew) + ' <span class="text-xs font-medium">kg</span>' + (dayRecord && dayRecord.eveningTime ? ' <span class="text-[10px] text-indigo-600 font-normal">(' + dayRecord.eveningTime + ')</span>' : '');
         } else {
           dayEveningEl.innerHTML = '<span class="text-slate-400 font-normal text-sm">尚未記錄</span>';
         }
@@ -981,8 +984,8 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
 
       const morningEl = document.getElementById('latest-morning-weight');
       const eveningEl = document.getElementById('latest-evening-weight');
-      if (morningEl) morningEl.textContent = latestMorning ? latestMorning.toString() : '--';
-      if (eveningEl) eveningEl.textContent = latestEvening ? latestEvening.toString() : '--';
+      if (morningEl) morningEl.textContent = formatWeight(latestMorning);
+      if (eveningEl) eveningEl.textContent = formatWeight(latestEvening);
 
       const latestW = latestMorning || latestEvening || profile.currentWeightKg || null;
       if (latestW && profile.heightCm) {
@@ -994,7 +997,7 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
 
       if (profile.targetWeightKg) {
         const targetEl = document.getElementById('target-weight');
-        if (targetEl) targetEl.textContent = profile.targetWeightKg.toString();
+        if (targetEl) targetEl.textContent = formatWeight(profile.targetWeightKg);
       }
 
       // 3. Filtered records for SVG Chart
@@ -1063,7 +1066,7 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
           let dotsSvg = '';
           coords.forEach(c => {
             dotsSvg += '<circle cx="' + c.x.toFixed(1) + '" cy="' + c.y.toFixed(1) + '" r="4" fill="' + strokeColor + '" stroke="#ffffff" stroke-width="2"/>' +
-              '<text x="' + c.x.toFixed(1) + '" y="' + (c.y - 7).toFixed(1) + '" fill="#1e293b" font-size="9" font-weight="extrabold" text-anchor="middle">' + c.weight + '</text>' +
+              '<text x="' + c.x.toFixed(1) + '" y="' + (c.y - 7).toFixed(1) + '" fill="#1e293b" font-size="9" font-weight="extrabold" text-anchor="middle">' + formatWeight(c.weight) + '</text>' +
               '<text x="' + c.x.toFixed(1) + '" y="' + (chartHeight - 6) + '" fill="#94a3b8" font-size="9" font-weight="medium" text-anchor="middle">' + c.date + '</text>';
           });
 
@@ -1087,8 +1090,8 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
           const isSelected = w.date === currentDate;
           const mw = w.morningWeightKg || (w.weightKg && !w.eveningWeightKg ? w.weightKg : null);
           const ew = w.eveningWeightKg;
-          const mwStr = mw ? mw + ' kg' + (w.morningTime ? ' <span class="text-[10px] text-slate-400 font-normal">(' + w.morningTime + ')</span>' : '') : '-';
-          const ewStr = ew ? ew + ' kg' + (w.eveningTime ? ' <span class="text-[10px] text-slate-400 font-normal">(' + w.eveningTime + ')</span>' : '') : '-';
+          const mwStr = mw ? formatWeight(mw) + ' kg' + (w.morningTime ? ' <span class="text-[10px] text-slate-400 font-normal">(' + w.morningTime + ')</span>' : '') : '-';
+          const ewStr = ew ? formatWeight(ew) + ' kg' + (w.eveningTime ? ' <span class="text-[10px] text-slate-400 font-normal">(' + w.eveningTime + ')</span>' : '') : '-';
 
           const rowClass = isSelected 
             ? 'bg-sky-50/70 font-semibold' 

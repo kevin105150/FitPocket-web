@@ -121,7 +121,7 @@ export const testFirebaseConnection = async (): Promise<{
 // Cache access token in memory and localStorage for persistent sessions
 let cachedAccessToken: string | null = localStorage.getItem('fitpocket_google_access_token');
 
-export const handleRedirectResult = async () => {
+export const handleRedirectResult = async (): Promise<string | null> => {
   try {
     const result = await getRedirectResult(auth);
     if (result) {
@@ -131,19 +131,24 @@ export const handleRedirectResult = async () => {
         localStorage.setItem('fitpocket_google_access_token', credential.accessToken);
         localStorage.setItem('fitpocket_google_token_time', Date.now().toString());
         console.log("Successfully loaded redirected Google Access Token with timestamp.");
+        return credential.accessToken;
       }
     }
   } catch (error) {
     console.error("Redirect login resolution error:", error);
   }
+  return null;
 };
 
 export const loginWithGoogle = async (forceSelectAccount = false, forceMethod?: 'popup' | 'redirect') => {
   try {
-    googleProvider.setCustomParameters({ prompt: 'select_account' }); // Always force select account to ensure we can switch
+    if (forceSelectAccount) {
+      googleProvider.setCustomParameters({ prompt: 'select_account' });
+    } else {
+      googleProvider.setCustomParameters({});
+    }
     
-    // Default to popup as requested, even on mobile. 
-    // Only use redirect if explicitly passed as 'redirect'.
+    // Default to popup, but allow redirect fallback
     const useRedirect = forceMethod === 'redirect';
     
     if (useRedirect) {
@@ -152,21 +157,33 @@ export const loginWithGoogle = async (forceSelectAccount = false, forceMethod?: 
       return { user: null, accessToken: null, isRedirecting: true };
     } else {
       console.log("Launching Google Sign-In with Popup...");
-      const result = await signInWithPopup(auth, googleProvider);
-      const credential = GAuthProvider.credentialFromResult(result);
-      if (credential?.accessToken) {
-        cachedAccessToken = credential.accessToken;
-        localStorage.setItem('fitpocket_google_access_token', credential.accessToken);
-        localStorage.setItem('fitpocket_google_token_time', Date.now().toString());
+      try {
+        const result = await signInWithPopup(auth, googleProvider);
+        const credential = GAuthProvider.credentialFromResult(result);
+        if (credential?.accessToken) {
+          cachedAccessToken = credential.accessToken;
+          localStorage.setItem('fitpocket_google_access_token', credential.accessToken);
+          localStorage.setItem('fitpocket_google_token_time', Date.now().toString());
+        }
+        return { user: result.user, accessToken: cachedAccessToken, isRedirecting: false };
+      } catch (popupErr: any) {
+        console.warn("Popup login failed, evaluating redirect fallback:", popupErr);
+        const errCode = popupErr?.code || '';
+        
+        if (
+          errCode === 'auth/network-request-failed' ||
+          errCode === 'auth/popup-blocked' ||
+          errCode === 'auth/popup-closed-by-user' ||
+          errCode === 'auth/cancelled-popup-request'
+        ) {
+          console.log("Automatically switching to signInWithRedirect due to:", errCode);
+          await signInWithRedirect(auth, googleProvider);
+          return { user: null, accessToken: null, isRedirecting: true };
+        }
+        throw popupErr;
       }
-      return { user: result.user, accessToken: cachedAccessToken, isRedirecting: false };
     }
   } catch (error: any) {
-    // If popup is blocked, we might want to fallback to redirect automatically if it was an automated call,
-    // but since the user explicitly asked for popup default, we'll just log it.
-    if (error?.code === 'auth/popup-blocked') {
-      console.warn("Popup blocked. User might need to allow popups or use redirect manually.");
-    }
     console.error("Login failed:", error);
     throw error;
   }

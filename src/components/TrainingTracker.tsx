@@ -14,6 +14,8 @@ import {
   Activity,
   Layers,
   X,
+  Pencil,
+  Edit3,
 } from 'lucide-react';
 import { ExerciseSet, WorkoutExercise, WorkoutRecord } from '../types';
 import { StorageService } from '../services/storage';
@@ -21,6 +23,7 @@ import { isCardioExercise } from '../data/defaults';
 import { DateNavigator } from './DateNavigator';
 import { WorkoutTimerModal } from './WorkoutTimerModal';
 import { checkAiKeyOrWarn } from '../utils/aiHelper';
+import { motion } from 'motion/react';
 
 interface TrainingTrackerProps {
   currentDate: string;
@@ -44,12 +47,29 @@ export const TrainingTracker: React.FC<TrainingTrackerProps> = ({
   const [aiSuggestions, setAiSuggestions] = useState<string[]>([]);
   const [aiLoading, setAiLoading] = useState(false);
 
+  // New state for renaming, replacing, & custom body parts
+  const [replacingExerciseId, setReplacingExerciseId] = useState<string | null>(null);
+  const [editingWorkoutBodyPartId, setEditingWorkoutBodyPartId] = useState<string | null>(null);
+  const [editingWorkoutBodyPartName, setEditingWorkoutBodyPartName] = useState<string>('');
+  const [showCustomBodyPartModal, setShowCustomBodyPartModal] = useState<boolean>(false);
+  const [customBodyPartInput, setCustomBodyPartInput] = useState<string>('');
+  const [customBodyParts, setCustomBodyParts] = useState<string[]>([]);
+
+  // Safe delete inline state
+  const [confirmDeleteWorkoutId, setConfirmDeleteWorkoutId] = useState<string | null>(null);
+  const [confirmDeleteBodyPart, setConfirmDeleteBodyPart] = useState<string | null>(null);
+
   const muscleGroups = StorageService.getMuscleGroups();
   const allDictionaryExercises = StorageService.getExercises();
+
+  const refreshCustomBodyParts = () => {
+    setCustomBodyParts(StorageService.getCustomBodyParts());
+  };
 
   const refreshWorkouts = () => {
     const list = StorageService.getWorkoutsByDate(currentDate);
     setWorkouts(list);
+    refreshCustomBodyParts();
   };
 
   useEffect(() => {
@@ -70,17 +90,55 @@ export const TrainingTracker: React.FC<TrainingTrackerProps> = ({
     refreshWorkouts();
   };
 
+  // Handle custom body part creation
+  const handleCreateCustomBodyPart = (name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    StorageService.addCustomBodyPart(trimmed);
+    setShowCustomBodyPartModal(false);
+    setCustomBodyPartInput('');
+    handleCreateWorkout(trimmed);
+  };
+
+  // Handle save rename workout body part
+  const handleSaveRenameWorkoutBodyPart = () => {
+    if (!editingWorkoutBodyPartId || !editingWorkoutBodyPartName.trim()) return;
+    const workout = workouts.find((w) => w.id === editingWorkoutBodyPartId);
+    if (workout) {
+      workout.bodyPart = editingWorkoutBodyPartName.trim();
+      StorageService.saveWorkoutRecord(workout);
+      refreshWorkouts();
+    }
+    setEditingWorkoutBodyPartId(null);
+  };
+
   // Delete entire workout
   const handleDeleteWorkout = (workoutId: string) => {
     StorageService.deleteWorkoutRecord(workoutId);
     refreshWorkouts();
   };
 
-  // Add Exercise to Workout
+  // Add or Replace Exercise in Workout
   const handleAddExerciseToWorkout = (exerciseName: string, bodyPart: string) => {
     if (!targetWorkoutId) return;
     const workout = workouts.find((w) => w.id === targetWorkoutId);
     if (!workout) return;
+
+    if (replacingExerciseId) {
+      // Replace existing exercise
+      const ex = workout.exercises.find((e) => e.id === replacingExerciseId);
+      if (ex) {
+        const isCardio = isCardioExercise(exerciseName, bodyPart);
+        ex.name = exerciseName;
+        ex.bodyPart = bodyPart;
+        ex.isCardio = isCardio;
+        StorageService.saveWorkoutRecord(workout);
+        setReplacingExerciseId(null);
+        setShowAddExerciseModal(false);
+        refreshWorkouts();
+        return;
+      }
+    }
 
     const isCardio = isCardioExercise(exerciseName, bodyPart);
     const newExerciseId = 'ex_' + Date.now();
@@ -319,39 +377,78 @@ export const TrainingTracker: React.FC<TrainingTrackerProps> = ({
               className="bg-white rounded-3xl border border-slate-200/80 shadow-2xs overflow-hidden"
             >
               {/* Workout Header */}
-              <div className="px-5 py-4 bg-slate-50/70 border-b border-slate-100 flex items-center justify-between">
-                <div className="flex items-center gap-2.5">
-                  <span className="text-sm font-black px-2.5 py-1 bg-sky-600 text-white rounded-xl shadow-2xs">
-                    {workout.bodyPart}
-                  </span>
-                  <span className="text-xs text-slate-500 font-medium">
-                    {workout.exercises.length} 個動作 ·{' '}
-                    {workout.exercises.reduce((sum, e) => sum + e.exerciseSets.length, 0)} 組
-                  </span>
-                </div>
-
-                <div className="flex items-center gap-1">
+              <div className="relative overflow-hidden bg-slate-50/70 border-b border-slate-100">
+                {/* Beneath Action Row */}
+                <div className="absolute inset-y-1.5 right-2 flex items-stretch gap-1 z-0">
                   <button
                     type="button"
                     onClick={() => {
-                      setTargetWorkoutId(workout.id);
-                      setSelectedMuscle(workout.bodyPart || '胸');
-                      setShowAddExerciseModal(true);
+                      handleDeleteWorkout(workout.id);
+                      setConfirmDeleteWorkoutId(null);
                     }}
-                    className="flex items-center gap-1 px-3 py-1.5 bg-sky-100/80 hover:bg-sky-200 text-sky-900 rounded-xl text-xs font-bold transition cursor-pointer"
+                    className="px-3.5 bg-rose-600 hover:bg-rose-700 text-white font-black text-xs rounded-xl flex items-center justify-center transition cursor-pointer"
                   >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>加動作</span>
+                    確定
                   </button>
                   <button
                     type="button"
-                    onClick={() => handleDeleteWorkout(workout.id)}
-                    className="p-1.5 text-slate-400 hover:text-rose-600 rounded-xl transition cursor-pointer"
-                    title="刪除此訓練項目"
+                    onClick={() => setConfirmDeleteWorkoutId(null)}
+                    className="px-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-xs rounded-xl flex items-center justify-center transition cursor-pointer"
                   >
-                    <Trash2 className="w-4 h-4" />
+                    取消
                   </button>
                 </div>
+
+                {/* Sliding Card Content */}
+                <motion.div
+                  animate={{ x: confirmDeleteWorkoutId === workout.id ? -125 : 0 }}
+                  transition={{ type: 'spring', damping: 24, stiffness: 220 }}
+                  className="relative z-10 bg-slate-50 px-5 py-4 flex items-center justify-between gap-3 w-full"
+                >
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                    <span className="text-sm font-black px-2.5 py-1 bg-sky-600 text-white rounded-xl shadow-2xs shrink-0">
+                      {workout.bodyPart}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingWorkoutBodyPartId(workout.id);
+                        setEditingWorkoutBodyPartName(workout.bodyPart || '');
+                      }}
+                      className="p-1.5 text-slate-400 hover:text-sky-700 hover:bg-sky-50 rounded-lg transition cursor-pointer shrink-0"
+                      title="修改部位名稱"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
+                    <span className="text-xs text-slate-500 font-medium truncate">
+                      {workout.exercises.length} 個動作 ·{' '}
+                      {workout.exercises.reduce((sum, e) => sum + e.exerciseSets.length, 0)} 組
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTargetWorkoutId(workout.id);
+                        setSelectedMuscle(workout.bodyPart || '胸');
+                        setShowAddExerciseModal(true);
+                      }}
+                      className="flex items-center gap-1 px-3 py-1.5 bg-sky-100/80 hover:bg-sky-200 text-sky-900 rounded-xl text-xs font-bold transition cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>加動作</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmDeleteWorkoutId(workout.id)}
+                      className="p-1.5 text-slate-400 hover:text-rose-600 rounded-xl transition cursor-pointer"
+                      title="刪除此訓練項目"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </motion.div>
               </div>
 
                 {/* Exercises in Workout */}
@@ -406,6 +503,11 @@ export const TrainingTracker: React.FC<TrainingTrackerProps> = ({
                                 workoutId={workout.id}
                                 onToggleSuperset={handleToggleSuperset}
                                 onDeleteExercise={handleDeleteExercise}
+                                onReplaceExercise={(wId, eId) => {
+                                  setTargetWorkoutId(wId);
+                                  setReplacingExerciseId(eId);
+                                  setShowAddExerciseModal(true);
+                                }}
                                 onToggleSetComplete={handleToggleSetComplete}
                                 onUpdateSet={handleUpdateSet}
                                 onAddSet={handleAddSet}
@@ -425,6 +527,11 @@ export const TrainingTracker: React.FC<TrainingTrackerProps> = ({
                           workoutId={workout.id}
                           onToggleSuperset={handleToggleSuperset}
                           onDeleteExercise={handleDeleteExercise}
+                          onReplaceExercise={(wId, eId) => {
+                            setTargetWorkoutId(wId);
+                            setReplacingExerciseId(eId);
+                            setShowAddExerciseModal(true);
+                          }}
                           onToggleSetComplete={handleToggleSetComplete}
                           onUpdateSet={handleUpdateSet}
                           onAddSet={handleAddSet}
@@ -488,7 +595,7 @@ export const TrainingTracker: React.FC<TrainingTrackerProps> = ({
       {/* Modal: Add Workout (Select Body Part) */}
       {showAddWorkoutModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs">
-          <div className="bg-white w-full max-w-md rounded-3xl shadow-xl p-6">
+          <div className="bg-white w-full max-w-md rounded-3xl shadow-xl p-6 animate-in zoom-in-95 duration-200 max-h-[85vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <h3 className="font-bold text-slate-800 text-base">選擇訓練部位</h3>
               <button
@@ -499,16 +606,113 @@ export const TrainingTracker: React.FC<TrainingTrackerProps> = ({
               </button>
             </div>
 
-            <div className="grid grid-cols-3 gap-2.5 py-4">
-              {muscleGroups.map((mg) => (
-                <button
-                  key={mg}
-                  onClick={() => handleCreateWorkout(mg)}
-                  className="py-3 px-2 text-center rounded-2xl border border-slate-200 hover:border-sky-500 hover:bg-sky-50 text-sm font-bold text-slate-800 hover:text-sky-900 transition cursor-pointer"
-                >
-                  {mg}
-                </button>
-              ))}
+            {/* Custom Saved Body Parts Section */}
+            {customBodyParts.length > 0 && (
+              <div className="pt-4 pb-2 border-b border-slate-100">
+                <div className="text-xs font-bold text-slate-400 mb-2">自訂</div>
+                <div className="flex flex-wrap gap-2">
+                  {customBodyParts.map((customName) => (
+                    <div
+                      key={customName}
+                      className="group flex items-center gap-1.5 bg-amber-50 border border-amber-200/80 text-amber-900 px-3 py-1.5 rounded-xl text-xs font-bold transition hover:bg-amber-100 cursor-pointer"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => handleCreateWorkout(customName)}
+                        className="text-left font-bold"
+                      >
+                        {customName}
+                      </button>
+                      {confirmDeleteBodyPart === customName ? (
+                        <div className="flex items-center gap-1 bg-rose-50 px-1.5 py-0.5 rounded-lg border border-rose-200">
+                          <span className="text-[10px] font-bold text-rose-700">刪除？</span>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              StorageService.deleteCustomBodyPart(customName);
+                              refreshCustomBodyParts();
+                              setConfirmDeleteBodyPart(null);
+                            }}
+                            className="px-1.5 py-0.5 bg-rose-600 text-white text-[10px] font-bold rounded cursor-pointer"
+                          >
+                            確定
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setConfirmDeleteBodyPart(null);
+                            }}
+                            className="px-1 py-0.5 bg-slate-200 text-slate-700 text-[10px] font-bold rounded cursor-pointer"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setConfirmDeleteBodyPart(customName);
+                          }}
+                          className="p-0.5 text-amber-500 hover:text-rose-600 rounded transition cursor-pointer"
+                          title="刪除此自訂部位"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* 3x5 Grid for Predefined Body Parts + Custom Button */}
+            <div className="pt-4 pb-2">
+              <div className="text-xs font-bold text-slate-400 mb-2">預設部位</div>
+              <div className="grid grid-cols-3 gap-2.5">
+                {[
+                  '胸',
+                  '背',
+                  '肩',
+                  '腿',
+                  '臀',
+                  '手臂',
+                  '推',
+                  '拉',
+                  '核心',
+                  '有氧',
+                  '上半身',
+                  '下半身',
+                  '全身',
+                  '自訂',
+                ].map((item) => {
+                  if (item === '自訂') {
+                    return (
+                      <button
+                        key="custom"
+                        type="button"
+                        onClick={() => setShowCustomBodyPartModal(true)}
+                        className="py-3 px-2 text-center rounded-2xl border-2 border-dashed border-sky-300 bg-sky-50/50 hover:bg-sky-100/80 hover:border-sky-500 text-sm font-bold text-sky-800 transition cursor-pointer flex items-center justify-center gap-1"
+                      >
+                        <Plus className="w-4 h-4 text-sky-600" />
+                        <span>自訂</span>
+                      </button>
+                    );
+                  }
+                  return (
+                    <button
+                      key={item}
+                      type="button"
+                      onClick={() => handleCreateWorkout(item)}
+                      className="py-3 px-2 text-center rounded-2xl border border-slate-200 hover:border-sky-500 hover:bg-sky-50 text-sm font-bold text-slate-800 hover:text-sky-900 transition cursor-pointer"
+                    >
+                      {item}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           </div>
         </div>
@@ -517,14 +721,19 @@ export const TrainingTracker: React.FC<TrainingTrackerProps> = ({
       {/* Modal: Add Exercise from Dictionary or AI */}
       {showAddExerciseModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs">
-          <div className="bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
+          <div className="bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh] animate-in zoom-in-95 duration-200">
             <div className="p-4 border-b border-slate-100 flex items-center justify-between">
               <div>
-                <h3 className="font-bold text-slate-900 text-base">選擇動作庫動作</h3>
-                <p className="text-xs text-slate-400">依肌群分類檢索、自訂動作或獲取 AI 推薦</p>
+                <h3 className="font-bold text-slate-900 text-base">選擇動作</h3>
+                <p className="text-xs text-slate-400">
+                  {replacingExerciseId ? '選擇動作以更換目前動作' : '依肌群分類檢索、自訂動作或獲取 AI 推薦'}
+                </p>
               </div>
               <button
-                onClick={() => setShowAddExerciseModal(false)}
+                onClick={() => {
+                  setShowAddExerciseModal(false);
+                  setReplacingExerciseId(null);
+                }}
                 className="p-1 text-slate-400 hover:text-slate-600 rounded-full cursor-pointer"
               >
                 <X className="w-5 h-5" />
@@ -636,6 +845,82 @@ export const TrainingTracker: React.FC<TrainingTrackerProps> = ({
         </div>
       )}
 
+      {/* Modal: Custom Body Part Input */}
+      {showCustomBodyPartModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs">
+          <div className="bg-white w-full max-w-sm rounded-3xl shadow-xl p-6 animate-in zoom-in-95 duration-200">
+            <h3 className="font-bold text-slate-800 text-base mb-1">自訂訓練部位</h3>
+            <p className="text-xs text-slate-500 mb-4">輸入您想記錄的自訂部位名稱（如：小腿、前臂、壺鈴心肺等）</p>
+
+            <input
+              type="text"
+              value={customBodyPartInput}
+              onChange={(e) => setCustomBodyPartInput(e.target.value)}
+              placeholder="例如：小腿"
+              className="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm font-bold text-slate-900 focus:outline-sky-600 mb-5"
+              autoFocus
+            />
+
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowCustomBodyPartModal(false);
+                  setCustomBodyPartInput('');
+                }}
+                className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-xl transition cursor-pointer"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={() => handleCreateCustomBodyPart(customBodyPartInput)}
+                disabled={!customBodyPartInput.trim()}
+                className="px-5 py-2 bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white text-sm font-bold rounded-xl shadow-xs transition cursor-pointer"
+              >
+                新增部位
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Rename Workout Body Part */}
+      {editingWorkoutBodyPartId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs">
+          <div className="bg-white w-full max-w-sm rounded-3xl shadow-xl p-6 animate-in zoom-in-95 duration-200">
+            <h3 className="font-bold text-slate-800 text-base mb-1">修改部位名稱</h3>
+            <p className="text-xs text-slate-500 mb-4">請輸入新的訓練部位名稱</p>
+
+            <input
+              type="text"
+              value={editingWorkoutBodyPartName}
+              onChange={(e) => setEditingWorkoutBodyPartName(e.target.value)}
+              className="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm font-bold text-slate-900 focus:outline-sky-600 mb-5"
+              autoFocus
+            />
+
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setEditingWorkoutBodyPartId(null)}
+                className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-xl transition cursor-pointer"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveRenameWorkoutBodyPart}
+                disabled={!editingWorkoutBodyPartName.trim()}
+                className="px-5 py-2 bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white text-sm font-bold rounded-xl shadow-xs transition cursor-pointer"
+              >
+                儲存修改
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Rest Timer Modal */}
       <WorkoutTimerModal isOpen={showTimerModal} onClose={() => setShowTimerModal(false)} />
     </div>
@@ -647,6 +932,7 @@ interface ExerciseCardProps {
   workoutId: string;
   onToggleSuperset: (workoutId: string, exerciseId: string) => void;
   onDeleteExercise: (workoutId: string, exerciseId: string) => void;
+  onReplaceExercise: (workoutId: string, exerciseId: string) => void;
   onToggleSetComplete: (workoutId: string, exerciseId: string, setId: string) => void;
   onUpdateSet: (workoutId: string, exerciseId: string, setId: string, field: 'weight' | 'reps' | 'durationMinutes', val: number | string) => void;
   onAddSet: (workoutId: string, exerciseId: string) => void;
@@ -660,6 +946,7 @@ const ExerciseCard: React.FC<ExerciseCardProps> = ({
   workoutId,
   onToggleSuperset,
   onDeleteExercise,
+  onReplaceExercise,
   onToggleSetComplete,
   onUpdateSet,
   onAddSet,
@@ -667,55 +954,90 @@ const ExerciseCard: React.FC<ExerciseCardProps> = ({
   setShowTimerModal,
   isInsideSuperset = false,
 }) => {
+  const [confirmDeleteExercise, setConfirmDeleteExercise] = useState<boolean>(false);
+  const [confirmDeleteSetId, setConfirmDeleteSetId] = useState<string | null>(null);
+
   return (
-    <div
-      className={`rounded-2xl border p-4 transition ${
-        isInsideSuperset
-          ? 'border-slate-100 bg-white/60 shadow-sm'
-          : exercise.supersetGroupId
-          ? 'border-purple-200 bg-purple-50/20'
-          : 'border-slate-200/70 bg-white'
-      }`}
-    >
-      {/* Exercise Title */}
-      <div className="flex items-start justify-between gap-2 mb-3">
-        <div>
-          <div className="flex items-center gap-2">
-            <h4 className="font-bold text-sm text-slate-900">{exercise.name}</h4>
-            {exercise.isCardio && (
-              <span className="text-[10px] font-bold px-2 py-0.5 bg-sky-100 text-sky-800 rounded-md">
-                有氧心肺
-              </span>
-            )}
-            {exercise.supersetGroupId && !isInsideSuperset && (
-              <span className="text-[10px] font-bold px-2 py-0.5 bg-purple-100 text-purple-800 rounded-md flex items-center gap-1">
-                <Link className="w-3 h-3" /> 超級組
-              </span>
-            )}
+    <div className="relative overflow-hidden rounded-2xl">
+      {/* Beneath Action Row */}
+      <div className="absolute inset-y-1.5 right-1.5 flex items-stretch gap-1 z-0">
+        <button
+          type="button"
+          onClick={() => {
+            onDeleteExercise(workoutId, exercise.id);
+            setConfirmDeleteExercise(false);
+          }}
+          className="px-4 bg-rose-600 hover:bg-rose-700 text-white font-black text-xs rounded-xl flex items-center justify-center transition cursor-pointer animate-in fade-in"
+        >
+          確定
+        </button>
+        <button
+          type="button"
+          onClick={() => setConfirmDeleteExercise(false)}
+          className="px-3 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-xs rounded-xl flex items-center justify-center transition cursor-pointer"
+        >
+          取消
+        </button>
+      </div>
+
+      <motion.div
+        animate={{ x: confirmDeleteExercise ? -125 : 0 }}
+        transition={{ type: 'spring', damping: 24, stiffness: 220 }}
+        className={`relative z-10 border p-4 rounded-2xl transition ${
+          isInsideSuperset
+            ? 'border-slate-100 bg-white shadow-sm'
+            : exercise.supersetGroupId
+            ? 'border-purple-200 bg-[#faf5ff]'
+            : 'border-slate-200/70 bg-white'
+        }`}
+      >
+        {/* Exercise Title */}
+        <div className="flex items-start justify-between gap-2 mb-3">
+          <div>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <h4 className="font-bold text-sm text-slate-900">{exercise.name}</h4>
+              <button
+                type="button"
+                onClick={() => onReplaceExercise(workoutId, exercise.id)}
+                className="p-1 text-slate-400 hover:text-sky-700 hover:bg-sky-50 rounded-lg transition cursor-pointer"
+                title="更換訓練動作"
+              >
+                <Pencil className="w-3.5 h-3.5" />
+              </button>
+              {exercise.isCardio && (
+                <span className="text-[10px] font-bold px-2 py-0.5 bg-sky-100 text-sky-800 rounded-md">
+                  有氧心肺
+                </span>
+              )}
+              {exercise.supersetGroupId && !isInsideSuperset && (
+                <span className="text-[10px] font-bold px-2 py-0.5 bg-purple-100 text-purple-800 rounded-md flex items-center gap-1">
+                  <Link className="w-3 h-3" /> 超級組
+                </span>
+              )}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => onToggleSuperset(workoutId, exercise.id)}
+              className={`p-1 rounded-md transition ${
+                exercise.supersetGroupId ? 'text-purple-700 bg-purple-100' : 'text-slate-400 hover:text-purple-700 hover:bg-slate-100'
+              }`}
+              title="切換超級組標記"
+            >
+              <Link className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfirmDeleteExercise(true)}
+              className="p-1 text-slate-400 hover:text-rose-600 hover:bg-slate-100 rounded-md transition"
+              title="刪除動作"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
           </div>
         </div>
-
-        <div className="flex items-center gap-1">
-          <button
-            type="button"
-            onClick={() => onToggleSuperset(workoutId, exercise.id)}
-            className={`p-1 rounded-md transition ${
-              exercise.supersetGroupId ? 'text-purple-700 bg-purple-100' : 'text-slate-400 hover:text-purple-700 hover:bg-slate-100'
-            }`}
-            title="切換超級組標記"
-          >
-            <Link className="w-3.5 h-3.5" />
-          </button>
-          <button
-            type="button"
-            onClick={() => onDeleteExercise(workoutId, exercise.id)}
-            className="p-1 text-slate-400 hover:text-rose-600 hover:bg-slate-100 rounded-md transition"
-            title="刪除動作"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      </div>
 
       {/* Sets Table */}
       <div className="space-y-1.5 text-xs">
@@ -733,112 +1055,136 @@ const ExerciseCard: React.FC<ExerciseCardProps> = ({
         </div>
 
         {exercise.exerciseSets.map((set, sIdx) => (
-          <div
-            key={set.id}
-            className={`grid grid-cols-12 gap-2 items-center p-2 rounded-xl border transition ${
-              set.isCompleted
-                ? 'bg-sky-50/70 border-sky-200/80 text-sky-900'
-                : 'bg-slate-50 border-slate-100 text-slate-700'
-            }`}
-          >
-            {/* Set number */}
-            <div className="col-span-2 font-bold text-center">#{sIdx + 1}</div>
-
-            {/* Inputs */}
-            {exercise.isCardio ? (
-              <div className="col-span-6 flex items-center justify-center gap-1">
-                <input
-                  type="number"
-                  value={set.durationMinutes ?? ''}
-                  onChange={(e) =>
-                    onUpdateSet(
-                      workoutId,
-                      exercise.id,
-                      set.id,
-                      'durationMinutes',
-                      e.target.value
-                    )
-                  }
-                  className="w-16 py-1 px-2 text-center font-bold bg-white rounded-lg border border-slate-200 focus:outline-sky-600"
-                />
-                <span className="text-slate-500 font-medium">分</span>
-              </div>
-            ) : (
-              <>
-                <div className="col-span-4 flex items-center justify-center gap-1">
-                  <input
-                    type="number"
-                    step="0.5"
-                    value={set.weight ?? ''}
-                    onChange={(e) =>
-                      onUpdateSet(
-                        workoutId,
-                        exercise.id,
-                        set.id,
-                        'weight',
-                        e.target.value
-                      )
-                    }
-                    className="w-16 py-1 px-1 text-center font-bold bg-white rounded-lg border border-slate-200 focus:outline-sky-600"
-                  />
-                  <span className="text-slate-400 text-[10px]">kg</span>
-                </div>
-
-                <div className="col-span-3 flex items-center justify-center gap-1">
-                  <input
-                    type="number"
-                    value={set.reps ?? ''}
-                    onChange={(e) =>
-                      onUpdateSet(
-                        workoutId,
-                        exercise.id,
-                        set.id,
-                        'reps',
-                        e.target.value
-                      )
-                    }
-                    className="w-12 py-1 px-1 text-center font-bold bg-white rounded-lg border border-slate-200 focus:outline-sky-600"
-                  />
-                  <span className="text-slate-400 text-[10px]">次</span>
-                </div>
-              </>
-            )}
-
-            {/* Checkbox button */}
-            <div className="col-span-3 flex items-center justify-center gap-1">
+          <div key={set.id} className="relative overflow-hidden rounded-xl">
+            {/* Beneath Action Row */}
+            <div className="absolute inset-y-1 right-1 flex items-stretch gap-1 z-0">
               <button
                 type="button"
                 onClick={() => {
-                  onToggleSetComplete(workoutId, exercise.id, set.id);
-                  if (!set.isCompleted) {
-                    setShowTimerModal(true);
-                  }
+                  onRemoveSet(workoutId, exercise.id, set.id);
+                  setConfirmDeleteSetId(null);
                 }}
-                className={`p-1.5 rounded-lg transition cursor-pointer ${
-                  set.isCompleted
-                    ? 'text-sky-700 bg-sky-100 hover:bg-sky-200'
-                    : 'text-slate-400 hover:text-sky-600 hover:bg-slate-200'
-                }`}
-                title="標記為已完成（自動啟動組間休息碼錶）"
+                className="px-3 bg-rose-600 hover:bg-rose-700 text-white font-black text-[10px] rounded-lg flex items-center justify-center transition cursor-pointer"
               >
-                {set.isCompleted ? (
-                  <CheckCircle2 className="w-5 h-5" />
-                ) : (
-                  <Circle className="w-5 h-5" />
-                )}
+                確定
               </button>
+              <button
+                type="button"
+                onClick={() => setConfirmDeleteSetId(null)}
+                className="px-2 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-[10px] rounded-lg flex items-center justify-center transition cursor-pointer"
+              >
+                取消
+              </button>
+            </div>
 
-              {exercise.exerciseSets.length > 1 && (
+            <motion.div
+              animate={{ x: confirmDeleteSetId === set.id ? -85 : 0 }}
+              transition={{ type: 'spring', damping: 24, stiffness: 220 }}
+              className={`relative z-10 grid grid-cols-12 gap-2 items-center p-2 rounded-xl border transition ${
+                set.isCompleted
+                  ? 'bg-sky-50 border-sky-200/80 text-sky-900'
+                  : 'bg-slate-50 border-slate-100 text-slate-700'
+              }`}
+            >
+              {/* Set number */}
+              <div className="col-span-2 font-bold text-center">#{sIdx + 1}</div>
+
+              {/* Inputs */}
+              {exercise.isCardio ? (
+                <div className="col-span-6 flex items-center justify-center gap-1">
+                  <input
+                    type="number"
+                    value={set.durationMinutes ?? ''}
+                    onChange={(e) =>
+                      onUpdateSet(
+                        workoutId,
+                        exercise.id,
+                        set.id,
+                        'durationMinutes',
+                        e.target.value
+                      )
+                    }
+                    className="w-16 py-1 px-2 text-center font-bold bg-white rounded-lg border border-slate-200 focus:outline-sky-600"
+                  />
+                  <span className="text-slate-500 font-medium">分</span>
+                </div>
+              ) : (
+                <>
+                  <div className="col-span-4 flex items-center justify-center gap-1">
+                    <input
+                      type="number"
+                      step="0.5"
+                      value={set.weight ?? ''}
+                      onChange={(e) =>
+                        onUpdateSet(
+                          workoutId,
+                          exercise.id,
+                          set.id,
+                          'weight',
+                          e.target.value
+                        )
+                      }
+                      className="w-16 py-1 px-1 text-center font-bold bg-white rounded-lg border border-slate-200 focus:outline-sky-600"
+                    />
+                    <span className="text-slate-400 text-[10px]">kg</span>
+                  </div>
+
+                  <div className="col-span-3 flex items-center justify-center gap-1">
+                    <input
+                      type="number"
+                      value={set.reps ?? ''}
+                      onChange={(e) =>
+                        onUpdateSet(
+                          workoutId,
+                          exercise.id,
+                          set.id,
+                          'reps',
+                          e.target.value
+                        )
+                      }
+                      className="w-12 py-1 px-1 text-center font-bold bg-white rounded-lg border border-slate-200 focus:outline-sky-600"
+                    />
+                    <span className="text-slate-400 text-[10px]">次</span>
+                  </div>
+                </>
+              )}
+
+              {/* Checkbox button */}
+              <div className="col-span-3 flex items-center justify-center gap-1">
                 <button
                   type="button"
-                  onClick={() => onRemoveSet(workoutId, exercise.id, set.id)}
-                  className="p-1 text-slate-300 hover:text-rose-500 rounded cursor-pointer"
-                  title="刪除此組"
+                  onClick={() => {
+                    onToggleSetComplete(workoutId, exercise.id, set.id);
+                    if (!set.isCompleted) {
+                      setShowTimerModal(true);
+                    }
+                  }}
+                  className={`p-1.5 rounded-lg transition cursor-pointer ${
+                    set.isCompleted
+                      ? 'text-sky-700 bg-sky-100 hover:bg-sky-200'
+                      : 'text-slate-400 hover:text-sky-600 hover:bg-slate-200'
+                  }`}
+                  title="標記為已完成（自動啟動組間休息碼錶）"
                 >
-                  <X className="w-3 h-3" />
+                  {set.isCompleted ? (
+                    <CheckCircle2 className="w-5 h-5" />
+                  ) : (
+                    <Circle className="w-5 h-5" />
+                  )}
                 </button>
-              )}
-            </div>
+
+                {exercise.exerciseSets.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmDeleteSetId(set.id)}
+                    className="p-1 text-slate-300 hover:text-rose-500 rounded cursor-pointer"
+                    title="刪除此組"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
+            </motion.div>
           </div>
         ))}
       </div>
@@ -851,6 +1197,7 @@ const ExerciseCard: React.FC<ExerciseCardProps> = ({
       >
         + 新增一組
       </button>
+      </motion.div>
     </div>
   );
 };

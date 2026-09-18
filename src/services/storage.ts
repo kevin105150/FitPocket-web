@@ -31,6 +31,7 @@ const STORAGE_KEYS = {
   CUSTOM_FOODS: 'fitpocket_custom_foods',
   WATER_RECORDS: 'fitpocket_water_records',
   WATER_GOAL: 'fitpocket_water_goal',
+  WATER_PRESETS: 'fitpocket_water_presets',
   WEIGHT_RECORDS: 'fitpocket_weight_records',
   WORKOUT_RECORDS: 'fitpocket_workout_records',
   CARB_PRESETS: 'fitpocket_carb_presets',
@@ -40,6 +41,7 @@ const STORAGE_KEYS = {
   USER_PROFILE: 'fitpocket_user_profile',
   EXERCISES: 'fitpocket_exercises',
   MUSCLE_GROUPS: 'fitpocket_muscle_groups',
+  CUSTOM_BODY_PARTS: 'fitpocket_custom_body_parts',
   GEMINI_KEY: 'fitpocket_gemini_key',
   GEMINI_MODEL: 'fitpocket_gemini_model',
   WORKOUT_PRESETS: 'fitpocket_workout_presets',
@@ -415,6 +417,17 @@ export const StorageService = {
   setWaterGoal(goalMl: number): void {
     setItem(STORAGE_KEYS.WATER_GOAL, goalMl);
   },
+  getWaterPresets(): number[] {
+    const defaults = [100, 250, 350, 500, 750, 1000];
+    const saved = getItem<number[]>(STORAGE_KEYS.WATER_PRESETS, defaults);
+    if (Array.isArray(saved) && saved.length === 6) {
+      return saved;
+    }
+    return defaults;
+  },
+  setWaterPresets(presets: number[]): void {
+    setItem(STORAGE_KEYS.WATER_PRESETS, presets);
+  },
 
   // Weight records
   getAllWeightRecords(): WeightRecord[] {
@@ -551,6 +564,23 @@ export const StorageService = {
   saveMuscleGroups(groups: string[]): void {
     setItem(STORAGE_KEYS.MUSCLE_GROUPS, groups);
   },
+  getCustomBodyParts(): string[] {
+    return getItem<string[]>(STORAGE_KEYS.CUSTOM_BODY_PARTS, []);
+  },
+  addCustomBodyPart(name: string): void {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const current = this.getCustomBodyParts();
+    if (!current.includes(trimmed)) {
+      const updated = [trimmed, ...current];
+      setItem(STORAGE_KEYS.CUSTOM_BODY_PARTS, updated);
+    }
+  },
+  deleteCustomBodyPart(name: string): void {
+    const current = this.getCustomBodyParts();
+    const updated = current.filter((n) => n !== name);
+    setItem(STORAGE_KEYS.CUSTOM_BODY_PARTS, updated);
+  },
 
   // User profile
   getUserProfile(): UserProfile {
@@ -600,6 +630,8 @@ export const StorageService = {
       exercises: this.getExercises(),
       muscleGroups: this.getMuscleGroups(),
       workoutPresets: this.getTimerPresets(),
+      waterPresets: this.getWaterPresets(),
+      customBodyParts: this.getCustomBodyParts(),
       geminiApiKey: rawKey, // already encrypted in storage
       geminiModel: this.getSelectedAiModel(),
       dailyConfigs: this.getDailyConfigs(),
@@ -624,6 +656,8 @@ export const StorageService = {
       if (data.exercises) setItem(STORAGE_KEYS.EXERCISES, data.exercises);
       if (data.muscleGroups) setItem(STORAGE_KEYS.MUSCLE_GROUPS, data.muscleGroups);
       if (data.workoutPresets) setItem(STORAGE_KEYS.WORKOUT_PRESETS, data.workoutPresets);
+      if (data.waterPresets) setItem(STORAGE_KEYS.WATER_PRESETS, data.waterPresets);
+      if (data.customBodyParts) setItem(STORAGE_KEYS.CUSTOM_BODY_PARTS, data.customBodyParts);
       if (data.geminiApiKey) setItem(STORAGE_KEYS.GEMINI_KEY, data.geminiApiKey);
       if (data.geminiModel) setItem(STORAGE_KEYS.GEMINI_MODEL, data.geminiModel);
       if (data.dailyConfigs) setItem(STORAGE_KEYS.DAILY_CONFIGS, data.dailyConfigs);
@@ -712,6 +746,11 @@ export const StorageService = {
       if (incoming.waterGoal) setItem(STORAGE_KEYS.WATER_GOAL, incoming.waterGoal);
       if (incoming.presets) setItem(STORAGE_KEYS.CARB_PRESETS, incoming.presets);
       if (incoming.activeMeals) setItem(STORAGE_KEYS.ACTIVE_MEALS, incoming.activeMeals);
+      if (incoming.workoutPresets) setItem(STORAGE_KEYS.WORKOUT_PRESETS, incoming.workoutPresets);
+      if (incoming.waterPresets) setItem(STORAGE_KEYS.WATER_PRESETS, incoming.waterPresets);
+      if (incoming.exercises) setItem(STORAGE_KEYS.EXERCISES, incoming.exercises);
+      if (incoming.muscleGroups) setItem(STORAGE_KEYS.MUSCLE_GROUPS, incoming.muscleGroups);
+      if (incoming.customBodyParts) setItem(STORAGE_KEYS.CUSTOM_BODY_PARTS, incoming.customBodyParts);
 
       // If we integrated changes, upload the new merged state back to cloud
       if (localChanged) {

@@ -29,7 +29,8 @@ export const DateNavigator: React.FC<DateNavigatorProps> = ({
   const formattedDisplay = formatChineseDisplayDate(currentDate);
 
   return (
-    <div className="bg-white rounded-2xl shadow-xs border border-sky-900/5 p-3 flex items-center justify-between gap-2">
+    <div className="sticky top-16 z-30 bg-[#F8FAFC]/95 backdrop-blur-md py-2 transition-all">
+      <div className="bg-white/95 rounded-2xl shadow-xs border border-sky-900/5 p-3 flex items-center justify-between gap-2">
       <button
         type="button"
         onClick={handlePrevDay}
@@ -75,5 +76,6 @@ export const DateNavigator: React.FC<DateNavigatorProps> = ({
         <ChevronRight className="w-5 h-5" />
       </button>
     </div>
+  </div>
   );
 };

@@ -12,8 +12,10 @@ import {
   Loader2,
   Edit2,
   GripVertical,
+  RotateCcw,
+  AlertTriangle,
 } from 'lucide-react';
-import { Reorder, useDragControls } from 'motion/react';
+import { Reorder, useDragControls, motion, AnimatePresence } from 'motion/react';
 import {
   CarbCycleType,
   CustomFood,
@@ -26,7 +28,7 @@ import {
 import { StorageService } from '../services/storage';
 import { optimizeImageForAi } from '../utils/imageOptimizer';
 import { CloudFoodService, isTfdaFood } from '../services/cloudFoodService';
-import { CARB_CYCLE_INFO } from '../data/defaults';
+import { CARB_CYCLE_INFO, getCarbCycleBadgeStyle } from '../data/defaults';
 import { DateNavigator } from './DateNavigator';
 import { AddFoodModal, FoodTab } from './AddFoodModal';
 import { checkAiKeyOrWarn } from '../utils/aiHelper';
@@ -39,7 +41,7 @@ interface DietTrackerProps {
   onDateChange: (date: string) => void;
 }
 
-const MealSection: React.FC<{
+interface MealSectionProps {
   meal: MealConfig;
   mealRecords: FoodRecord[];
   isExpanded: boolean;
@@ -50,7 +52,9 @@ const MealSection: React.FC<{
   onClearMeal: () => void;
   onDeleteRecord: (id: string) => void;
   onEditRecord: (record: FoodRecord) => void;
-}> = ({
+}
+
+const MealSection: React.FC<MealSectionProps> = ({
   meal,
   mealRecords,
   isExpanded,
@@ -58,10 +62,14 @@ const MealSection: React.FC<{
   onDelete,
   onEditName,
   onAddFood,
+  onClearMeal,
   onDeleteRecord,
   onEditRecord,
 }) => {
   const dragControls = useDragControls();
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [confirmDeleteRecordId, setConfirmDeleteRecordId] = useState<string | null>(null);
+
   const mealCals = Math.round(mealRecords.reduce((s, r) => s + (r.calories || 0), 0));
   const mealP = Math.round(mealRecords.reduce((s, r) => s + (r.protein || 0), 0));
   const mealC = Math.round(mealRecords.reduce((s, r) => s + (r.carbs || 0), 0));
@@ -70,6 +78,7 @@ const MealSection: React.FC<{
   return (
     <Reorder.Item
       value={meal}
+      layout="position"
       dragListener={false}
       dragControls={dragControls}
       className="bg-white rounded-3xl border border-slate-200/70 shadow-2xs overflow-hidden list-none"
@@ -86,12 +95,17 @@ const MealSection: React.FC<{
           </div>
 
           <div 
-            className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3 flex-1 min-w-0"
+            className="flex flex-col gap-1 flex-1 min-w-0 cursor-pointer"
+            onClick={onToggleExpand}
           >
-            <div className="flex items-center gap-1.5">
+            {/* Row 1: 餐別＆筆 */}
+            <div className="flex items-center gap-1.5 min-w-0 max-w-full">
               <span 
-                onClick={onEditName}
-                className="font-black text-base text-slate-900 truncate cursor-pointer hover:text-sky-700 transition-colors"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onEditName();
+                }}
+                className="font-black text-base text-slate-900 truncate min-w-0 shrink cursor-pointer hover:text-sky-700 transition-colors"
                 title="點擊修改餐別名稱"
               >
                 {meal.customName}
@@ -102,30 +116,34 @@ const MealSection: React.FC<{
                   e.stopPropagation();
                   onEditName();
                 }}
-                className="p-1 text-slate-400 hover:text-sky-600 transition-colors cursor-pointer"
+                className="p-1 text-slate-400 hover:text-sky-600 transition-colors cursor-pointer shrink-0"
                 title="修改名稱"
               >
                 <Edit2 className="w-3.5 h-3.5" />
               </button>
-              <span className="text-[11px] font-bold text-sky-800 bg-sky-50 px-2 py-0.5 rounded-full whitespace-nowrap">
+            </div>
+
+            {/* Row 2: 熱量 */}
+            <div>
+              <span className="text-[11px] font-bold text-sky-800 bg-sky-50 px-2 py-0.5 rounded-full inline-block whitespace-nowrap">
                 {mealCals} kcal
               </span>
             </div>
-            <div className="flex flex-col gap-1 cursor-pointer" onClick={onToggleExpand}>
-              {mealRecords.length > 0 && (
-                <div className="flex items-center gap-2">
-                  <span className="text-[11px] font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-full whitespace-nowrap">
-                    C: {mealC}g
-                  </span>
-                  <span className="text-[11px] font-bold text-blue-800 bg-blue-50 px-2 py-0.5 rounded-full whitespace-nowrap">
-                    P: {mealP}g
-                  </span>
-                  <span className="text-[11px] font-bold text-rose-800 bg-rose-50 px-2 py-0.5 rounded-full whitespace-nowrap">
-                    F: {mealF}g
-                  </span>
-                </div>
-              )}
-            </div>
+
+            {/* Row 3: CPF */}
+            {mealRecords.length > 0 && (
+              <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                <span className="text-[11px] font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-full whitespace-nowrap">
+                  C: {mealC}g
+                </span>
+                <span className="text-[11px] font-bold text-blue-800 bg-blue-50 px-2 py-0.5 rounded-full whitespace-nowrap">
+                  P: {mealP}g
+                </span>
+                <span className="text-[11px] font-bold text-rose-800 bg-rose-50 px-2 py-0.5 rounded-full whitespace-nowrap">
+                  F: {mealF}g
+                </span>
+              </div>
+            )}
           </div>
         </div>
 
@@ -146,9 +164,9 @@ const MealSection: React.FC<{
             type="button"
             onClick={(e) => {
               e.stopPropagation();
-              onDelete();
+              setShowDeleteModal(true);
             }}
-            className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition cursor-pointer"
+            className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition cursor-pointer shrink-0"
             title="刪除此餐次"
           >
             <Trash2 className="w-4 h-4" />
@@ -166,86 +184,186 @@ const MealSection: React.FC<{
         </div>
       </div>
 
-      {/* Meal Item List */}
-      {isExpanded && (
-        <div className="px-5 pb-4 pt-1 border-t border-slate-100">
-          {mealRecords.length > 0 ? (
-            <div className="divide-y divide-slate-100">
-              {mealRecords.map((item) => (
-                <div key={item.id} className="py-2.5 flex items-center justify-between gap-3 group">
-                  <div className="min-w-0 flex-1">
-                    {/* 1. 名稱 & 膠囊 */}
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="font-bold text-sm text-slate-800 truncate">{item.name}</span>
-                      {item.sourceFoodId && (
-                        <span className="text-[10px] font-bold px-1.5 py-0.25 bg-amber-100 text-amber-800 rounded-md shrink-0">
-                          我的自訂
-                        </span>
-                      )}
-                      {(item.sourceFoodId?.startsWith('cloud_') || item.barcode) && (
-                        <span className="text-[10px] font-bold px-1.5 py-0.25 bg-sky-100 text-sky-800 rounded-md shrink-0">
-                          網路資料庫
-                        </span>
-                      )}
-                      {item.aiSource === 'vision' && (
-                        <span className="text-[10px] font-bold px-1.5 py-0.25 bg-purple-50 text-purple-700 border border-purple-100 rounded-md shrink-0">
-                          AI 視覺辨識
-                        </span>
-                      )}
-                      {item.aiSource === 'estimation' && (
-                        <span className="text-[10px] font-bold px-1.5 py-0.25 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-md shrink-0">
-                          AI 智慧估算
-                        </span>
-                      )}
-                    </div>
-
-                    {/* 2. 品牌 */}
-                    <div className="text-xs font-semibold text-slate-400 mt-0.5">
-                      {item.brand || '一般食材'}
-                    </div>
-
-                    {/* 3. 重量 熱量 三大營養素 */}
-                    <div className="flex items-center gap-2 text-xs text-slate-500 mt-1 flex-wrap">
-                      <span className="font-semibold text-sky-800">
-                        {item.loggedAmount}{item.loggedUnit} · {item.calories} kcal
-                      </span>
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-1.5 py-0.25 rounded-full">C: {item.carbs}g</span>
-                        <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-1.5 py-0.25 rounded-full">P: {item.protein}g</span>
-                        <span className="text-[10px] font-bold text-rose-700 bg-rose-50 px-1.5 py-0.25 rounded-full">F: {item.fat}g</span>
+      {/* Meal Item List with smooth accordion height transition */}
+      <AnimatePresence initial={false}>
+        {isExpanded && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2, ease: 'easeInOut' }}
+            className="overflow-hidden border-t border-slate-100"
+          >
+            <div className="px-5 pb-4 pt-1">
+              {mealRecords.length > 0 ? (
+                <div className="divide-y divide-slate-100">
+                  {mealRecords.map((item) => (
+                    <div key={item.id} className="relative overflow-hidden py-1">
+                      {/* Beneath Action Row */}
+                      <div className="absolute inset-y-1.5 right-1 flex items-stretch gap-1 z-0">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onDeleteRecord(item.id);
+                            setConfirmDeleteRecordId(null);
+                          }}
+                          className="px-3.5 bg-rose-600 hover:bg-rose-700 text-white font-black text-xs rounded-xl flex items-center justify-center transition cursor-pointer"
+                        >
+                          確定
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setConfirmDeleteRecordId(null)}
+                          className="px-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-xs rounded-xl flex items-center justify-center transition cursor-pointer"
+                        >
+                          取消
+                        </button>
                       </div>
-                    </div>
-                  </div>
 
-                  <div className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() => onEditRecord(item)}
-                      className="p-1.5 text-slate-400 hover:text-sky-600 hover:bg-sky-50 rounded-lg transition cursor-pointer"
-                      title="修改飲食內容"
-                    >
-                      <Edit2 className="w-4 h-4" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onDeleteRecord(item.id)}
-                      className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
-                      title="刪除"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
+                      {/* Sliding Card Content */}
+                      <motion.div
+                        animate={{ x: confirmDeleteRecordId === item.id ? -125 : 0 }}
+                        transition={{ type: 'spring', damping: 24, stiffness: 220 }}
+                        className="relative z-10 bg-white py-2 flex items-center justify-between gap-3 w-full"
+                      >
+                        <div className="min-w-0 flex-1">
+                          {/* 1. 名稱 & 膠囊 */}
+                          <div className="flex items-center gap-1.5 min-w-0 max-w-full">
+                            <span className="font-bold text-sm text-slate-800 truncate min-w-0 shrink">{item.name}</span>
+                            <div className="inline-flex items-center gap-1 shrink-0">
+                              {item.sourceFoodId && (
+                                <span className="text-[10px] font-bold px-1.5 py-0.25 bg-amber-100 text-amber-800 rounded-md whitespace-nowrap shrink-0">
+                                  我的自訂
+                                </span>
+                              )}
+                              {(item.sourceFoodId?.startsWith('cloud_') || item.barcode) && (
+                                <span className="text-[10px] font-bold px-1.5 py-0.25 bg-sky-100 text-sky-800 rounded-md whitespace-nowrap shrink-0">
+                                  網路資料庫
+                                </span>
+                              )}
+                              {item.aiSource === 'vision' && (
+                                <span className="text-[10px] font-bold px-1.5 py-0.25 bg-purple-50 text-purple-700 border border-purple-100 rounded-md whitespace-nowrap shrink-0">
+                                  AI 視覺辨識
+                                </span>
+                              )}
+                              {item.aiSource === 'estimation' && (
+                                <span className="text-[10px] font-bold px-1.5 py-0.25 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-md whitespace-nowrap shrink-0">
+                                  AI 智慧估算
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* 2. 品牌 */}
+                          <div className="text-xs font-semibold text-slate-400 mt-0.5">
+                            {item.brand || '一般食材'}
+                          </div>
+
+                          {/* 3. 重量 熱量 */}
+                          <div className="text-xs font-semibold text-sky-800 mt-1">
+                            {item.loggedAmount}{item.loggedUnit} · {item.calories} kcal
+                          </div>
+
+                          {/* 4. 三大營養素 (CPF 獨立在下一排) */}
+                          <div className="flex items-center gap-1.5 mt-1">
+                            <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-1.5 py-0.25 rounded-full">C: {item.carbs}g</span>
+                            <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-1.5 py-0.25 rounded-full">P: {item.protein}g</span>
+                            <span className="text-[10px] font-bold text-rose-700 bg-rose-50 px-1.5 py-0.25 rounded-full">F: {item.fat}g</span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => onEditRecord(item)}
+                            className="p-1.5 text-slate-400 hover:text-sky-600 hover:bg-sky-50 rounded-lg transition cursor-pointer"
+                            title="修改飲食內容"
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setConfirmDeleteRecordId(item.id)}
+                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
+                            title="刪除"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </motion.div>
+                    </div>
+                  ))}
                 </div>
-              ))}
+              ) : (
+                <div
+                  onClick={() => onAddFood()}
+                  className="py-4 text-center text-xs font-semibold text-slate-400 hover:text-sky-700 cursor-pointer border-2 border-dashed border-slate-100 hover:border-sky-200 rounded-2xl mt-1 transition-all"
+                >
+                  + 點擊記錄 {meal.customName}
+                </div>
+              )}
             </div>
-          ) : (
-            <div
-              onClick={() => onAddFood()}
-              className="py-4 text-center text-xs font-semibold text-slate-400 hover:text-sky-700 cursor-pointer border-2 border-dashed border-slate-100 hover:border-sky-200 rounded-2xl mt-1 transition-all"
-            >
-              + 點擊記錄 {meal.customName}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Delete Meal Safety Confirm Modal */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center gap-2.5 text-rose-600">
+              <div className="p-2 bg-rose-50 rounded-xl">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <h3 className="text-lg font-black text-slate-900">確認刪除餐別？</h3>
             </div>
-          )}
+            {mealRecords.length > 0 ? (
+              <p className="text-sm text-slate-600 leading-relaxed">
+                餐別「<strong className="text-slate-900">{meal.customName}</strong>」目前有 <strong className="text-slate-900">{mealRecords.length} 筆</strong> 飲食紀錄。<br />
+                請選擇要「僅清空食物紀錄」還是「徹底刪除整個餐次類別」。
+              </p>
+            ) : (
+              <p className="text-sm text-slate-600 leading-relaxed">
+                確定要刪除「<strong className="text-slate-900">{meal.customName}</strong>」這個餐次類別嗎？
+              </p>
+            )}
+            <div className="flex flex-col gap-2 pt-2">
+              {mealRecords.length > 0 && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onClearMeal();
+                    setShowDeleteModal(false);
+                  }}
+                  className="w-full py-3 bg-amber-600 hover:bg-amber-700 text-white font-bold text-sm rounded-2xl transition cursor-pointer shadow-xs"
+                >
+                  僅清空食物紀錄
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDelete();
+                  setShowDeleteModal(false);
+                }}
+                className="w-full py-3 bg-rose-600 hover:bg-rose-700 text-white font-bold text-sm rounded-2xl transition cursor-pointer shadow-xs"
+              >
+                {mealRecords.length > 0 ? '徹底刪除此餐次類別' : '確認刪除'}
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowDeleteModal(false);
+                }}
+                className="w-full py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-sm rounded-2xl transition cursor-pointer"
+              >
+                取消
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </Reorder.Item>
@@ -413,6 +531,11 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
   const [showAddMealModal, setShowAddMealModal] = useState(false);
   const [newMealNameInput, setNewMealNameInput] = useState('');
   const [editingMealState, setEditingMealState] = useState<{ mealType: string; customName: string } | null>(null);
+  
+  // Safe delete modal states
+  const [mealOptionsTarget, setMealOptionsTarget] = useState<{ mealType: string; customName: string; itemCount: number } | null>(null);
+  const [mealCategoryToDelete, setMealCategoryToDelete] = useState<{ mealType: string; customName: string } | null>(null);
+  const [recordToDelete, setRecordToDelete] = useState<FoodRecord | null>(null);
 
   const handleOpenAddMealModal = () => {
     if (activeMeals.length >= 10) return;
@@ -566,12 +689,38 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
     if (mealType) {
       setSelectedMealForAdd(mealType);
     }
-    setShowAddFood(false);
     if (food.id.startsWith('ai_')) {
+      setShowAddFood(false);
       setAiReviewFood(food);
     } else {
       setFoodForPortion(food);
     }
+  };
+
+  // Handle fast add food directly from search modal
+  const handleFastAddFood = (food: FoodSearchResult, mealType?: MealType) => {
+    const targetMeal = mealType || selectedMealForAdd;
+    const record: FoodRecord = {
+      id: 'record_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
+      name: food.name,
+      brand: food.brand,
+      barcode: food.barcode,
+      mealType: targetMeal,
+      date: currentDate,
+      calories: food.calories,
+      carbs: food.carbs,
+      protein: food.protein,
+      fat: food.fat,
+      sugars: food.sugars || 0,
+      fiber: food.fiber || 0,
+      sodium: food.sodium || 0,
+      potassium: food.potassium || 0,
+      loggedAmount: food.servingAmount || 100,
+      loggedUnit: food.servingUnit || 'g',
+      createdAt: Date.now(),
+    };
+    StorageService.saveFoodRecord(record);
+    refreshRecords();
   };
 
   // Handle portion confirm
@@ -720,16 +869,13 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
             {cycles.map((c) => {
               const info = CARB_CYCLE_INFO[c];
               const isSelected = activeCycle === c;
+              const badgeStyle = getCarbCycleBadgeStyle(c, isSelected);
               return (
                 <button
                   key={c}
                   type="button"
                   onClick={() => handleSelectCycle(c)}
-                  className={`px-3 py-1 rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer whitespace-nowrap ${
-                    isSelected
-                      ? 'bg-sky-600 text-white shadow-2xs'
-                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                  }`}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1 cursor-pointer whitespace-nowrap active:scale-95 ${badgeStyle}`}
                 >
                   <span>{info.emoji}</span>
                   <span>{info.shortName}</span>
@@ -794,7 +940,7 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
           {/* Carbs */}
           <div className="bg-amber-50/60 border border-amber-200/50 p-2.5 rounded-2xl">
             <div className="flex items-center justify-between text-xs font-bold text-amber-800 mb-1">
-              <span>C (碳水)</span>
+              <span>碳水 (C)</span>
               <span className="text-[10px] text-amber-600 font-semibold">
                 {Math.round((totalCarbs / (currentGoal.carbs || 1)) * 100)}%
               </span>
@@ -816,7 +962,7 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
           {/* Protein */}
           <div className="bg-blue-50/60 border border-blue-200/50 p-2.5 rounded-2xl">
             <div className="flex items-center justify-between text-xs font-bold text-blue-800 mb-1">
-              <span>P (蛋白)</span>
+              <span>蛋白質 (P)</span>
               <span className="text-[10px] text-blue-600 font-semibold">
                 {Math.round((totalProtein / (currentGoal.protein || 1)) * 100)}%
               </span>
@@ -838,7 +984,7 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
           {/* Fat */}
           <div className="bg-rose-50/60 border border-rose-200/50 p-2.5 rounded-2xl">
             <div className="flex items-center justify-between text-xs font-bold text-rose-800 mb-1">
-              <span>F (脂肪)</span>
+              <span>脂肪 (F)</span>
               <span className="text-[10px] text-rose-600 font-semibold">
                 {Math.round((totalFat / (currentGoal.fat || 1)) * 100)}%
               </span>
@@ -890,21 +1036,24 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
         onReorder={handleReorderMeals}
         className="space-y-3"
       >
-        {activeMeals.map((meal) => (
-          <MealSection
-            key={meal.mealType}
-            meal={meal}
-            mealRecords={foodRecords.filter((r) => r.mealType === meal.mealType)}
-            isExpanded={expandedMeals[meal.mealType] ?? true}
-            onToggleExpand={() => toggleExpand(meal.mealType)}
-            onDelete={() => handleDeleteMeal(meal.mealType)}
-            onEditName={() => handleOpenEditMealModal(meal.mealType, meal.customName)}
-            onAddFood={(tab) => handleOpenAddFood(meal.mealType, tab)}
-            onClearMeal={() => handleClearMeal(meal.mealType)}
-            onDeleteRecord={handleDeleteRecord}
-            onEditRecord={setEditingRecord}
-          />
-        ))}
+        {activeMeals.map((meal) => {
+          const itemsInMeal = foodRecords.filter((r) => r.mealType === meal.mealType);
+          return (
+            <MealSection
+              key={meal.mealType}
+              meal={meal}
+              mealRecords={itemsInMeal}
+              isExpanded={expandedMeals[meal.mealType] ?? true}
+              onToggleExpand={() => toggleExpand(meal.mealType)}
+              onDelete={() => handleDeleteMeal(meal.mealType)}
+              onEditName={() => handleOpenEditMealModal(meal.mealType, meal.customName)}
+              onAddFood={(tab) => handleOpenAddFood(meal.mealType, tab)}
+              onClearMeal={() => handleClearMeal(meal.mealType)}
+              onDeleteRecord={(id) => handleDeleteRecord(id)}
+              onEditRecord={setEditingRecord}
+            />
+          );
+        })}
       </Reorder.Group>
 
       {/* Add Meal Button */}
@@ -928,6 +1077,7 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
           initialTab={addFoodInitialTab}
           onClose={() => setShowAddFood(false)}
           onSelectFood={(food, mealType) => handleSelectFood(food, mealType)}
+          onFastAddFood={(food, mealType) => handleFastAddFood(food, mealType)}
           onOpenCustomFoodModal={() => {
             setShowAddFood(false);
             setShowCustomFoodModal(true);
@@ -965,7 +1115,10 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
              }
              return foodForPortion.servingAmount || 100;
           })()}
-          onClose={() => setFoodForPortion(null)}
+          onClose={() => {
+            setFoodForPortion(null);
+            setShowAddFood(true);
+          }}
           onSave={(food, consumedAmount) => {
              const ratio = consumedAmount / (food.servingAmount || 1);
              const record: FoodRecord = {
@@ -1199,32 +1352,6 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
                 className="flex-1 py-3 bg-sky-600 hover:bg-sky-700 text-white font-bold text-sm rounded-2xl transition cursor-pointer shadow-sm"
               >
                 儲存修改
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Clear Meal Confirm Modal */}
-      {mealTypeToClear && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
-            <h3 className="text-lg font-black text-slate-900">清空餐點紀錄</h3>
-            <p className="text-sm text-slate-500">確定要清空此餐點的所有飲食紀錄嗎？此動作將無法復原。</p>
-            <div className="flex gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setMealTypeToClear(null)}
-                className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-sm rounded-2xl transition cursor-pointer"
-              >
-                取消
-              </button>
-              <button
-                type="button"
-                onClick={confirmClearMeal}
-                className="flex-1 py-3 bg-rose-600 hover:bg-rose-700 text-white font-bold text-sm rounded-2xl transition cursor-pointer shadow-sm"
-              >
-                確定清空
               </button>
             </div>
           </div>
