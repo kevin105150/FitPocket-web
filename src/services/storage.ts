@@ -185,22 +185,18 @@ export const StorageService = {
     notifySyncStatus('syncing');
 
     try {
-      // Automatic token validation & self-repair using user's active click gesture
+      // Check for valid token from cache. 
+      // CRITICAL: We MUST NOT call loginWithGoogle() automatically here because 
+      // background saves (e.g. while typing/editing) are not triggered by direct user clicks.
+      // On iOS/Safari, calling signInWithPopup without a direct click triggers the 
+      // "FitPocket wants to use google.com to sign in" system prompt repeatedly.
       const token = await getAccessToken();
+      
       if (!token) {
-        console.log("Token expired during saveToCloud. Attempting automatic popup renewal...");
-        try {
-          const res = await loginWithGoogle(false);
-          if (!res.accessToken) {
-            console.warn("Automatic token renewal failed or was dismissed.");
-            notifySyncStatus('pending');
-            return false;
-          }
-        } catch (err) {
-          console.error("Auto-credential renewal failed:", err);
-          notifySyncStatus('error');
-          return false;
-        }
+        console.log("No valid Drive token for background sync. Keeping data in local buffer (pending).");
+        // Status remains 'pending', and the App.tsx modal or header will inform user to fix auth manually.
+        notifySyncStatus('pending');
+        return false;
       }
 
       const json = this.exportData();
