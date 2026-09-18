@@ -176,7 +176,17 @@ export const SettingsScreen: React.FC = () => {
 
   // Apply BMR results to Carb Cycle Goals
   const handleApplyCalculatedToGoals = () => {
-    flashMessage('已成功將計算之營養數據套用！(請注意：碳循環目標設定已移除)');
+    const newPresets = { ...presets };
+    newPresets.CUSTOM = {
+      ...newPresets.CUSTOM,
+      calories: calculated.targetCal.toString(),
+      carbs: calculated.targetCarbs.toString(),
+      protein: calculated.targetProtein.toString(),
+      fat: calculated.targetFat.toString(),
+    };
+    setPresets(newPresets);
+    StorageService.savePresets(newPresets);
+    flashMessage('已將計算建議套用至「自訂」目標！');
   };
 
   // Save profile
@@ -705,7 +715,7 @@ export const SettingsScreen: React.FC = () => {
               className="w-full px-3 py-2.5 bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold rounded-xl shadow-xs transition cursor-pointer flex items-center justify-center gap-1"
             >
               <Sparkles className="w-3.5 h-3.5" />
-              一鍵套用至循環日
+              一鍵套用至自訂目標
             </button>
           </div>
 
