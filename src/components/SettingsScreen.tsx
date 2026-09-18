@@ -179,10 +179,10 @@ export const SettingsScreen: React.FC = () => {
     const newPresets = { ...presets };
     newPresets.CUSTOM = {
       ...newPresets.CUSTOM,
-      calories: calculated.targetCal.toString(),
-      carbs: calculated.targetCarbs.toString(),
-      protein: calculated.targetProtein.toString(),
-      fat: calculated.targetFat.toString(),
+      calories: Number(calculated.targetCal) || 0,
+      carbs: Number(calculated.targetCarbs) || 0,
+      protein: Number(calculated.targetProtein) || 0,
+      fat: Number(calculated.targetFat) || 0,
     };
     setPresets(newPresets);
     StorageService.savePresets(newPresets);
@@ -1130,8 +1130,8 @@ export const SettingsScreen: React.FC = () => {
                     {/* Sliding Card Content */}
                     <motion.div
                       animate={{ x: confirmDeleteId === cf.id ? -125 : 0 }}
-                      transition={{ type: 'spring', damping: 24, stiffness: 220 }}
-                      className="relative z-10 bg-white py-2 flex items-center justify-between gap-3 w-full"
+                      transition={{ type: 'spring', stiffness: 580, damping: 28, mass: 0.4 }}
+                      className="relative z-10 bg-white py-2 flex items-center justify-between gap-3 w-full will-change-transform transform-gpu"
                     >
                       <div className="min-w-0 flex-1">
                         {/* 1. 名稱 & 膠囊 */}

@@ -402,8 +402,8 @@ export const TrainingTracker: React.FC<TrainingTrackerProps> = ({
                 {/* Sliding Card Content */}
                 <motion.div
                   animate={{ x: confirmDeleteWorkoutId === workout.id ? -125 : 0 }}
-                  transition={{ type: 'spring', damping: 24, stiffness: 220 }}
-                  className="relative z-10 bg-slate-50 px-5 py-4 flex items-center justify-between gap-3 w-full"
+                  transition={{ type: 'spring', stiffness: 580, damping: 28, mass: 0.4 }}
+                  className="relative z-10 bg-slate-50 px-5 py-4 flex items-center justify-between gap-3 w-full will-change-transform transform-gpu"
                 >
                   <div className="flex items-center gap-2 min-w-0 flex-1">
                     <span className="text-sm font-black px-2.5 py-1 bg-sky-600 text-white rounded-xl shadow-2xs shrink-0">
@@ -982,8 +982,8 @@ const ExerciseCard: React.FC<ExerciseCardProps> = ({
 
       <motion.div
         animate={{ x: confirmDeleteExercise ? -125 : 0 }}
-        transition={{ type: 'spring', damping: 24, stiffness: 220 }}
-        className={`relative z-10 border p-4 rounded-2xl transition ${
+        transition={{ type: 'spring', stiffness: 580, damping: 28, mass: 0.4 }}
+        className={`relative z-10 border p-4 rounded-2xl transition-colors duration-150 will-change-transform transform-gpu ${
           isInsideSuperset
             ? 'border-slate-100 bg-white shadow-sm'
             : exercise.supersetGroupId
@@ -1009,29 +1009,27 @@ const ExerciseCard: React.FC<ExerciseCardProps> = ({
                   有氧心肺
                 </span>
               )}
-              {exercise.supersetGroupId && !isInsideSuperset && (
-                <span className="text-[10px] font-bold px-2 py-0.5 bg-purple-100 text-purple-800 rounded-md flex items-center gap-1">
-                  <Link className="w-3 h-3" /> 超級組
-                </span>
-              )}
             </div>
           </div>
 
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1.5 shrink-0">
             <button
               type="button"
               onClick={() => onToggleSuperset(workoutId, exercise.id)}
-              className={`p-1 rounded-md transition ${
-                exercise.supersetGroupId ? 'text-purple-700 bg-purple-100' : 'text-slate-400 hover:text-purple-700 hover:bg-slate-100'
+              className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                exercise.supersetGroupId
+                  ? 'text-purple-700 bg-purple-100 hover:bg-purple-200'
+                  : 'text-slate-400 hover:text-purple-700 hover:bg-slate-100'
               }`}
-              title="切換超級組標記"
+              title={exercise.supersetGroupId ? "已設定為超級組 (點擊取消)" : "設定為超級組"}
             >
               <Link className="w-3.5 h-3.5" />
+              <span>超級組</span>
             </button>
             <button
               type="button"
               onClick={() => setConfirmDeleteExercise(true)}
-              className="p-1 text-slate-400 hover:text-rose-600 hover:bg-slate-100 rounded-md transition"
+              className="p-1 text-slate-400 hover:text-rose-600 hover:bg-slate-100 rounded-md transition cursor-pointer"
               title="刪除動作"
             >
               <Trash2 className="w-3.5 h-3.5" />
@@ -1057,30 +1055,30 @@ const ExerciseCard: React.FC<ExerciseCardProps> = ({
         {exercise.exerciseSets.map((set, sIdx) => (
           <div key={set.id} className="relative overflow-hidden rounded-xl">
             {/* Beneath Action Row */}
-            <div className="absolute inset-y-1 right-1 flex items-stretch gap-1 z-0">
+            <div className="absolute inset-y-1 right-1.5 flex items-stretch gap-1.5 z-0">
               <button
                 type="button"
                 onClick={() => {
                   onRemoveSet(workoutId, exercise.id, set.id);
                   setConfirmDeleteSetId(null);
                 }}
-                className="px-3 bg-rose-600 hover:bg-rose-700 text-white font-black text-[10px] rounded-lg flex items-center justify-center transition cursor-pointer"
+                className="w-12 bg-rose-600 hover:bg-rose-700 text-white font-black text-xs rounded-lg flex items-center justify-center transition cursor-pointer shadow-xs"
               >
                 確定
               </button>
               <button
                 type="button"
                 onClick={() => setConfirmDeleteSetId(null)}
-                className="px-2 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-[10px] rounded-lg flex items-center justify-center transition cursor-pointer"
+                className="w-11 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-xs rounded-lg flex items-center justify-center transition cursor-pointer"
               >
                 取消
               </button>
             </div>
 
             <motion.div
-              animate={{ x: confirmDeleteSetId === set.id ? -85 : 0 }}
-              transition={{ type: 'spring', damping: 24, stiffness: 220 }}
-              className={`relative z-10 grid grid-cols-12 gap-2 items-center p-2 rounded-xl border transition ${
+              animate={{ x: confirmDeleteSetId === set.id ? -108 : 0 }}
+              transition={{ type: 'spring', stiffness: 580, damping: 28, mass: 0.4 }}
+              className={`relative z-10 grid grid-cols-12 gap-2 items-center p-2 rounded-xl border transition-colors duration-150 will-change-transform transform-gpu ${
                 set.isCompleted
                   ? 'bg-sky-50 border-sky-200/80 text-sky-900'
                   : 'bg-slate-50 border-slate-100 text-slate-700'

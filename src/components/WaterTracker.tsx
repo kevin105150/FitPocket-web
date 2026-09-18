@@ -219,8 +219,8 @@ export const WaterTracker: React.FC<WaterTrackerProps> = ({
                   {/* Sliding Card Content */}
                   <motion.div
                     animate={{ x: confirmDeleteId === r.id ? -125 : 0 }}
-                    transition={{ type: 'spring', damping: 24, stiffness: 220 }}
-                    className="relative z-10 bg-white py-2 flex items-center justify-between gap-3 w-full"
+                    transition={{ type: 'spring', stiffness: 580, damping: 28, mass: 0.4 }}
+                    className="relative z-10 bg-white py-2 flex items-center justify-between gap-3 w-full will-change-transform transform-gpu"
                   >
                     <div className="flex items-center gap-3">
                       <div className="p-2 rounded-xl bg-sky-50 text-sky-600">
