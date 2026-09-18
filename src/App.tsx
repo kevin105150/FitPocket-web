@@ -6,11 +6,59 @@ import { WaterTracker } from './components/WaterTracker';
 import { WeightTracker } from './components/WeightTracker';
 import { SettingsScreen } from './components/SettingsScreen';
 import { getTodayString } from './utils/dateUtils';
-import { auth, getAccessToken, logout, handleRedirectResult } from './lib/firebase';
+import { auth, getAccessToken, logout, handleRedirectResult, loginWithGoogle } from './lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
-import { StorageService } from './services/storage';
+import { StorageService, SyncStatus } from './services/storage';
 import { LoginScreen } from './components/LoginScreen';
-import { LogOut, User as UserIcon } from 'lucide-react';
+import { LogOut, User as UserIcon, AlertCircle, RefreshCw, CloudOff, CloudCheck, CloudLightning, DownloadCloud, HardDrive } from 'lucide-react';
+import { usePWAInstall } from './hooks/usePWAInstall';
+import { useOnlineStatus } from './hooks/useOnlineStatus';
+
+const SyncStatusIndicator = ({ status }: { status: SyncStatus }) => {
+  const isOnline = useOnlineStatus();
+  
+  if (!isOnline) {
+    return (
+      <div className="flex items-center gap-1.5 px-2 py-1 bg-slate-100 text-slate-500 rounded-full text-[10px] font-bold">
+        <CloudLightning className="w-3 h-3" />
+        離線模式
+      </div>
+    );
+  }
+
+  switch (status) {
+    case 'synced':
+      return (
+        <div className="flex items-center gap-1.5 px-2 py-1 bg-emerald-50 text-emerald-600 rounded-full text-[10px] font-bold">
+          <CloudCheck className="w-3 h-3" />
+          已同步
+        </div>
+      );
+    case 'syncing':
+      return (
+        <div className="flex items-center gap-1.5 px-2 py-1 bg-sky-50 text-sky-600 rounded-full text-[10px] font-bold">
+          <RefreshCw className="w-3 h-3 animate-spin" />
+          同步中...
+        </div>
+      );
+    case 'pending':
+      return (
+        <div className="flex items-center gap-1.5 px-2 py-1 bg-amber-50 text-amber-600 rounded-full text-[10px] font-bold">
+          <HardDrive className="w-3 h-3" />
+          本機暫存
+        </div>
+      );
+    case 'error':
+      return (
+        <div className="flex items-center gap-1.5 px-2 py-1 bg-rose-50 text-rose-600 rounded-full text-[10px] font-bold">
+          <AlertCircle className="w-3 h-3" />
+          同步錯誤
+        </div>
+      );
+    default:
+      return null;
+  }
+};
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<TabType>('DIET');
@@ -19,6 +67,9 @@ export default function App() {
   const [user, setUser] = useState(auth.currentUser);
   const [isInitializing, setIsInitializing] = useState(true);
   const [needsDriveAuth, setNeedsDriveAuth] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>(StorageService.getCurrentSyncStatus());
+  
+  const { isInstallable, install } = usePWAInstall();
 
   const handleLogout = async () => {
     try {
@@ -29,53 +80,91 @@ export default function App() {
     }
   };
 
+  const handleRestoreAuth = async () => {
+    try {
+      const result = await loginWithGoogle(false);
+      if (result.accessToken) {
+        setNeedsDriveAuth(false);
+        // Trigger a catch-up sync
+        StorageService.syncFromCloud().catch(err => console.warn("Sync error:", err));
+      }
+    } catch (err) {
+      console.error("Restore auth error:", err);
+    }
+  };
+
   useEffect(() => {
     let active = true;
 
-    // 1. Register the auth observer immediately to restore login state instantly
-    const unsubscribe = onAuthStateChanged(auth, async (u) => {
-      if (!active) return;
-      setUser(u);
-      setIsInitializing(false);
-      
-      if (u) {
-        const token = await getAccessToken();
-        if (token) {
-          setNeedsDriveAuth(false);
-          if (localStorage.getItem('fitpocket_sync_pending') === 'true') {
-            console.log("Found pending unsaved data on startup. Uploading to Drive...");
-            StorageService.saveToCloud().catch(err => console.warn("Catch-up sync error:", err));
-          } else {
-            StorageService.syncFromCloud().catch(err => console.warn("Sync error (non-blocking):", err));
+    // Initialize storage (IndexedDB migration & loading)
+    const initStorage = async () => {
+      try {
+        await StorageService.init();
+        if (!active) return;
+        
+        // After storage is ready, handle auth state
+        const unsubscribe = onAuthStateChanged(auth, async (u) => {
+          if (!active) return;
+          setUser(u);
+          
+          try {
+            if (u) {
+              // Check for pending sync and redirect results
+              await handleRedirectResult();
+              if (!active) return;
+
+              const token = await getAccessToken();
+              if (token) {
+                setNeedsDriveAuth(false);
+                if (localStorage.getItem('fitpocket_sync_pending') === 'true') {
+                  StorageService.saveToCloud().catch(err => console.warn("Catch-up sync error:", err));
+                } else {
+                  StorageService.syncFromCloud().catch(err => console.warn("Sync error (non-blocking):", err));
+                }
+              } else {
+                setNeedsDriveAuth(true);
+              }
+            }
+          } catch (innerErr) {
+            console.error("Auth helper error during init:", innerErr);
+          } finally {
+            if (active) setIsInitializing(false);
           }
-        }
+        });
+
+        return unsubscribe;
+      } catch (err) {
+        console.error("Storage initialization failed:", err);
+        if (active) setIsInitializing(false);
+        return () => {};
       }
+    };
+
+    let authUnsubscribe: (() => void) | undefined;
+    initStorage().then(unsub => {
+      authUnsubscribe = unsub;
     });
 
-    // 2. Concurrently resolve any pending Google OAuth redirects in the background
-    handleRedirectResult()
-      .then(async () => {
-        if (!active) return;
-        // If we successfully resolved a redirected token and have a user, trigger a background sync
-        if (auth.currentUser) {
-          const token = await getAccessToken();
-          if (token) {
-            if (localStorage.getItem('fitpocket_sync_pending') === 'true') {
-              console.log("Found pending unsaved data on redirect. Uploading to Drive...");
-              StorageService.saveToCloud().catch(err => console.warn("Catch-up sync error:", err));
-            } else {
-              StorageService.syncFromCloud().catch(err => console.warn("Sync error (non-blocking):", err));
-            }
-          }
+    // Request persistent storage
+    if (navigator.storage && navigator.storage.persist) {
+      navigator.storage.persist().then(persistent => {
+        if (persistent) {
+          console.log("Storage will not be cleared except by explicit user action.");
+        } else {
+          console.log("Storage may be cleared by the browser under storage pressure.");
         }
-      })
-      .catch(err => {
-        console.error("Background redirect handling error:", err);
       });
+    }
+
+    // Subscribe to sync status
+    const stopSyncListen = StorageService.onSyncStatusChange((s) => {
+      if (active) setSyncStatus(s);
+    });
 
     return () => {
       active = false;
-      unsubscribe();
+      if (authUnsubscribe) authUnsubscribe();
+      stopSyncListen();
     };
   }, []);
 
@@ -93,6 +182,41 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] flex flex-col antialiased text-slate-800">
+      {/* Drive Auth Modal */}
+      {needsDriveAuth && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="w-full max-w-sm bg-white rounded-[32px] p-6 shadow-2xl border border-slate-100 flex flex-col items-center text-center space-y-4 animate-in zoom-in-95 duration-300">
+            <div className="w-16 h-16 bg-amber-50 rounded-2xl flex items-center justify-center">
+              <CloudOff className="w-8 h-8 text-amber-600 animate-bounce" />
+            </div>
+            
+            <div className="space-y-2">
+              <h3 className="text-lg font-black text-slate-900">雲端授權已過期</h3>
+              <p className="text-xs text-slate-500 leading-relaxed px-4">
+                Google 基於安全性規定，存取授權效期為 1 小時。為了確保您的飲食數據能持續即時備份至 Google Drive，請點擊下方按鈕重新建立連線。
+              </p>
+            </div>
+
+            <div className="w-full pt-2">
+              <button 
+                onClick={handleRestoreAuth}
+                className="w-full py-3.5 bg-amber-600 hover:bg-amber-700 text-white font-black rounded-2xl shadow-lg shadow-amber-200 transition active:scale-95 flex items-center justify-center gap-2"
+              >
+                <RefreshCw className="w-4 h-4" />
+                立即一鍵修復授權
+              </button>
+              
+              <button 
+                onClick={() => setNeedsDriveAuth(false)}
+                className="w-full mt-2 py-2 text-slate-400 text-[10px] font-bold hover:text-slate-600 transition"
+              >
+                稍後再說（將暫停雲端同步）
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Top App Bar */}
       <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-xl border-b border-sky-950/5">
         <div className="max-w-2xl mx-auto px-4 h-16 flex items-center justify-between">
@@ -114,6 +238,18 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-3">
+            <SyncStatusIndicator status={syncStatus} />
+            
+            {isInstallable && (
+              <button
+                onClick={install}
+                className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 bg-sky-600 hover:bg-sky-700 text-white text-[10px] font-black rounded-full shadow-sm transition active:scale-95"
+              >
+                <DownloadCloud className="w-3 h-3" />
+                安裝 PWA
+              </button>
+            )}
+
             {user && (
               <div className="flex items-center gap-2 p-1.5 pr-3 bg-slate-50 rounded-2xl border border-slate-200/50">
                 {user.photoURL ? (

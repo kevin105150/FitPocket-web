@@ -24,6 +24,8 @@ import { auth, getAccessToken, loginWithGoogle } from '../lib/firebase';
 import { DriveStorageService } from './driveStorage';
 import { encryptApiKey, decryptApiKey } from '../utils/encryption';
 
+import { dbGet, dbSet, dbKeys } from '../lib/db';
+
 const STORAGE_KEYS = {
   FOOD_RECORDS: 'fitpocket_food_records',
   CUSTOM_FOODS: 'fitpocket_custom_foods',
@@ -41,28 +43,94 @@ const STORAGE_KEYS = {
   GEMINI_KEY: 'fitpocket_gemini_key',
   GEMINI_MODEL: 'fitpocket_gemini_model',
   WORKOUT_PRESETS: 'fitpocket_workout_presets',
+  MIGRATED: 'fitpocket_idb_migrated',
 };
+
+export type SyncStatus = 'synced' | 'pending' | 'syncing' | 'error' | 'offline';
+
+// Simple pub/sub for sync status
+const syncListeners: ((status: SyncStatus) => void)[] = [];
+let currentSyncStatus: SyncStatus = localStorage.getItem('fitpocket_sync_pending') === 'true' ? 'pending' : 'synced';
+
+function notifySyncStatus(status: SyncStatus) {
+  currentSyncStatus = status;
+  syncListeners.forEach(listener => listener(status));
+}
+
+// Memory cache for synchronous access
+const memoryCache: Record<string, any> = {};
 
 // Safe storage access
 function getItem<T>(key: string, defaultValue: T): T {
+  if (memoryCache[key] !== undefined) {
+    return memoryCache[key] as T;
+  }
+  // Fallback to localStorage ONLY during initialization/migration
   try {
     const raw = localStorage.getItem(key);
-    return raw ? (JSON.parse(raw) as T) : defaultValue;
+    const value = raw ? (JSON.parse(raw) as T) : defaultValue;
+    memoryCache[key] = value;
+    return value;
   } catch (e) {
     console.warn(`Failed reading key ${key} from storage:`, e);
     return defaultValue;
   }
 }
 
-function setItem<T>(key: string, value: T): void {
+async function setItem<T>(key: string, value: T): Promise<void> {
+  memoryCache[key] = value;
   try {
-    localStorage.setItem(key, JSON.stringify(value));
+    // Save to IndexedDB asynchronously
+    await dbSet(key, value);
+    // Keep localStorage in sync for a short transition period or for critical flags
+    if (key === 'fitpocket_sync_pending') {
+       localStorage.setItem(key, JSON.stringify(value));
+    }
   } catch (e) {
-    console.warn(`Failed saving key ${key} to storage:`, e);
+    console.warn(`Failed saving key ${key} to IndexedDB:`, e);
+    // Critical fallback to localStorage if IndexedDB fails
+    localStorage.setItem(key, JSON.stringify(value));
   }
 }
 
 export const StorageService = {
+  async init(): Promise<void> {
+    const isMigrated = localStorage.getItem(STORAGE_KEYS.MIGRATED) === 'true';
+    
+    if (!isMigrated) {
+      console.log('Migrating localStorage data to IndexedDB...');
+      // 1. Detect all relevant keys
+      const keys = Object.values(STORAGE_KEYS);
+      for (const key of keys) {
+        if (key === STORAGE_KEYS.MIGRATED) continue;
+        const raw = localStorage.getItem(key);
+        if (raw !== null) {
+          try {
+            const data = JSON.parse(raw);
+            await dbSet(key, data);
+            memoryCache[key] = data;
+          } catch (e) {
+            console.error(`Migration failed for key ${key}:`, e);
+          }
+        }
+      }
+      localStorage.setItem(STORAGE_KEYS.MIGRATED, 'true');
+      console.log('Migration to IndexedDB completed successfully.');
+    } else {
+      // Load all keys from IndexedDB into memory cache
+      console.log('Loading data from IndexedDB...');
+      try {
+        const keys = await dbKeys();
+        for (const key of keys) {
+          const val = await dbGet(key);
+          memoryCache[key] = val;
+        }
+      } catch (e) {
+        console.error('Failed to load data from IndexedDB:', e);
+      }
+    }
+  },
+
   // Preset foods
   getPresetFoods(): FoodSearchResult[] {
     return (presetFoodsData as any[]).map((item) => {
@@ -92,11 +160,30 @@ export const StorageService = {
     });
   },
 
+  onSyncStatusChange(listener: (status: SyncStatus) => void) {
+    syncListeners.push(listener);
+    listener(currentSyncStatus);
+    return () => {
+      const index = syncListeners.indexOf(listener);
+      if (index > -1) syncListeners.splice(index, 1);
+    };
+  },
+
+  getCurrentSyncStatus() {
+    return currentSyncStatus;
+  },
+
   // Helper for Google Drive
   async saveToCloud(): Promise<boolean> {
-    if (!auth.currentUser) return false;
+    if (!auth.currentUser) {
+      notifySyncStatus('offline');
+      return false;
+    }
+    
     // Set pending sync flag immediately so we know there are unsaved local changes
     localStorage.setItem('fitpocket_sync_pending', 'true');
+    notifySyncStatus('syncing');
+
     try {
       // Automatic token validation & self-repair using user's active click gesture
       const token = await getAccessToken();
@@ -106,10 +193,12 @@ export const StorageService = {
           const res = await loginWithGoogle(false);
           if (!res.accessToken) {
             console.warn("Automatic token renewal failed or was dismissed.");
+            notifySyncStatus('pending');
             return false;
           }
         } catch (err) {
           console.error("Auto-credential renewal failed:", err);
+          notifySyncStatus('error');
           return false;
         }
       }
@@ -120,36 +209,47 @@ export const StorageService = {
       const success = await DriveStorageService.saveAllData(json);
       if (success) {
         localStorage.removeItem('fitpocket_sync_pending');
+        notifySyncStatus('synced');
+      } else {
+        notifySyncStatus('error');
       }
       return success;
     } catch (e) {
       console.warn('Failed to save to Drive:', e);
+      notifySyncStatus('error');
       return false;
     }
   },
 
   async syncFromCloud(): Promise<{ success: boolean; message: string }> {
     if (!auth.currentUser) {
+      notifySyncStatus('offline');
       return { success: false, message: '尚未登入 Google 帳號' };
     }
+
+    notifySyncStatus('syncing');
     try {
       const json = await DriveStorageService.loadAllData();
       if (json) {
         // Use merging logic instead of blind import
         const { changed, success } = this.mergeData(json);
         if (success) {
+          notifySyncStatus('synced');
           if (changed) {
             return { success: true, message: '成功與 Google Drive 同步並合併資料！' };
           } else {
             return { success: true, message: '雲端資料已是最新，無需更新。' };
           }
         } else {
+          notifySyncStatus('error');
           return { success: false, message: '備份檔案格式解析失敗' };
         }
       }
+      notifySyncStatus('synced');
       return { success: false, message: '尚未在 Google Drive 找到備份檔 (fitpocket_data.json)' };
     } catch (e: any) {
       console.warn('Drive sync notice:', e);
+      notifySyncStatus('error');
       if (e.message === 'AUTH_ERROR') {
         return { success: false, message: '雲端授權已過期，請重新登入 Google 帳號以恢復同步' };
       }
