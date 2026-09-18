@@ -84,22 +84,22 @@ const MealSection: React.FC<MealSectionProps> = ({
       className="bg-white rounded-3xl border border-slate-200/70 shadow-2xs overflow-hidden list-none"
     >
       {/* Meal Header */}
-      <div className="px-5 py-3.5 flex items-center justify-between hover:bg-slate-50/70 transition">
-        <div className="flex items-center gap-3 flex-1 min-w-0">
+      <div className="px-5 py-3 flex items-start justify-between hover:bg-slate-50/70 transition">
+        <div className="flex items-start gap-2.5 flex-1 min-w-0">
           <div
             onPointerDown={(e) => dragControls.start(e)}
-            className="p-1.5 -ml-1.5 cursor-grab active:cursor-grabbing text-slate-400 hover:text-slate-600 transition-colors touch-none"
+            className="p-1 -ml-1.5 h-8 flex items-center justify-center cursor-grab active:cursor-grabbing text-slate-400 hover:text-slate-600 transition-colors touch-none shrink-0"
             title="按住此處拖曳排序"
           >
             <GripVertical className="w-5 h-5" />
           </div>
 
           <div 
-            className="flex flex-col gap-1 flex-1 min-w-0 cursor-pointer"
+            className="flex flex-col flex-1 min-w-0 cursor-pointer"
             onClick={onToggleExpand}
           >
             {/* Row 1: 餐別＆筆 */}
-            <div className="flex items-center gap-1.5 min-w-0 max-w-full">
+            <div className="flex items-center gap-1.5 min-w-0 max-w-full h-8">
               <span 
                 onClick={(e) => {
                   e.stopPropagation();
@@ -123,38 +123,37 @@ const MealSection: React.FC<MealSectionProps> = ({
               </button>
             </div>
 
-            {/* Row 2: 熱量 */}
-            <div>
-              <span className="text-[11px] font-bold text-sky-800 bg-sky-50 px-2 py-0.5 rounded-full inline-block whitespace-nowrap">
+            {/* Row 2: 大卡 與 CPF 放同一排 */}
+            <div className="flex items-center gap-1 flex-wrap pt-0.5 pb-0.5">
+              <span className="text-[11px] font-bold text-sky-800 bg-sky-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">
                 {mealCals} kcal
               </span>
+              {mealRecords.length > 0 && (
+                <>
+                  <span className="text-[11px] font-bold text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                    C:{mealC}
+                  </span>
+                  <span className="text-[11px] font-bold text-blue-800 bg-blue-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                    P:{mealP}
+                  </span>
+                  <span className="text-[11px] font-bold text-rose-800 bg-rose-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                    F:{mealF}
+                  </span>
+                </>
+              )}
             </div>
-
-            {/* Row 3: CPF */}
-            {mealRecords.length > 0 && (
-              <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-                <span className="text-[11px] font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-full whitespace-nowrap">
-                  C: {mealC}g
-                </span>
-                <span className="text-[11px] font-bold text-blue-800 bg-blue-50 px-2 py-0.5 rounded-full whitespace-nowrap">
-                  P: {mealP}g
-                </span>
-                <span className="text-[11px] font-bold text-rose-800 bg-rose-50 px-2 py-0.5 rounded-full whitespace-nowrap">
-                  F: {mealF}g
-                </span>
-              </div>
-            )}
           </div>
         </div>
 
-        <div className="flex items-center gap-1">
+        {/* 右側按鍵：高度與餐別名稱及筆保持水平齊平 */}
+        <div className="flex items-center gap-0.5 shrink-0 h-8 -mr-1">
           <button
             type="button"
             onClick={(e) => {
               e.stopPropagation();
               onAddFood();
             }}
-            className="p-2 text-slate-400 hover:text-sky-600 hover:bg-sky-50 rounded-xl transition cursor-pointer"
+            className="p-1.5 text-slate-400 hover:text-sky-600 hover:bg-sky-50 rounded-xl transition cursor-pointer"
             title="新增飲食"
           >
             <Plus className="w-4 h-4" />
@@ -166,18 +165,19 @@ const MealSection: React.FC<MealSectionProps> = ({
               e.stopPropagation();
               setShowDeleteModal(true);
             }}
-            className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition cursor-pointer shrink-0"
+            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition cursor-pointer shrink-0"
             title="刪除此餐次"
           >
             <Trash2 className="w-4 h-4" />
           </button>
 
           <div 
-            className="text-slate-400 p-2 cursor-pointer" 
+            className="text-slate-400 p-1.5 hover:text-slate-600 rounded-xl transition cursor-pointer" 
             onClick={(e) => {
               e.stopPropagation();
               onToggleExpand();
             }}
+            title={isExpanded ? "收合餐別" : "展開餐別"}
           >
             {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
           </div>
@@ -224,11 +224,11 @@ const MealSection: React.FC<MealSectionProps> = ({
                       <motion.div
                         animate={{ x: confirmDeleteRecordId === item.id ? -125 : 0 }}
                         transition={{ type: 'spring', stiffness: 580, damping: 28, mass: 0.4 }}
-                        className="relative z-10 bg-white py-2 flex items-center justify-between gap-3 w-full will-change-transform transform-gpu"
+                        className="relative z-10 bg-white py-1 flex items-start justify-between gap-3 w-full will-change-transform transform-gpu"
                       >
                         <div className="min-w-0 flex-1">
                           {/* 1. 名稱 & 膠囊 */}
-                          <div className="flex items-center gap-1.5 min-w-0 max-w-full">
+                          <div className="flex items-center gap-1.5 min-w-0 max-w-full h-8">
                             <span className="font-bold text-sm text-slate-800 truncate min-w-0 shrink">{item.name}</span>
                             <div className="inline-flex items-center gap-1 shrink-0">
                               {item.sourceFoodId && (
@@ -255,24 +255,26 @@ const MealSection: React.FC<MealSectionProps> = ({
                           </div>
 
                           {/* 2. 品牌 */}
-                          <div className="text-xs font-semibold text-slate-400 mt-0.5">
+                          <div className="text-[11px] font-semibold text-slate-400 -mt-0.5 mb-1">
                             {item.brand || '一般食材'}
                           </div>
 
-                          {/* 3. 重量 熱量 */}
-                          <div className="text-xs font-semibold text-sky-800 mt-1">
-                            {item.loggedAmount}{item.loggedUnit} · {item.calories} kcal
-                          </div>
-
-                          {/* 4. 三大營養素 (CPF 獨立在下一排) */}
-                          <div className="flex items-center gap-1.5 mt-1">
-                            <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-1.5 py-0.25 rounded-full">C: {item.carbs}g</span>
-                            <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-1.5 py-0.25 rounded-full">P: {item.protein}g</span>
-                            <span className="text-[10px] font-bold text-rose-700 bg-rose-50 px-1.5 py-0.25 rounded-full">F: {item.fat}g</span>
+                          {/* 3. 重量 · 熱量 · CPF 一排 */}
+                          <div className="flex flex-wrap items-center gap-1.5 mt-1.5 pb-0.5">
+                            <span className="text-[11px] font-bold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                              {item.loggedAmount}{item.loggedUnit}
+                            </span>
+                            <span className="text-[11px] font-bold text-sky-800 bg-sky-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                              {item.calories} kcal
+                            </span>
+                            <span className="text-[10px] font-bold text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">C:{item.carbs}</span>
+                            <span className="text-[10px] font-bold text-blue-800 bg-blue-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">P:{item.protein}</span>
+                            <span className="text-[10px] font-bold text-rose-800 bg-rose-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">F:{item.fat}</span>
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-1 shrink-0">
+                        {/* 右側按鍵：高度與食品名稱及筆保持水平齊平 */}
+                        <div className="flex items-center gap-0.5 shrink-0 h-8">
                           <button
                             type="button"
                             onClick={() => onEditRecord(item)}
@@ -284,7 +286,7 @@ const MealSection: React.FC<MealSectionProps> = ({
                           <button
                             type="button"
                             onClick={() => setConfirmDeleteRecordId(item.id)}
-                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
+                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer shrink-0"
                             title="刪除"
                           >
                             <Trash2 className="w-4 h-4" />
