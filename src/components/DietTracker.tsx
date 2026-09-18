@@ -24,6 +24,7 @@ import {
   NutritionGoalPreset,
 } from '../types';
 import { StorageService } from '../services/storage';
+import { optimizeImageForAi } from '../utils/imageOptimizer';
 import { CloudFoodService, isTfdaFood } from '../services/cloudFoodService';
 import { CARB_CYCLE_INFO } from '../data/defaults';
 import { DateNavigator } from './DateNavigator';
@@ -265,6 +266,8 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
 
   // Direct AI Photo upload state
   const [isAiPhotoLoading, setIsAiPhotoLoading] = useState(false);
+  const [aiPhotoProgress, setAiPhotoProgress] = useState(0);
+  const [aiPhotoStatus, setAiPhotoStatus] = useState('');
   const [aiPhotoError, setAiPhotoError] = useState('');
   const directCameraRef = useRef<HTMLInputElement>(null);
   const directPhotoMealTypeRef = useRef<MealType>('BREAKFAST');
@@ -294,28 +297,46 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
 
     setIsAiPhotoLoading(true);
     setAiPhotoError('');
+    setAiPhotoProgress(10);
+    setAiPhotoStatus('正在初始化 AI 辨識系統...');
 
     const reader = new FileReader();
     reader.onload = async () => {
       const base64 = reader.result as string;
       try {
+        setAiPhotoProgress(25);
+        setAiPhotoStatus('正在優化圖片以加快辨識速度...');
+
+        // 核心優化：壓縮圖片
+        const optimizedBase64 = await optimizeImageForAi(base64);
+
         const userKey = StorageService.getGeminiApiKey();
         const model = StorageService.getSelectedAiModel();
+        
+        setAiPhotoProgress(45);
+        setAiPhotoStatus('正在傳送至 Gemini AI 進行多模態分析...');
+
         const res = await fetch('/api/ai/estimate-image', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            imageBase64: base64,
-            mimeType: file.type || 'image/jpeg',
+            imageBase64: optimizedBase64,
+            mimeType: 'image/jpeg',
             customApiKey: userKey,
             model,
           }),
         });
 
+        setAiPhotoProgress(80);
+        setAiPhotoStatus('AI 正在計算熱量與營養比例...');
+
         if (!res.ok) {
           const errData = await res.json().catch(() => ({}));
           throw new Error(errData.error || '照片辨識失敗');
         }
+
+        setAiPhotoProgress(95);
+        setAiPhotoStatus('即將完成辨識...');
 
         const result = await res.json();
         const defaultAmount = Number(result.defaultServingAmount) || 200;
@@ -647,13 +668,30 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
 
       {/* AI Photo Processing Banner */}
       {isAiPhotoLoading && (
-        <div className="bg-purple-700 text-white p-4 rounded-2xl shadow-md flex items-center gap-3 animate-pulse">
-          <Loader2 className="w-6 h-6 animate-spin shrink-0 text-purple-200" />
-          <div className="flex-1">
-            <div className="font-bold text-sm">Gemini 營養師 AI 視覺辨識中...</div>
-            <div className="text-xs text-purple-200 mt-0.5">
-              正在自動辨識餐點成分、計算卡路里與三大營養素...
+        <div className="bg-purple-700 text-white p-5 rounded-3xl shadow-lg space-y-3 animate-in fade-in slide-in-from-top-4 duration-300">
+          <div className="flex items-center gap-3">
+            <div className="relative">
+              <Loader2 className="w-6 h-6 animate-spin shrink-0 text-purple-200 opacity-40" />
+              <div className="absolute inset-0 flex items-center justify-center">
+                <Sparkles className="w-3.5 h-3.5 text-white animate-pulse" />
+              </div>
             </div>
+            <div className="flex-1">
+              <div className="font-bold text-sm">Gemini AI 智慧視覺辨識中</div>
+              <div className="text-[10px] text-purple-200 mt-0.5 font-medium">
+                {aiPhotoStatus}
+              </div>
+            </div>
+            <div className="text-xs font-black text-purple-200">
+              {aiPhotoProgress}%
+            </div>
+          </div>
+          
+          <div className="w-full h-1.5 bg-purple-900/30 rounded-full overflow-hidden">
+            <div 
+              className="h-full bg-linear-to-r from-purple-400 to-indigo-300 transition-all duration-500 ease-out shadow-[0_0_8px_rgba(192,132,252,0.6)]"
+              style={{ width: `${aiPhotoProgress}%` }}
+            ></div>
           </div>
         </div>
       )}

@@ -19,6 +19,7 @@ import {
 import { CustomFood, FoodSearchResult, MealType } from '../types';
 import { StorageService } from '../services/storage';
 import { CloudFoodService } from '../services/cloudFoodService';
+import { optimizeImageForAi } from '../utils/imageOptimizer';
 import { checkAiKeyOrWarn } from '../utils/aiHelper';
 
 interface AddFoodModalProps {
@@ -51,6 +52,8 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
   // AI Scanner state
   const [aiPrompt, setAiPrompt] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
+  const [aiProgress, setAiProgress] = useState(0);
+  const [aiStatus, setAiStatus] = useState('');
   const [aiError, setAiError] = useState('');
   const [selectedImageBase64, setSelectedImageBase64] = useState<string | null>(null);
   const [lastImageMimeType, setLastImageMimeType] = useState<string>('image/jpeg');
@@ -219,19 +222,35 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
   const performImageAnalysis = async (base64: string, mime: string) => {
     setAiLoading(true);
     setAiError('');
+    setAiProgress(10);
+    setAiStatus('正在初始化 AI 辨識系統...');
+
     try {
+      setAiProgress(25);
+      setAiStatus('正在優化圖片以加快辨識速度...');
+
+      // 核心優化：在前端先壓縮圖片，大幅縮減上傳時間
+      const optimizedBase64 = await optimizeImageForAi(base64);
+
       const userKey = StorageService.getGeminiApiKey();
       const model = StorageService.getSelectedAiModel();
+      
+      setAiProgress(40);
+      setAiStatus('正在將資料傳送至 Gemini AI 雲端分析...');
+
       const res = await fetch('/api/ai/estimate-image', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          imageBase64: base64,
-          mimeType: mime,
+          imageBase64: optimizedBase64, // 使用優化後的 base64
+          mimeType: 'image/jpeg', // 壓縮後已統一格式為 jpeg
           customApiKey: userKey,
           model,
         }),
       });
+
+      setAiProgress(75);
+      setAiStatus('AI 營養師正在辨識食材並計算營養素...');
 
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
@@ -241,6 +260,9 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
           : (errData.error || '照片辨識失敗');
         throw new Error(msg);
       }
+
+      setAiProgress(90);
+      setAiStatus('正在整理辨識結果...');
 
       const result = await res.json();
       const defaultAmount = Number(result.defaultServingAmount) || 200;
@@ -294,10 +316,16 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
     if (!aiPrompt.trim()) return;
     setAiLoading(true);
     setAiError('');
+    setAiProgress(20);
+    setAiStatus('正在解析您的文字描述...');
     setRetryAction(() => handleAiTextAnalyze);
     try {
       const userKey = StorageService.getGeminiApiKey();
       const model = StorageService.getSelectedAiModel();
+      
+      setAiProgress(50);
+      setAiStatus('正在由 AI 營養師估算熱量與三大營養素...');
+      
       const res = await fetch('/api/ai/estimate-nutrition', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -307,6 +335,9 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
           model 
         }),
       });
+
+      setAiProgress(85);
+      setAiStatus('正在生成營養成分清單...');
 
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
@@ -600,11 +631,29 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
               </div>
 
               {aiLoading && (
-                <div className="py-6 text-center space-y-2">
-                  <Loader2 className="w-8 h-8 animate-spin text-purple-600 mx-auto" />
-                  <p className="text-xs font-medium text-purple-800">
-                    Gemini 營養師智慧模型正在分析營養成分，請稍候...
-                  </p>
+                <div className="py-6 px-4 bg-purple-50/50 rounded-2xl border border-purple-100 text-center space-y-4">
+                  <div className="relative">
+                    <Loader2 className="w-10 h-10 animate-spin text-purple-600 mx-auto opacity-20" />
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <Sparkles className="w-5 h-5 text-purple-600 animate-pulse" />
+                    </div>
+                  </div>
+                  
+                  <div className="space-y-3">
+                    <div className="flex justify-between text-[10px] font-black text-purple-700 uppercase tracking-wider px-1">
+                      <span>{aiStatus}</span>
+                      <span>{aiProgress}%</span>
+                    </div>
+                    <div className="w-full h-2.5 bg-purple-100 rounded-full overflow-hidden shadow-inner">
+                      <div 
+                        className="h-full bg-linear-to-r from-purple-500 to-indigo-600 transition-all duration-500 ease-out shadow-sm"
+                        style={{ width: `${aiProgress}%` }}
+                      ></div>
+                    </div>
+                    <p className="text-[10px] text-slate-500 font-medium">
+                      AI 辨識可能需要 5-15 秒，具體時間取決於網路與圖片複雜度
+                    </p>
+                  </div>
                 </div>
               )}
 
