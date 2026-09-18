@@ -416,6 +416,7 @@ export const StorageService = {
   },
   setWaterGoal(goalMl: number): void {
     setItem(STORAGE_KEYS.WATER_GOAL, goalMl);
+    this.saveToCloud();
   },
   getWaterPresets(): number[] {
     const defaults = [100, 250, 350, 500, 750, 1000];
@@ -427,6 +428,7 @@ export const StorageService = {
   },
   setWaterPresets(presets: number[]): void {
     setItem(STORAGE_KEYS.WATER_PRESETS, presets);
+    this.saveToCloud();
   },
 
   // Weight records
@@ -516,6 +518,7 @@ export const StorageService = {
   },
   setActiveCarbCycle(type: CarbCycleType): void {
     setItem(STORAGE_KEYS.ACTIVE_CARB_CYCLE, type);
+    this.saveToCloud();
   },
 
   // Daily Configs (Date-specific settings)
@@ -557,12 +560,14 @@ export const StorageService = {
   },
   saveExercises(exercises: { name: string; bodyPart: string }[]): void {
     setItem(STORAGE_KEYS.EXERCISES, exercises);
+    this.saveToCloud();
   },
   getMuscleGroups(): string[] {
     return getItem<string[]>(STORAGE_KEYS.MUSCLE_GROUPS, DEFAULT_MUSCLE_GROUPS);
   },
   saveMuscleGroups(groups: string[]): void {
     setItem(STORAGE_KEYS.MUSCLE_GROUPS, groups);
+    this.saveToCloud();
   },
   getCustomBodyParts(): string[] {
     return getItem<string[]>(STORAGE_KEYS.CUSTOM_BODY_PARTS, []);
@@ -574,12 +579,14 @@ export const StorageService = {
     if (!current.includes(trimmed)) {
       const updated = [trimmed, ...current];
       setItem(STORAGE_KEYS.CUSTOM_BODY_PARTS, updated);
+      this.saveToCloud();
     }
   },
   deleteCustomBodyPart(name: string): void {
     const current = this.getCustomBodyParts();
     const updated = current.filter((n) => n !== name);
     setItem(STORAGE_KEYS.CUSTOM_BODY_PARTS, updated);
+    this.saveToCloud();
   },
 
   // User profile
@@ -609,6 +616,7 @@ export const StorageService = {
   },
   saveSelectedAiModel(model: string): void {
     setItem(STORAGE_KEYS.GEMINI_MODEL, model);
+    this.saveToCloud();
   },
 
   // Export / Backup all data
@@ -743,14 +751,42 @@ export const StorageService = {
         }
       }
 
-      if (incoming.waterGoal) setItem(STORAGE_KEYS.WATER_GOAL, incoming.waterGoal);
-      if (incoming.presets) setItem(STORAGE_KEYS.CARB_PRESETS, incoming.presets);
-      if (incoming.activeMeals) setItem(STORAGE_KEYS.ACTIVE_MEALS, incoming.activeMeals);
-      if (incoming.workoutPresets) setItem(STORAGE_KEYS.WORKOUT_PRESETS, incoming.workoutPresets);
-      if (incoming.waterPresets) setItem(STORAGE_KEYS.WATER_PRESETS, incoming.waterPresets);
-      if (incoming.exercises) setItem(STORAGE_KEYS.EXERCISES, incoming.exercises);
-      if (incoming.muscleGroups) setItem(STORAGE_KEYS.MUSCLE_GROUPS, incoming.muscleGroups);
-      if (incoming.customBodyParts) setItem(STORAGE_KEYS.CUSTOM_BODY_PARTS, incoming.customBodyParts);
+      if (incoming.waterGoal) {
+        setItem(STORAGE_KEYS.WATER_GOAL, incoming.waterGoal);
+        localChanged = true;
+      }
+      if (incoming.presets) {
+        setItem(STORAGE_KEYS.CARB_PRESETS, incoming.presets);
+        localChanged = true;
+      }
+      if (incoming.activeMeals) {
+        setItem(STORAGE_KEYS.ACTIVE_MEALS, incoming.activeMeals);
+        localChanged = true;
+      }
+      if (incoming.workoutPresets) {
+        setItem(STORAGE_KEYS.WORKOUT_PRESETS, incoming.workoutPresets);
+        localChanged = true;
+      }
+      if (incoming.waterPresets) {
+        setItem(STORAGE_KEYS.WATER_PRESETS, incoming.waterPresets);
+        localChanged = true;
+      }
+      if (incoming.exercises) {
+        setItem(STORAGE_KEYS.EXERCISES, incoming.exercises);
+        localChanged = true;
+      }
+      if (incoming.muscleGroups) {
+        setItem(STORAGE_KEYS.MUSCLE_GROUPS, incoming.muscleGroups);
+        localChanged = true;
+      }
+      if (incoming.customBodyParts) {
+        setItem(STORAGE_KEYS.CUSTOM_BODY_PARTS, incoming.customBodyParts);
+        localChanged = true;
+      }
+      if (incoming.geminiModel) {
+        setItem(STORAGE_KEYS.GEMINI_MODEL, incoming.geminiModel);
+        localChanged = true;
+      }
 
       // If we integrated changes, upload the new merged state back to cloud
       if (localChanged) {
