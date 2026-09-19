@@ -6,6 +6,7 @@ import {
   FoodRecord,
   FoodSearchResult,
   MealConfig,
+  MealType,
   NutritionGoalPreset,
   UserProfile,
   WaterRecord,
@@ -259,6 +260,39 @@ export const StorageService = {
   getAllFoodRecords(): FoodRecord[] {
     return getItem<FoodRecord[]>(STORAGE_KEYS.FOOD_RECORDS, []);
   },
+  getRecentFoodHistory(mealType?: MealType, days: number = 7): FoodRecord[] {
+    const all = this.getAllFoodRecords();
+    const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+
+    // 1. Filter by 7 days & mealType
+    const filtered = all.filter((r) => {
+      const isRecent = (r.createdAt || 0) >= cutoff;
+      const isMealMatch = mealType ? r.mealType === mealType : true;
+      return isRecent && isMealMatch;
+    });
+
+    // 2. Group by food identifier (sourceFoodId/barcode/name_brand) & keep MAX(createdAt)
+    // Sort ascending first so newer items overwrite older ones in map
+    filtered.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+
+    const map = new Map<string, FoodRecord>();
+    for (const record of filtered) {
+      let key = '';
+      if (record.barcode && record.barcode.trim()) {
+        key = `barcode_${record.barcode.trim()}`;
+      } else {
+        const normName = (record.name || '').trim().toLowerCase();
+        const normBrand = (record.brand || '自訂').trim().toLowerCase();
+        key = `${normName}_${normBrand}`;
+      }
+      map.set(key, record);
+    }
+
+    // 3. Return array sorted DESC by MAX(createdAt)
+    return Array.from(map.values()).sort(
+      (a, b) => (b.createdAt || 0) - (a.createdAt || 0)
+    );
+  },
   getFoodRecordsByDate(date: string): FoodRecord[] {
     const all = this.getAllFoodRecords();
     return all.filter((r) => r.date === date);
@@ -328,7 +362,8 @@ export const StorageService = {
   },
   saveCustomFood(food: CustomFood): CustomFood {
     const all = this.getCustomFoods();
-    const updatedFood = { ...food, updatedAt: Date.now() };
+    const finalBrand = (food.brand || '').trim() || '自訂';
+    const updatedFood = { ...food, brand: finalBrand, updatedAt: Date.now() };
     const index = all.findIndex((f) => f.id === food.id);
     if (index >= 0) {
       all[index] = updatedFood;
@@ -363,7 +398,7 @@ export const StorageService = {
       return {
         id: `custom_${cf.id}`,
         name: cf.name,
-        brand: cf.brand || '我的常用自訂',
+        brand: cf.brand || '自訂',
         calories,
         carbs,
         sugars,

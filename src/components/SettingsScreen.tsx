@@ -1165,7 +1165,7 @@ export const SettingsScreen: React.FC = () => {
 
                         {/* 2. 品牌 */}
                         <div className="text-xs font-semibold text-slate-400 mt-0.5">
-                          {cf.brand && cf.brand !== 'AI 視覺辨識' && cf.brand !== 'AI 智慧估算' ? cf.brand : '一般食材'}
+                          {cf.brand && cf.brand !== 'AI 視覺辨識' && cf.brand !== 'AI 智慧估算' ? cf.brand : (cf.aiSource ? 'AI辨識' : '自訂')}
                         </div>
 
                         {/* 3. 重量 熱量 */}

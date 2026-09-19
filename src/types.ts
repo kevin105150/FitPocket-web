@@ -25,6 +25,16 @@ export interface FoodRecord {
   brand?: string;
   loggedAmount: number; // actual amount consumed (e.g. 1.5 or 200)
   loggedUnit: string;   // actual unit used (e.g. "份", "g", "ml")
+  baseServingAmount?: number; // original base single serving size e.g. 100
+  baseServingUnit?: string;   // original base single serving unit e.g. "g"
+  baseCalories?: number;      // original base calories for base serving size
+  baseCarbs?: number;
+  baseSugars?: number;
+  baseFiber?: number;
+  baseProtein?: number;
+  baseFat?: number;
+  baseSodium?: number;
+  basePotassium?: number;
   name: string;
   calories: number;
   carbs: number;
@@ -55,7 +65,7 @@ export interface CustomFood {
   potassium: number;
   imageUrl?: string;
   barcode?: string;
-  updatedAt: number;
+  updatedAt?: number;
   aiSource?: 'vision' | 'estimation';
   isSharedToCloud?: boolean;
 }
@@ -101,6 +111,7 @@ export interface FoodSearchResult {
   isCloudPreset?: boolean;
   barcode?: string;
   aiSource?: 'vision' | 'estimation';
+  lastLoggedAmount?: number;
 }
 
 export type CarbCycleType = 'HIGH' | 'MEDIUM' | 'LOW' | 'CUSTOM';

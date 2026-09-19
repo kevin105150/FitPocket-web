@@ -1,5 +1,5 @@
-import React, { useState, useRef } from 'react';
-import { X, Save, Sparkles, AlertCircle, ChevronDown, CloudUpload, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { X, Save, Sparkles, AlertCircle, ChevronDown, CloudUpload, AlertTriangle, CheckCircle2, Plus, Minus } from 'lucide-react';
 import { CloudFood, CustomFood } from '../types';
 import { MacroCalorieVerifier } from './MacroCalorieVerifier';
 import { CloudFoodService, isTfdaFood, normalizeBrandName } from '../services/cloudFoodService';
@@ -12,6 +12,32 @@ interface CustomFoodModalProps {
   mode?: "CUSTOM" | "EDIT_RECORD" | "AI_REVIEW" | "ADD_RECORD";
 }
 
+const isAllFieldsIdentical = (food: CustomFood, existing: CloudFood): boolean => {
+  const normStr = (s?: string) => (s || '').trim().toLowerCase();
+  const numEq = (n1?: number, n2?: number) => {
+    const v1 = Number(n1 || 0);
+    const v2 = Number(n2 || 0);
+    return Math.abs(v1 - v2) < 0.01;
+  };
+
+  if (normStr(food.name) !== normStr(existing.name)) return false;
+  if (normStr(food.brand) !== normStr(existing.brand)) return false;
+  if (normStr(food.servingUnit) !== normStr(existing.servingUnit)) return false;
+  if (normStr(food.barcode) !== normStr(existing.barcode)) return false;
+
+  if (!numEq(food.servingAmount, existing.servingAmount)) return false;
+  if (!numEq(food.calories, existing.calories)) return false;
+  if (!numEq(food.carbs, existing.carbs)) return false;
+  if (!numEq(food.protein, existing.protein)) return false;
+  if (!numEq(food.fat, existing.fat)) return false;
+  if (!numEq(food.sugars, existing.sugars)) return false;
+  if (!numEq(food.fiber, existing.fiber)) return false;
+  if (!numEq(food.sodium, existing.sodium)) return false;
+  if (!numEq(food.potassium, existing.potassium)) return false;
+
+  return true;
+};
+
 export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
   onClose,
   onSave,
@@ -20,7 +46,11 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
   mode = "CUSTOM",
 }) => {
   const [name, setName] = useState(initialFood?.name || '');
-  const [brand, setBrand] = useState(initialFood?.brand || '');
+  const [brand, setBrand] = useState(() => {
+    if (initialFood?.brand) return initialFood.brand;
+    if (mode === 'AI_REVIEW' || initialFood?.id?.startsWith('ai_')) return 'AI辨識';
+    return '';
+  });
   const [calories, setCalories] = useState<number | string>(initialFood?.calories ?? '');
   const [carbs, setCarbs] = useState<number | string>(initialFood?.carbs ?? '');
   const [protein, setProtein] = useState<number | string>(initialFood?.protein ?? '');
@@ -30,10 +60,24 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
   const [sodium, setSodium] = useState<number | string>(initialFood?.sodium ?? '');
   const [potassium, setPotassium] = useState<number | string>(initialFood?.potassium ?? '');
   
+  // 食品份量：固定基準值（唯讀或於新增自訂時設定）
   const [servingAmount, setServingAmount] = useState<number | string>(initialFood?.servingAmount || 100);
+  // 食用份量：動態變數
   const [consumedAmount, setConsumedAmount] = useState<number | string>(initialConsumedAmount ?? initialFood?.servingAmount ?? 100);
   const [servingUnit, setServingUnit] = useState<string>(initialFood?.servingUnit || 'g');
   const [barcode, setBarcode] = useState<string>(initialFood?.barcode || '');
+
+  // 份量輸入：動態變數（可手動輸入、微調或由卡片帶入）
+  const [portionInput, setPortionInput] = useState<number | string>(() => {
+    const base = Number(initialFood?.servingAmount) || 100;
+    const initialC = initialConsumedAmount !== undefined && initialConsumedAmount !== null
+      ? Number(initialConsumedAmount)
+      : base;
+    if (base > 0 && !isNaN(initialC)) {
+      return Math.round((initialC / base) * 10) / 10;
+    }
+    return 1;
+  });
   
   const isOfficialTfda = isTfdaFood({ id: initialFood?.id, brand });
   const [shareToCloud, setShareToCloud] = useState<boolean>(() => {
@@ -44,6 +88,40 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
     return initialFood?.isSharedToCloud !== undefined ? initialFood.isSharedToCloud : true;
   });
   const [isSharing, setIsSharing] = useState<boolean>(false);
+
+  const foodInitKey = initialFood
+    ? `${initialFood.id || ''}_${initialFood.name || ''}_${initialConsumedAmount ?? ''}_${mode}`
+    : '';
+
+  useEffect(() => {
+    if (initialFood) {
+      setName(initialFood.name || '');
+      const b = initialFood.brand || ((mode === 'AI_REVIEW' || initialFood.id?.startsWith('ai_')) ? 'AI辨識' : '');
+      setBrand(b);
+      setCalories(initialFood.calories ?? '');
+      setCarbs(initialFood.carbs ?? '');
+      setProtein(initialFood.protein ?? '');
+      setFat(initialFood.fat ?? '');
+      setSugars(initialFood.sugars ?? '');
+      setFiber(initialFood.fiber ?? '');
+      setSodium(initialFood.sodium ?? '');
+      setPotassium(initialFood.potassium ?? '');
+      const base = Number(initialFood.servingAmount) || 100;
+      setServingAmount(base);
+      setServingUnit(initialFood.servingUnit || 'g');
+      setBarcode(initialFood.barcode || '');
+
+      const initialC = (initialConsumedAmount !== undefined && initialConsumedAmount !== null && Number(initialConsumedAmount) > 0)
+        ? Number(initialConsumedAmount)
+        : base;
+      setConsumedAmount(initialC);
+      if (base > 0 && !isNaN(initialC)) {
+        setPortionInput(Math.round((initialC / base) * 10) / 10);
+      } else {
+        setPortionInput(1);
+      }
+    }
+  }, [foodInitKey]);
 
   const handleBrandChange = (newBrand: string) => {
     setBrand(newBrand);
@@ -105,7 +183,17 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
     const parsedConsumed = Number(consumedAmount) || 100;
 
     // Normalize brand (e.g. 7-11, 全家, 萊爾富, OK)
-    const normalizedBrand = normalizeBrandName(brand.trim() || '自訂飲食');
+    // If empty: in AI_REVIEW mode default to 'AI辨識', otherwise default to '自訂'
+    const trimmedBrand = brand.trim();
+    let finalBrand = trimmedBrand;
+    if (!finalBrand) {
+      if (mode === 'AI_REVIEW' || initialFood?.id?.startsWith('ai_')) {
+        finalBrand = 'AI辨識';
+      } else {
+        finalBrand = '自訂';
+      }
+    }
+    const normalizedBrand = normalizeBrandName(finalBrand);
 
     const food: CustomFood = {
       id: initialFood?.id || 'custom_' + Date.now(),
@@ -138,14 +226,17 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
 
         if (preCheck.exists && preCheck.existingFood) {
           setIsSharing(false);
-          // Show duplicate resolution dialog
-          setDuplicateModal({
-            show: true,
-            existingFood: preCheck.existingFood,
-            pendingFood: food,
-            pendingConsumedAmount: parsedConsumed,
-          });
-          return;
+          const isIdentical = isAllFieldsIdentical(food, preCheck.existingFood);
+          if (!isIdentical) {
+            // Show duplicate resolution dialog only if fields differ
+            setDuplicateModal({
+              show: true,
+              existingFood: preCheck.existingFood,
+              pendingFood: food,
+              pendingConsumedAmount: parsedConsumed,
+            });
+            return;
+          }
         }
       } catch (checkErr) {
         console.warn('Pre-check failed, continuing:', checkErr);
@@ -159,25 +250,209 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
 
   const isManualMode = mode === 'CUSTOM';
 
+  // 正向計算：修改「份量輸入」（手動輸入、微調 +/- 或點擊卡片）時，即時更新「食用份量 = 份量輸入 × 食品份量」
+  const updateFromPortionInput = (rawVal: string | number) => {
+    setPortionInput(rawVal);
+    if (rawVal === '' || rawVal === null || rawVal === undefined) {
+      setConsumedAmount('');
+      return;
+    }
+    const portionNum = typeof rawVal === 'number' ? rawVal : parseFloat(rawVal);
+    const baseServing = Number(servingAmount) || 0;
+
+    // 容錯機制：若非數字、小於 0 或食品份量為 0 時，預設帶入 0
+    if (isNaN(portionNum) || portionNum < 0 || baseServing <= 0) {
+      setConsumedAmount(0);
+      return;
+    }
+
+    // 食用份量 = 份量輸入 × 食品份量 (四捨五入至小數點後第 1 位)
+    const calculatedConsumed = Math.round(portionNum * baseServing * 10) / 10;
+    setConsumedAmount(calculatedConsumed);
+  };
+
+  // 反向計算：手動修改「食用份量」時，即時倒推更新「份量輸入 = 食用份量 / 食品份量」（結果四捨五入至小數點後第 1 位）
+  const updateFromConsumedAmount = (rawVal: string | number) => {
+    setConsumedAmount(rawVal);
+    if (rawVal === '' || rawVal === null || rawVal === undefined) {
+      setPortionInput('');
+      return;
+    }
+    const consumedNum = typeof rawVal === 'number' ? rawVal : parseFloat(rawVal);
+    const baseServing = Number(servingAmount) || 0;
+
+    // 容錯機制：若非數字、小於 0 或食品份量為 0 時，預設帶入 0（防止除以零錯誤）
+    if (isNaN(consumedNum) || consumedNum < 0 || baseServing <= 0) {
+      setPortionInput(0);
+      return;
+    }
+
+    // 份量輸入 = 食用份量 / 食品份量
+    const calculatedPortion = Math.round((consumedNum / baseServing) * 10) / 10;
+    setPortionInput(calculatedPortion);
+  };
+
+  // 微調按鈕：點擊 + / - 時，調整單位幅度為 0.1（最小值限制為 0）
+  const handleStepPortion = (delta: number) => {
+    const current = parseFloat(String(portionInput)) || 0;
+    const next = Math.max(0, Math.round((current + delta) * 10) / 10);
+    updateFromPortionInput(next);
+  };
+
+  // 自訂食材模式下修改基準食品份量時的連動
+  const handleServingAmountChange = (rawVal: string) => {
+    setServingAmount(rawVal);
+    const baseServing = parseFloat(rawVal);
+    const portionNum = parseFloat(String(portionInput));
+    if (!isNaN(baseServing) && baseServing > 0 && !isNaN(portionNum)) {
+      setConsumedAmount(Math.round(portionNum * baseServing * 10) / 10);
+    }
+  };
+
   // Helper Sections
-  const renderConsumedAmountSection = (uniqueKey: string) => (
-    <div key={uniqueKey} className="pt-2">
-      <label className="block text-xs font-semibold text-sky-700 mb-1">
-        實際食用份量 (將以此數值加入紀錄) <span className="text-sky-500">*</span>
-      </label>
-      <div className="grid grid-cols-2 gap-3">
-        <input
-          type="number"
-          value={consumedAmount}
-          onChange={(e) => setConsumedAmount(e.target.value)}
-          className="w-full px-3 py-2 rounded-xl border border-sky-200 font-bold text-sky-800 bg-sky-50 focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500 transition-colors"
-        />
-        <div className="flex items-center px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-slate-500 font-medium">
-          {unitOptions.find(o => o.value === servingUnit)?.label || servingUnit}
+  const renderConsumedAmountSection = (uniqueKey: string) => {
+    const unitLabel = unitOptions.find(o => o.value === servingUnit)?.label || servingUnit;
+    const baseServing = Number(servingAmount) || 0;
+
+    return (
+      <div key={uniqueKey} className="bg-sky-50/60 border border-sky-100 p-3.5 rounded-2xl space-y-3">
+        {/* 基準食品份量指示 (唯讀固定基準值提示) */}
+        <div className="flex items-center justify-between text-xs">
+          <span className="font-bold text-slate-700">份量與食用量換算</span>
+          <span className="text-[11px] font-semibold text-sky-800 bg-sky-100 px-2 py-0.5 rounded-md">
+            食品份量基準：{baseServing} {unitLabel}
+          </span>
+        </div>
+
+        {/* 1. 份量輸入欄位 (在食用份量上方) */}
+        <div>
+          <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+            份量輸入 <span className="text-slate-400 font-normal">（依每份基準計算倍數）</span>
+          </label>
+          <div className="flex items-center gap-2">
+            {/* - 微調按鈕 */}
+            <button
+              type="button"
+              onClick={() => handleStepPortion(-0.1)}
+              className="w-10 h-10 rounded-xl border border-slate-200 bg-white hover:bg-slate-100 active:scale-95 text-slate-700 font-black text-lg flex items-center justify-center transition cursor-pointer select-none shadow-2xs shrink-0"
+              title="減少 0.1 份"
+            >
+              <Minus className="w-4 h-4" />
+            </button>
+
+            {/* 數字輸入框 */}
+            <div className="relative flex-1">
+              <input
+                type="number"
+                step="0.1"
+                min="0"
+                value={portionInput}
+                onChange={(e) => updateFromPortionInput(e.target.value)}
+                placeholder="1"
+                className="w-full text-center px-3 py-2 rounded-xl border border-slate-200 font-bold text-slate-800 bg-white focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500 transition-colors"
+              />
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 pointer-events-none">
+                份
+              </span>
+            </div>
+
+            {/* + 微調按鈕 */}
+            <button
+              type="button"
+              onClick={() => handleStepPortion(0.1)}
+              className="w-10 h-10 rounded-xl border border-slate-200 bg-white hover:bg-slate-100 active:scale-95 text-slate-700 font-black text-lg flex items-center justify-center transition cursor-pointer select-none shadow-2xs shrink-0"
+              title="增加 0.1 份"
+            >
+              <Plus className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        {/* 2. 快速帶入卡片 (在份量輸入下方、食用份量上方) */}
+        <div>
+          <div className="text-[11px] font-semibold text-slate-500 mb-1.5">快速份量選擇</div>
+          <div className="grid grid-cols-4 gap-2">
+            {[0.5, 1, 1.5, 2].map((opt) => {
+              const isSelected = Number(portionInput) === opt;
+              return (
+                <button
+                  key={opt}
+                  type="button"
+                  onClick={() => updateFromPortionInput(opt)}
+                  className={`py-2 px-1 text-center rounded-xl text-xs font-bold transition-all cursor-pointer select-none border ${
+                    isSelected
+                      ? 'bg-sky-600 text-white border-sky-600 shadow-xs'
+                      : 'bg-white text-slate-700 hover:bg-sky-50 hover:text-sky-700 border-slate-200 shadow-2xs'
+                  }`}
+                >
+                  {opt} 份
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* 3. 食用份量輸入框 (正向/反向雙向即時運算) */}
+        <div className="pt-1 border-t border-sky-100/60">
+          <label className="block text-xs font-semibold text-sky-800 mb-1.5">
+            食用份量 (將以此數值加入紀錄) <span className="text-rose-500">*</span>
+          </label>
+          <div className="grid grid-cols-2 gap-3">
+            <input
+              type="number"
+              step="any"
+              min="0"
+              value={consumedAmount}
+              onChange={(e) => updateFromConsumedAmount(e.target.value)}
+              className="w-full px-3 py-2 rounded-xl border border-sky-300 font-bold text-sky-900 bg-white focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500 transition-colors shadow-2xs"
+              placeholder="0"
+            />
+            <div className="flex items-center px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-slate-600 font-bold text-sm">
+              {unitLabel}
+            </div>
+          </div>
+        </div>
+
+        {/* 4. 食用份量快速帶入卡片 (在食用份量下方) */}
+        <div>
+          <div className="text-[11px] font-semibold text-slate-500 mb-1.5">快速食用量選擇</div>
+          <div className="grid grid-cols-4 gap-2">
+            {(() => {
+              const isGramOrMl = servingUnit === 'g' || servingUnit === 'ml' || servingUnit === '公克' || servingUnit === '毫升';
+              const options: number[] = isGramOrMl
+                ? [50, 100, 150, 200]
+                : baseServing <= 1
+                  ? [1, 2, 3, 4]
+                  : [
+                      Math.round(baseServing * 0.5 * 10) / 10,
+                      Math.round(baseServing * 1 * 10) / 10,
+                      Math.round(baseServing * 1.5 * 10) / 10,
+                      Math.round(baseServing * 2 * 10) / 10,
+                    ];
+
+              return options.map((opt) => {
+                const isSelected = Number(consumedAmount) === opt;
+                return (
+                  <button
+                    key={opt}
+                    type="button"
+                    onClick={() => updateFromConsumedAmount(opt)}
+                    className={`py-2 px-1 text-center rounded-xl text-xs font-bold transition-all cursor-pointer select-none border whitespace-nowrap ${
+                      isSelected
+                        ? 'bg-sky-600 text-white border-sky-600 shadow-xs'
+                        : 'bg-white text-slate-700 hover:bg-sky-50 hover:text-sky-700 border-slate-200 shadow-2xs'
+                    }`}
+                  >
+                    {opt}{isGramOrMl ? servingUnit : ` ${servingUnit}`}
+                  </button>
+                );
+              });
+            })()}
+          </div>
         </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   const renderPreviewSection = (uniqueKey: string) => (
     <div key={uniqueKey} className="p-3 bg-slate-50 border border-slate-100 rounded-xl">
@@ -237,21 +512,35 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
 
   const renderServingAmountSection = () => (
     <div className="pt-2 border-t border-slate-100">
-      <label className="block text-xs font-semibold text-slate-700 mb-1">每份份量 (基準份量)</label>
+      <div className="flex items-center justify-between mb-1">
+        <label className="block text-xs font-semibold text-slate-700">每份份量 (基準食品份量)</label>
+        {!isManualMode && (
+          <span className="text-[10px] text-slate-400 font-medium">唯讀基準值</span>
+        )}
+      </div>
       <div className="grid grid-cols-2 gap-3">
         <input
           type="number"
           value={servingAmount}
-          onChange={(e) => setServingAmount(e.target.value)}
-          className="w-full px-3 py-2 rounded-xl border border-slate-200 font-medium text-slate-800"
+          readOnly={!isManualMode}
+          onChange={(e) => isManualMode && handleServingAmountChange(e.target.value)}
+          className={`w-full px-3 py-2 rounded-xl border font-medium transition-colors ${
+            !isManualMode
+              ? 'border-slate-200 bg-slate-100 text-slate-600 cursor-not-allowed'
+              : 'border-slate-200 text-slate-800 focus:outline-sky-600 bg-white'
+          }`}
         />
         <div className="relative">
           <div
-            onClick={() => setIsUnitDropdownOpen(!isUnitDropdownOpen)}
-            className="w-full px-3 py-2 rounded-xl border border-slate-200 font-medium text-slate-800 bg-white cursor-pointer flex items-center justify-between shadow-sm hover:border-sky-500 transition-colors"
+            onClick={() => isManualMode && setIsUnitDropdownOpen(!isUnitDropdownOpen)}
+            className={`w-full px-3 py-2 rounded-xl border font-medium flex items-center justify-between transition-colors ${
+              !isManualMode
+                ? 'border-slate-200 bg-slate-100 text-slate-600 cursor-not-allowed'
+                : 'border-slate-200 text-slate-800 bg-white cursor-pointer shadow-2xs hover:border-sky-500'
+            }`}
           >
             <span>{unitOptions.find(o => o.value === servingUnit)?.label || servingUnit}</span>
-            <ChevronDown className="w-4 h-4 text-slate-400" />
+            {isManualMode && <ChevronDown className="w-4 h-4 text-slate-400" />}
           </div>
           
           {isUnitDropdownOpen && (
@@ -453,7 +742,7 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
               </label>
               <input
                 type="text"
-                placeholder="例如: 自煮 / 巷口便當"
+                placeholder="例如: 自訂 / 自煮 / 7-11"
                 value={brand}
                 onChange={(e) => handleBrandChange(e.target.value)}
                 className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-sky-600 font-medium text-slate-800"
@@ -465,8 +754,7 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
                   { key: '萊爾富', label: '萊爾富' },
                   { key: 'OK', label: 'OK' },
                   { key: '自煮', label: '自煮' },
-                  { key: '好市多 (Costco)', label: '好市多' },
-                  { key: '麥當勞', label: '麥當勞' },
+                  { key: '自訂', label: '自訂' },
                 ].map((b) => (
                   <button
                     key={b.key}

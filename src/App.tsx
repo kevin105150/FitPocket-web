@@ -67,6 +67,7 @@ export default function App() {
   const [user, setUser] = useState(auth.currentUser);
   const [isInitializing, setIsInitializing] = useState(true);
   const [needsDriveAuth, setNeedsDriveAuth] = useState(false);
+  const [isUpdatingCredentials, setIsUpdatingCredentials] = useState(false);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>(StorageService.getCurrentSyncStatus());
   
   const { isInstallable, install } = usePWAInstall();
@@ -82,18 +83,30 @@ export default function App() {
 
   const handleRestoreAuth = async () => {
     try {
+      setIsUpdatingCredentials(true);
+      setNeedsDriveAuth(false);
+      localStorage.setItem('fitpocket_redirect_pending', 'true');
+
       const result = await loginWithGoogle(false);
       if (result.isRedirecting) {
         return;
       }
       if (result.accessToken) {
+        localStorage.removeItem('fitpocket_redirect_pending');
+        setIsUpdatingCredentials(false);
         setNeedsDriveAuth(false);
         // Trigger a catch-up sync
         StorageService.syncFromCloud().catch(err => console.warn("Sync error:", err));
+      } else {
+        localStorage.removeItem('fitpocket_redirect_pending');
+        setIsUpdatingCredentials(false);
+        setNeedsDriveAuth(true);
       }
     } catch (err) {
       console.error("Restore auth error:", err);
-      setNeedsDriveAuth(false);
+      localStorage.removeItem('fitpocket_redirect_pending');
+      setIsUpdatingCredentials(false);
+      setNeedsDriveAuth(true);
     }
   };
 
@@ -106,10 +119,18 @@ export default function App() {
         await StorageService.init();
         if (!active) return;
 
+        // If returning from redirect, show updating status
+        const isPendingRedirect = localStorage.getItem('fitpocket_redirect_pending') === 'true';
+        if (isPendingRedirect) {
+          setIsUpdatingCredentials(true);
+        }
+
         // Check for redirect result immediately
         const redirectedToken = await handleRedirectResult();
         if (redirectedToken) {
+          localStorage.removeItem('fitpocket_redirect_pending');
           setNeedsDriveAuth(false);
+          setIsUpdatingCredentials(false);
         }
         
         // After storage is ready, handle auth state
@@ -121,18 +142,28 @@ export default function App() {
             if (u) {
               const token = await getAccessToken();
               if (token) {
+                localStorage.removeItem('fitpocket_redirect_pending');
                 setNeedsDriveAuth(false);
+                setIsUpdatingCredentials(false);
                 if (localStorage.getItem('fitpocket_sync_pending') === 'true') {
                   StorageService.saveToCloud().catch(err => console.warn("Catch-up sync error:", err));
                 } else {
                   StorageService.syncFromCloud().catch(err => console.warn("Sync error (non-blocking):", err));
                 }
               } else {
+                localStorage.removeItem('fitpocket_redirect_pending');
+                setIsUpdatingCredentials(false);
                 setNeedsDriveAuth(true);
               }
+            } else {
+              localStorage.removeItem('fitpocket_redirect_pending');
+              setIsUpdatingCredentials(false);
             }
           } catch (innerErr) {
             console.error("Auth helper error during init:", innerErr);
+            localStorage.removeItem('fitpocket_redirect_pending');
+            setIsUpdatingCredentials(false);
+            setNeedsDriveAuth(true);
           } finally {
             if (active) setIsInitializing(false);
           }
@@ -142,6 +173,8 @@ export default function App() {
       } catch (err) {
         console.error("Storage initialization failed:", err);
         if (active) setIsInitializing(false);
+        localStorage.removeItem('fitpocket_redirect_pending');
+        setIsUpdatingCredentials(false);
         return () => {};
       }
     };
@@ -188,8 +221,26 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] flex flex-col antialiased text-slate-800">
-      {/* Drive Auth Modal */}
-      {needsDriveAuth && (
+      {/* Updating Credentials Loading Modal */}
+      {isUpdatingCredentials && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="w-full max-w-sm bg-white rounded-[32px] p-6 shadow-2xl border border-slate-100 flex flex-col items-center text-center space-y-4 animate-in zoom-in-95 duration-300">
+            <div className="w-16 h-16 bg-sky-50 rounded-2xl flex items-center justify-center">
+              <RefreshCw className="w-8 h-8 text-sky-600 animate-spin" />
+            </div>
+            
+            <div className="space-y-2">
+              <h3 className="text-lg font-black text-slate-900">更新憑證中...</h3>
+              <p className="text-xs text-slate-500 leading-relaxed px-4">
+                正在驗證與更新您的 Google 雲端授權憑證，請稍候...
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Drive Auth Expired Modal */}
+      {!isUpdatingCredentials && needsDriveAuth && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300">
           <div className="w-full max-w-sm bg-white rounded-[32px] p-6 shadow-2xl border border-slate-100 flex flex-col items-center text-center space-y-4 animate-in zoom-in-95 duration-300">
             <div className="w-16 h-16 bg-amber-50 rounded-2xl flex items-center justify-center">
@@ -206,15 +257,15 @@ export default function App() {
             <div className="w-full pt-2">
               <button 
                 onClick={handleRestoreAuth}
-                className="w-full py-3.5 bg-amber-600 hover:bg-amber-700 text-white font-black rounded-2xl shadow-lg shadow-amber-200 transition active:scale-95 flex items-center justify-center gap-2"
+                className="w-full py-3.5 bg-amber-600 hover:bg-amber-700 text-white font-black rounded-2xl shadow-lg shadow-amber-200 transition active:scale-95 flex items-center justify-center gap-2 cursor-pointer"
               >
                 <RefreshCw className="w-4 h-4" />
-                立即一鍵修復授權
+                更新憑證 / 立即一鍵修復授權
               </button>
               
               <button 
                 onClick={() => setNeedsDriveAuth(false)}
-                className="w-full mt-2 py-2 text-slate-400 text-[10px] font-bold hover:text-slate-600 transition"
+                className="w-full mt-2 py-2 text-slate-400 text-[10px] font-bold hover:text-slate-600 transition cursor-pointer"
               >
                 稍後再說（將暫停雲端同步）
               </button>

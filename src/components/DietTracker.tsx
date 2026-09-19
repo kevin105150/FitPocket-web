@@ -256,7 +256,7 @@ const MealSection: React.FC<MealSectionProps> = ({
 
                           {/* 2. 品牌 */}
                           <div className="text-[11px] font-semibold text-slate-400 -mt-0.5 mb-1">
-                            {item.brand || '一般食材'}
+                            {item.brand || (item.aiSource ? 'AI辨識' : '自訂')}
                           </div>
 
                           {/* 3. 重量 · 熱量 · CPF 一排 */}
@@ -459,20 +459,26 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
         setAiPhotoStatus('即將完成辨識...');
 
         const result = await res.json();
-        const defaultAmount = Number(result.defaultServingAmount) || 200;
+        const parseNum = (val: any, fallback: number) => {
+          const n = Number(val);
+          return isNaN(n) ? fallback : n;
+        };
+        const defaultAmount = parseNum(result.defaultServingAmount, 200) || 200;
         const ratio = defaultAmount / 100;
-        const calories = Math.round((Number(result.caloriesPer100g) || 150) * ratio * 10) / 10;
-        const carbs = Math.round((Number(result.carbsPer100g) || 15) * ratio * 10) / 10;
-        const protein = Math.round((Number(result.proteinPer100g) || 10) * ratio * 10) / 10;
-        const fat = Math.round((Number(result.fatPer100g) || 5) * ratio * 10) / 10;
-        const sugars = Math.round((Number(result.sugarsPer100g) || 0) * ratio * 10) / 10;
-        const fiber = Math.round((Number(result.fiberPer100g) || 0) * ratio * 10) / 10;
-        const sodium = Math.round((Number(result.sodiumPer100g) || 0) * ratio * 10) / 10;
-        const potassium = Math.round((Number(result.potassiumPer100g) || 0) * ratio * 10) / 10;
+        const calories = Math.round(parseNum(result.caloriesPer100g, 150) * ratio * 10) / 10;
+        const carbs = Math.round(parseNum(result.carbsPer100g, 0) * ratio * 10) / 10;
+        const protein = Math.round(parseNum(result.proteinPer100g, 10) * ratio * 10) / 10;
+        const fat = Math.round(parseNum(result.fatPer100g, 5) * ratio * 10) / 10;
+        const sugars = Math.round(parseNum(result.sugarsPer100g, 0) * ratio * 10) / 10;
+        const fiber = Math.round(parseNum(result.fiberPer100g, 0) * ratio * 10) / 10;
+        const sodium = Math.round(parseNum(result.sodiumPer100g, 0) * ratio * 10) / 10;
+        const potassium = Math.round(parseNum(result.potassiumPer100g, 0) * ratio * 10) / 10;
 
         // Extract and normalize brand (e.g. 7-11, 全家, 萊爾富, OK) and barcode
         const rawBrand = result.brand ? String(result.brand).trim() : '';
-        const normalizedBrand = rawBrand ? CloudFoodService.normalizeBrand(rawBrand) : '';
+        const normalizedBrand = (rawBrand && rawBrand !== 'AI辨識' && rawBrand !== 'AI 視覺辨識')
+          ? CloudFoodService.normalizeBrand(rawBrand)
+          : 'AI辨識';
         const detectedBarcode = result.barcode ? String(result.barcode).trim() : undefined;
 
         const foodItem: FoodSearchResult = {
@@ -691,34 +697,49 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
     if (mealType) {
       setSelectedMealForAdd(mealType);
     }
-    if (food.id.startsWith('ai_')) {
-      setShowAddFood(false);
-      setAiReviewFood(food);
-    } else {
-      setFoodForPortion(food);
-    }
+    // Always route through foodForPortion so AddFoodModal remains active underneath
+    // and closing/saving reliably stays on the search modal instead of dropping to home
+    setFoodForPortion(food);
   };
 
   // Handle fast add food directly from search modal
   const handleFastAddFood = (food: FoodSearchResult, mealType?: MealType) => {
     const targetMeal = mealType || selectedMealForAdd;
+    const baseServing = food.servingAmount || 100;
+    const amountToLog = (food.lastLoggedAmount !== undefined && food.lastLoggedAmount !== null && food.lastLoggedAmount > 0)
+      ? food.lastLoggedAmount
+      : baseServing;
+    const ratio = baseServing > 0 ? amountToLog / baseServing : 1;
+
     const record: FoodRecord = {
       id: 'record_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
+      sourceFoodId: food.id,
       name: food.name,
       brand: food.brand,
       barcode: food.barcode,
       mealType: targetMeal,
       date: currentDate,
-      calories: food.calories,
-      carbs: food.carbs,
-      protein: food.protein,
-      fat: food.fat,
-      sugars: food.sugars || 0,
-      fiber: food.fiber || 0,
-      sodium: food.sodium || 0,
-      potassium: food.potassium || 0,
-      loggedAmount: food.servingAmount || 100,
+      calories: Math.round(food.calories * ratio * 10) / 10,
+      carbs: Math.round(food.carbs * ratio * 10) / 10,
+      protein: Math.round(food.protein * ratio * 10) / 10,
+      fat: Math.round(food.fat * ratio * 10) / 10,
+      sugars: food.sugars ? Math.round(food.sugars * ratio * 10) / 10 : 0,
+      fiber: food.fiber ? Math.round(food.fiber * ratio * 10) / 10 : 0,
+      sodium: food.sodium ? Math.round(food.sodium * ratio * 10) / 10 : 0,
+      potassium: food.potassium ? Math.round(food.potassium * ratio * 10) / 10 : 0,
+      loggedAmount: amountToLog,
       loggedUnit: food.servingUnit || 'g',
+      baseServingAmount: baseServing,
+      baseServingUnit: food.servingUnit || 'g',
+      baseCalories: food.calories,
+      baseCarbs: food.carbs,
+      baseProtein: food.protein,
+      baseFat: food.fat,
+      baseSugars: food.sugars || 0,
+      baseFiber: food.fiber || 0,
+      baseSodium: food.sodium || 0,
+      basePotassium: food.potassium || 0,
+      aiSource: food.aiSource,
       createdAt: Date.now(),
     };
     StorageService.saveFoodRecord(record);
@@ -1081,7 +1102,6 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
           onSelectFood={(food, mealType) => handleSelectFood(food, mealType)}
           onFastAddFood={(food, mealType) => handleFastAddFood(food, mealType)}
           onOpenCustomFoodModal={() => {
-            setShowAddFood(false);
             setShowCustomFoodModal(true);
           }}
         />
@@ -1105,14 +1125,27 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
              potassium: foodForPortion.potassium,
              servingAmount: foodForPortion.servingAmount || 100,
              servingUnit: foodForPortion.servingUnit || 'g',
-             updatedAt: Date.now(),
           }}
           initialConsumedAmount={(() => {
+             if (foodForPortion.lastLoggedAmount !== undefined && foodForPortion.lastLoggedAmount !== null && foodForPortion.lastLoggedAmount > 0) {
+                return foodForPortion.lastLoggedAmount;
+             }
              const allRecords = StorageService.getAllFoodRecords();
+             const cleanTargetId = foodForPortion.id.replace(/^(custom_|cloud_|preset_|tfda_|ai_photo_|ai_est_|ai_estimation_|record_)/, '');
+             const targetName = foodForPortion.name.trim().toLowerCase();
              const matching = allRecords
-                .filter(r => (r.sourceFoodId === foodForPortion.id) || (r.id === foodForPortion.id) || (r.name === foodForPortion.name))
+                .filter(r => {
+                   const cleanSourceId = (r.sourceFoodId || r.id).replace(/^(custom_|cloud_|preset_|tfda_|ai_photo_|ai_est_|ai_estimation_|record_)/, '');
+                   const rName = r.name.trim().toLowerCase();
+                   return (
+                     cleanSourceId === cleanTargetId ||
+                     r.sourceFoodId === foodForPortion.id ||
+                     r.id === foodForPortion.id ||
+                     rName === targetName
+                   );
+                })
                 .sort((a, b) => b.createdAt - a.createdAt);
-             if (matching.length > 0) {
+             if (matching.length > 0 && matching[0].loggedAmount > 0) {
                 return matching[0].loggedAmount;
              }
              return foodForPortion.servingAmount || 100;
@@ -1125,6 +1158,7 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
              const ratio = consumedAmount / (food.servingAmount || 1);
              const record: FoodRecord = {
                 id: 'record_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
+                sourceFoodId: food.id,
                 name: food.name,
                 brand: food.brand,
                 barcode: food.barcode,
@@ -1140,10 +1174,22 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
                 potassium: Math.round((food.potassium || 0) * ratio * 10) / 10,
                 loggedAmount: consumedAmount,
                 loggedUnit: food.servingUnit,
+                baseServingAmount: food.servingAmount || 100,
+                baseServingUnit: food.servingUnit || 'g',
+                baseCalories: food.calories,
+                baseCarbs: food.carbs,
+                baseProtein: food.protein,
+                baseFat: food.fat,
+                baseSugars: food.sugars || 0,
+                baseFiber: food.fiber || 0,
+                baseSodium: food.sodium || 0,
+                basePotassium: food.potassium || 0,
+                aiSource: food.aiSource,
                 createdAt: Date.now(),
              };
              StorageService.saveFoodRecord(record);
              setFoodForPortion(null);
+             setShowAddFood(true);
              refreshRecords();
           }}
         />
@@ -1183,7 +1229,6 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
              potassium: aiReviewFood.potassium,
              servingAmount: aiReviewFood.servingAmount || 100,
              servingUnit: aiReviewFood.servingUnit || 'g',
-             updatedAt: Date.now(),
           }}
           initialConsumedAmount={aiReviewFood.servingAmount || 100}
           onClose={() => setAiReviewFood(null)}
@@ -1242,25 +1287,57 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
                    servingAmount: 100,
                    servingUnit: 'g',
                    barcode: editingRecord.barcode,
-                   updatedAt: Date.now(),
                 };
              }
+             const customFoods = StorageService.getCustomFoods();
+             const matchedCustom = customFoods.find(cf => 
+               cf.id === editingRecord.sourceFoodId || 
+               cf.id === editingRecord.id || 
+               (cf.name === editingRecord.name && cf.brand === editingRecord.brand)
+             );
+             if (matchedCustom && Number(matchedCustom.servingAmount) > 0) {
+                return {
+                   ...matchedCustom,
+                };
+             }
+             if (editingRecord.baseServingAmount && editingRecord.baseCalories !== undefined && editingRecord.baseServingAmount > 0) {
+                return {
+                   id: editingRecord.sourceFoodId || editingRecord.id,
+                   name: editingRecord.name,
+                   brand: editingRecord.brand || '',
+                   calories: editingRecord.baseCalories,
+                   carbs: editingRecord.baseCarbs ?? editingRecord.carbs,
+                   protein: editingRecord.baseProtein ?? editingRecord.protein,
+                   fat: editingRecord.baseFat ?? editingRecord.fat,
+                   sugars: editingRecord.baseSugars ?? editingRecord.sugars ?? 0,
+                   fiber: editingRecord.baseFiber ?? editingRecord.fiber ?? 0,
+                   sodium: editingRecord.baseSodium ?? editingRecord.sodium ?? 0,
+                   potassium: editingRecord.basePotassium ?? editingRecord.potassium ?? 0,
+                   servingAmount: editingRecord.baseServingAmount,
+                   servingUnit: editingRecord.baseServingUnit || editingRecord.loggedUnit || 'g',
+                   barcode: editingRecord.barcode,
+                };
+             }
+             const logged = editingRecord.loggedAmount || 100;
+             const unit = editingRecord.baseServingUnit || editingRecord.loggedUnit || 'g';
+             const isSingleUnit = ['份', '個', '顆', '碗', '包', '片', '盤', '杯', '罐', '支', '塊', '條', '盒'].includes(unit);
+             const baseServing = isSingleUnit ? 1 : 100;
+             const ratio = logged > 0 ? baseServing / logged : 1;
              return {
                 id: editingRecord.id,
                 name: editingRecord.name,
                 brand: editingRecord.brand || '',
-                calories: editingRecord.calories,
-                carbs: editingRecord.carbs,
-                protein: editingRecord.protein,
-                fat: editingRecord.fat,
-                sugars: editingRecord.sugars,
-                fiber: editingRecord.fiber,
-                sodium: editingRecord.sodium,
-                potassium: editingRecord.potassium,
-                servingAmount: editingRecord.loggedAmount,
-                servingUnit: editingRecord.loggedUnit,
+                calories: Math.round((editingRecord.calories || 0) * ratio * 10) / 10,
+                carbs: Math.round((editingRecord.carbs || 0) * ratio * 10) / 10,
+                protein: Math.round((editingRecord.protein || 0) * ratio * 10) / 10,
+                fat: Math.round((editingRecord.fat || 0) * ratio * 10) / 10,
+                sugars: Math.round((editingRecord.sugars || 0) * ratio * 10) / 10,
+                fiber: Math.round((editingRecord.fiber || 0) * ratio * 10) / 10,
+                sodium: Math.round((editingRecord.sodium || 0) * ratio * 10) / 10,
+                potassium: Math.round((editingRecord.potassium || 0) * ratio * 10) / 10,
+                servingAmount: baseServing,
+                servingUnit: unit,
                 barcode: editingRecord.barcode,
-                updatedAt: Date.now(),
              };
           })()}
           initialConsumedAmount={editingRecord.loggedAmount}

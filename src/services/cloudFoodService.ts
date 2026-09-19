@@ -22,7 +22,7 @@ const COLLECTION_NAME = 'cloud_foods';
  */
 export function normalizeBrandName(brandName: string): string {
   const b = (brandName || '').trim();
-  if (!b) return '自訂飲食';
+  if (!b || b === '自訂飲食') return '自訂';
 
   // Check 7-11
   if (/^(7-?11|7-?eleven|seven(-?eleven)?|統一超商|小七|711)$/i.test(b) || /7-?eleven/i.test(b) || /統一超商/.test(b)) {

@@ -17,12 +17,15 @@ import {
   Upload,
   ChevronDown,
   Cloud,
+  History,
+  Clock,
 } from 'lucide-react';
-import { CustomFood, FoodSearchResult, MealType } from '../types';
+import { CustomFood, FoodSearchResult, MealType, FoodRecord } from '../types';
 import { StorageService } from '../services/storage';
 import { CloudFoodService } from '../services/cloudFoodService';
 import { optimizeImageForAi } from '../utils/imageOptimizer';
 import { checkAiKeyOrWarn } from '../utils/aiHelper';
+import { getTodayString } from '../utils/dateUtils';
 
 interface AddFoodModalProps {
   initialMealType: MealType;
@@ -40,6 +43,7 @@ export type FoodTab = 'ALL' | 'OFFICIAL' | 'CUSTOM' | 'CLOUD' | 'AI_SCAN' | 'BAR
 export const AddFoodModal: React.FC<AddFoodModalProps> = ({
   initialMealType,
   availableMeals,
+  currentDate = getTodayString(),
   initialTab = 'ALL',
   onClose,
   onSelectFood,
@@ -55,6 +59,197 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
   const [addedIds, setAddedIds] = useState<Record<string, boolean>>({});
   const [fastAddNotice, setFastAddNotice] = useState<string | null>(null);
 
+  // History state & scroll ref
+  const [historyRecords, setHistoryRecords] = useState<FoodRecord[]>([]);
+  const [animatingHistoryId, setAnimatingHistoryId] = useState<string | null>(null);
+  const contentBodyRef = useRef<HTMLDivElement>(null);
+
+  const loadHistoryRecords = () => {
+    const recent = StorageService.getRecentFoodHistory(selectedMealType, 7);
+    setHistoryRecords(recent);
+  };
+
+  useEffect(() => {
+    loadHistoryRecords();
+  }, [selectedMealType]);
+
+  const mapRecordToSearchResult = (r: FoodRecord): FoodSearchResult => {
+    // 1. Try to find original custom food
+    const customFoods = StorageService.getCustomFoods();
+    const custom = customFoods.find(
+      (c) => c.id === r.sourceFoodId || (c.name === r.name && c.brand === r.brand)
+    );
+    if (custom) {
+      return {
+        id: custom.id,
+        name: custom.name,
+        brand: custom.brand,
+        barcode: custom.barcode || r.barcode,
+        calories: custom.calories,
+        carbs: custom.carbs,
+        protein: custom.protein,
+        fat: custom.fat,
+        sugars: custom.sugars || 0,
+        fiber: custom.fiber || 0,
+        sodium: custom.sodium || 0,
+        potassium: custom.potassium || 0,
+        servingAmount: custom.servingAmount,
+        servingUnit: custom.servingUnit,
+        aiSource: custom.aiSource || r.aiSource,
+        isUserCustom: true,
+        lastLoggedAmount: r.loggedAmount,
+      };
+    }
+
+    // 2. Try to find original preset food
+    const presetFoods = StorageService.getPresetFoods();
+    const preset = presetFoods.find(
+      (p) => p.id === r.sourceFoodId || p.name === r.name
+    );
+    if (preset) {
+      return {
+        ...preset,
+        id: preset.id,
+        aiSource: r.aiSource,
+        lastLoggedAmount: r.loggedAmount,
+      };
+    }
+
+    // 3. Check if record has explicit base serving fields
+    if (r.baseServingAmount && r.baseCalories !== undefined && r.baseServingAmount > 0) {
+      return {
+        id: r.sourceFoodId || r.id,
+        name: r.name,
+        brand: r.brand || '自訂',
+        barcode: r.barcode,
+        calories: r.baseCalories,
+        carbs: r.baseCarbs ?? r.carbs,
+        protein: r.baseProtein ?? r.protein,
+        fat: r.baseFat ?? r.fat,
+        sugars: r.baseSugars ?? r.sugars ?? 0,
+        fiber: r.baseFiber ?? r.fiber ?? 0,
+        sodium: r.baseSodium ?? r.sodium ?? 0,
+        potassium: r.basePotassium ?? r.potassium ?? 0,
+        servingAmount: r.baseServingAmount,
+        servingUnit: r.baseServingUnit || r.loggedUnit || 'g',
+        aiSource: r.aiSource,
+        lastLoggedAmount: r.loggedAmount,
+      };
+    }
+
+    // 4. Default fallback: calculate base values if loggedAmount > 0
+    const logged = r.loggedAmount || 100;
+    const isTfda = r.sourceFoodId?.startsWith('tfda_') || r.id?.startsWith('tfda_') || (r.brand || '').includes('衛福部');
+    const unit = r.baseServingUnit || r.loggedUnit || 'g';
+    const isSingleUnit = ['份', '個', '顆', '碗', '包', '片', '盤', '杯', '罐', '支', '塊', '條', '盒'].includes(unit);
+    const baseServing = isTfda ? 100 : isSingleUnit ? 1 : (r.baseServingAmount || 100);
+    const ratio = logged > 0 ? baseServing / logged : 1;
+
+    return {
+      id: r.sourceFoodId || r.id,
+      name: r.name,
+      brand: r.brand || '自訂',
+      barcode: r.barcode,
+      calories: Math.round((r.calories || 0) * ratio * 10) / 10,
+      carbs: Math.round((r.carbs || 0) * ratio * 10) / 10,
+      protein: Math.round((r.protein || 0) * ratio * 10) / 10,
+      fat: Math.round((r.fat || 0) * ratio * 10) / 10,
+      sugars: Math.round((r.sugars || 0) * ratio * 10) / 10,
+      fiber: Math.round((r.fiber || 0) * ratio * 10) / 10,
+      sodium: Math.round((r.sodium || 0) * ratio * 10) / 10,
+      potassium: Math.round((r.potassium || 0) * ratio * 10) / 10,
+      servingAmount: baseServing,
+      servingUnit: unit,
+      aiSource: r.aiSource,
+      lastLoggedAmount: r.loggedAmount,
+    };
+  };
+
+  const formatHistoryTime = (timestamp: number): string => {
+    if (!timestamp) return '過去紀錄';
+    const now = Date.now();
+    const diffHours = (now - timestamp) / (1000 * 60 * 60);
+    if (diffHours < 24) {
+      const d = new Date(timestamp);
+      const hh = String(d.getHours()).padStart(2, '0');
+      const mm = String(d.getMinutes()).padStart(2, '0');
+      return `今天 ${hh}:${mm}`;
+    }
+    const diffDays = Math.floor(diffHours / 24);
+    if (diffDays === 1) return '昨天';
+    return `${diffDays}天前`;
+  };
+
+  const handleQuickAddHistory = async (record: FoodRecord) => {
+    // 1. Trigger Checkmark Animation immediately
+    setAnimatingHistoryId(record.id);
+
+    // 2. Short wait before re-order
+    await new Promise((resolve) => setTimeout(resolve, 150));
+
+    // 3. Delegate ONLY to onFastAddFood / onSelectFood to prevent double insertion!
+    const searchItem = mapRecordToSearchResult(record);
+    if (onFastAddFood) {
+      onFastAddFood(searchItem, selectedMealType);
+    } else {
+      onSelectFood(searchItem, selectedMealType);
+    }
+
+    // 4. Reload history list -> updates order & moves item to top (Index 0), replacing the original
+    const updated = StorageService.getRecentFoodHistory(selectedMealType, 7);
+    setHistoryRecords(updated);
+    const newTopId = updated[0]?.id;
+    setAddedIds((prev) => ({ ...prev, [record.id]: true, ...(newTopId ? { [newTopId]: true } : {}) }));
+    setFastAddNotice(`已快速新增「${record.name}」！`);
+
+    // 5. Scroll container smoothly to top (Position 0)
+    if (contentBodyRef.current) {
+      contentBodyRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    setTimeout(() => {
+      setAddedIds((prev) => ({
+        ...prev,
+        [record.id]: false,
+        ...(newTopId ? { [newTopId]: false } : {}),
+      }));
+      setAnimatingHistoryId(null);
+    }, 500);
+
+    setTimeout(() => {
+      setFastAddNotice(null);
+    }, 1500);
+  };
+
+  const handleSelectFoodWithHistory = (food: FoodSearchResult) => {
+    let foodToSelect = food;
+    if (foodToSelect.lastLoggedAmount === undefined || foodToSelect.lastLoggedAmount === null) {
+      const allRecords = StorageService.getAllFoodRecords();
+      const cleanTargetId = food.id.replace(/^(custom_|cloud_|preset_|tfda_|ai_photo_|ai_est_|ai_estimation_|record_)/, '');
+      const targetName = food.name.trim().toLowerCase();
+      const match = allRecords
+        .filter((r) => {
+          const cleanSourceId = (r.sourceFoodId || r.id).replace(/^(custom_|cloud_|preset_|tfda_|ai_photo_|ai_est_|ai_estimation_|record_)/, '');
+          return cleanSourceId === cleanTargetId || r.sourceFoodId === food.id || r.id === food.id || r.name.trim().toLowerCase() === targetName;
+        })
+        .sort((a, b) => b.createdAt - a.createdAt)[0];
+      if (match && match.loggedAmount > 0) {
+        foodToSelect = { ...food, lastLoggedAmount: match.loggedAmount };
+      }
+    }
+    onSelectFood(foodToSelect, selectedMealType);
+  };
+
+  const filteredHistoryRecords = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return historyRecords;
+    return historyRecords.filter((r) => {
+      const matchName = r.name.toLowerCase().includes(q);
+      const matchBrand = (r.brand || '').toLowerCase().includes(q);
+      return matchName || matchBrand;
+    });
+  }, [historyRecords, searchQuery]);
+
   const handleFastAdd = (food: FoodSearchResult) => {
     if (onFastAddFood) {
       onFastAddFood(food, selectedMealType);
@@ -62,16 +257,23 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
       onSelectFood(food, selectedMealType);
       return;
     }
-    setAddedIds((prev) => ({ ...prev, [food.id]: true }));
+    const updated = StorageService.getRecentFoodHistory(selectedMealType, 7);
+    setHistoryRecords(updated);
+    const newTopId = updated[0]?.id;
+    setAddedIds((prev) => ({ ...prev, [food.id]: true, ...(newTopId ? { [newTopId]: true } : {}) }));
     setFastAddNotice(`已快速新增「${food.name}」！`);
 
     setTimeout(() => {
-      setAddedIds((prev) => ({ ...prev, [food.id]: false }));
-    }, 1500);
+      setAddedIds((prev) => ({
+        ...prev,
+        [food.id]: false,
+        ...(newTopId ? { [newTopId]: false } : {}),
+      }));
+    }, 500);
 
     setTimeout(() => {
       setFastAddNotice(null);
-    }, 2500);
+    }, 1500);
   };
 
   const selectedMealName = availableMeals.find(m => m.type === selectedMealType)?.name || '餐點';
@@ -292,20 +494,26 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
       setAiStatus('正在整理辨識結果...');
 
       const result = await res.json();
-      const defaultAmount = Number(result.defaultServingAmount) || 200;
+      const parseNum = (val: any, fallback: number) => {
+        const n = Number(val);
+        return isNaN(n) ? fallback : n;
+      };
+      const defaultAmount = parseNum(result.defaultServingAmount, 200) || 200;
       const ratio = defaultAmount / 100;
-      const calories = Math.round((Number(result.caloriesPer100g) || 150) * ratio * 10) / 10;
-      const carbs = Math.round((Number(result.carbsPer100g) || 15) * ratio * 10) / 10;
-      const protein = Math.round((Number(result.proteinPer100g) || 10) * ratio * 10) / 10;
-      const fat = Math.round((Number(result.fatPer100g) || 5) * ratio * 10) / 10;
-      const sugars = Math.round((Number(result.sugarsPer100g) || 0) * ratio * 10) / 10;
-      const fiber = Math.round((Number(result.fiberPer100g) || 0) * ratio * 10) / 10;
-      const sodium = Math.round((Number(result.sodiumPer100g) || 0) * ratio * 10) / 10;
-      const potassium = Math.round((Number(result.potassiumPer100g) || 0) * ratio * 10) / 10;
+      const calories = Math.round(parseNum(result.caloriesPer100g, 150) * ratio * 10) / 10;
+      const carbs = Math.round(parseNum(result.carbsPer100g, 0) * ratio * 10) / 10;
+      const protein = Math.round(parseNum(result.proteinPer100g, 10) * ratio * 10) / 10;
+      const fat = Math.round(parseNum(result.fatPer100g, 5) * ratio * 10) / 10;
+      const sugars = Math.round(parseNum(result.sugarsPer100g, 0) * ratio * 10) / 10;
+      const fiber = Math.round(parseNum(result.fiberPer100g, 0) * ratio * 10) / 10;
+      const sodium = Math.round(parseNum(result.sodiumPer100g, 0) * ratio * 10) / 10;
+      const potassium = Math.round(parseNum(result.potassiumPer100g, 0) * ratio * 10) / 10;
 
       // Extract and normalize brand (e.g. 7-11, 全家, 萊爾富, OK) and barcode
       const rawBrand = result.brand ? String(result.brand).trim() : '';
-      const normalizedBrand = rawBrand ? CloudFoodService.normalizeBrand(rawBrand) : '';
+      const normalizedBrand = (rawBrand && rawBrand !== 'AI辨識' && rawBrand !== 'AI 視覺辨識')
+        ? CloudFoodService.normalizeBrand(rawBrand)
+        : 'AI辨識';
       const detectedBarcode = result.barcode ? String(result.barcode).trim() : undefined;
 
       const foodItem: FoodSearchResult = {
@@ -376,21 +584,30 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
       }
 
       const result = await res.json();
-      const defaultAmount = Number(result.defaultServingAmount) || 100;
+      const parseNum = (val: any, fallback: number) => {
+        const n = Number(val);
+        return isNaN(n) ? fallback : n;
+      };
+      const defaultAmount = parseNum(result.defaultServingAmount, 100) || 100;
       const ratio = defaultAmount / 100;
-      const calories = Math.round((Number(result.caloriesPer100g) || 150) * ratio * 10) / 10;
-      const carbs = Math.round((Number(result.carbsPer100g) || 15) * ratio * 10) / 10;
-      const protein = Math.round((Number(result.proteinPer100g) || 10) * ratio * 10) / 10;
-      const fat = Math.round((Number(result.fatPer100g) || 5) * ratio * 10) / 10;
-      const sugars = Math.round((Number(result.sugarsPer100g) || 0) * ratio * 10) / 10;
-      const fiber = Math.round((Number(result.fiberPer100g) || 0) * ratio * 10) / 10;
-      const sodium = Math.round((Number(result.sodiumPer100g) || 0) * ratio * 10) / 10;
-      const potassium = Math.round((Number(result.potassiumPer100g) || 0) * ratio * 10) / 10;
+      const calories = Math.round(parseNum(result.caloriesPer100g, 150) * ratio * 10) / 10;
+      const carbs = Math.round(parseNum(result.carbsPer100g, 0) * ratio * 10) / 10;
+      const protein = Math.round(parseNum(result.proteinPer100g, 10) * ratio * 10) / 10;
+      const fat = Math.round(parseNum(result.fatPer100g, 5) * ratio * 10) / 10;
+      const sugars = Math.round(parseNum(result.sugarsPer100g, 0) * ratio * 10) / 10;
+      const fiber = Math.round(parseNum(result.fiberPer100g, 0) * ratio * 10) / 10;
+      const sodium = Math.round(parseNum(result.sodiumPer100g, 0) * ratio * 10) / 10;
+      const potassium = Math.round(parseNum(result.potassiumPer100g, 0) * ratio * 10) / 10;
+
+      const rawBrand = result.brand ? String(result.brand).trim() : '';
+      const normalizedBrand = (rawBrand && rawBrand !== 'AI辨識' && rawBrand !== 'AI 智慧估算')
+        ? CloudFoodService.normalizeBrand(rawBrand)
+        : 'AI辨識';
 
       const foodItem: FoodSearchResult = {
         id: 'ai_' + Date.now(),
         name: result.name || aiPrompt.trim(),
-        brand: '',
+        brand: normalizedBrand,
         calories,
         carbs,
         protein,
@@ -559,7 +776,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
         )}
 
         {/* Content Body */}
-        <div className="flex-1 overflow-y-auto p-4">
+        <div ref={contentBodyRef} className="flex-1 overflow-y-auto p-4">
           {/* TAB: AI SCAN */}
           {activeTab === 'AI_SCAN' && (
             <div className="space-y-4 max-w-md mx-auto py-2">
@@ -785,7 +1002,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                 cloudFoods.map((food) => (
                   <div
                     key={food.id}
-                    onClick={() => onSelectFood(food, selectedMealType)}
+                    onClick={() => handleSelectFoodWithHistory(food)}
                     className="p-3 bg-white border border-slate-200 hover:border-sky-400 rounded-2xl hover:shadow-sm transition cursor-pointer flex items-start justify-between gap-3 group"
                   >
                     <div className="min-w-0 flex-1">
@@ -803,7 +1020,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
-                              onSelectFood(food, selectedMealType);
+                              handleSelectFoodWithHistory(food);
                             }}
                             className="p-1 text-slate-400 hover:text-sky-700 hover:bg-sky-50 rounded-lg transition cursor-pointer"
                             title="點擊修改/設定份量"
@@ -815,7 +1032,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
 
                       {/* 2. 品牌 */}
                       <div className="text-[11px] font-semibold text-slate-400 -mt-0.5 mb-1">
-                        {food.brand || '一般食材'}
+                        {food.brand || (food.isUserCustom ? '自訂' : '一般食材')}
                       </div>
 
                       {/* 3. 重量 · 熱量 · CPF 一排 */}
@@ -867,12 +1084,179 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
             </div>
           )}
 
-          {/* TAB: ALL, 7-11, FAMILYMART, OFFICIAL, CUSTOM */}
+          {/* TAB: ALL, OFFICIAL, CUSTOM */}
           {activeTab !== 'AI_SCAN' && activeTab !== 'BARCODE' && activeTab !== 'CLOUD' && (
             <div className="space-y-2">
+              {/* 歷史紀錄區塊 (僅在「全部」ALL 頁籤呈現) */}
+              {activeTab === 'ALL' && (
+                <div className="mb-6 space-y-2.5">
+                  {/* Section Header */}
+                  <div className="flex items-center justify-between px-1">
+                    <div className="flex items-center gap-2">
+                      <div className="w-6 h-6 rounded-lg bg-sky-100 flex items-center justify-center text-sky-700">
+                        <History className="w-3.5 h-3.5" />
+                      </div>
+                      <h3 className="font-extrabold text-sm text-slate-800 tracking-tight">歷史紀錄</h3>
+                      <span className="text-[10px] font-bold px-2 py-0.5 bg-sky-50 text-sky-800 border border-sky-100 rounded-full">
+                        近 7 天 · {selectedMealName}
+                      </span>
+                    </div>
+                    {historyRecords.length > 0 && (
+                      <span className="text-[11px] font-semibold text-slate-400">
+                        共 {filteredHistoryRecords.length} 項
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Condition B: 已有紀錄 (History State) */}
+                  {filteredHistoryRecords.length > 0 ? (
+                    <div className="space-y-2">
+                      {filteredHistoryRecords.map((record) => {
+                        const isAnimating = animatingHistoryId === record.id;
+                        const isAdded = addedIds[record.id];
+                        return (
+                          <div
+                            key={`hist_${record.id}`}
+                            onClick={() => handleSelectFoodWithHistory(mapRecordToSearchResult(record))}
+                            className="p-3 bg-white border border-slate-100 hover:border-sky-300 rounded-2xl hover:shadow-xs transition cursor-pointer flex items-start justify-between gap-3 group"
+                          >
+                            <div className="min-w-0 flex-1">
+                              {/* 1. 名稱 & 膠囊 & 編輯 */}
+                              <div className="flex items-center gap-1.5 min-w-0 h-8">
+                                <h4 className="font-bold text-sm text-slate-900 group-hover:text-sky-800 truncate min-w-0 shrink">
+                                  {record.name}
+                                </h4>
+                                <div className="inline-flex items-center gap-1 shrink-0">
+                                  {record.sourceFoodId?.startsWith('custom_') && (
+                                    <span className="text-[10px] font-bold px-1.5 py-0.25 bg-amber-100 text-amber-800 rounded-md whitespace-nowrap">
+                                      我的自訂
+                                    </span>
+                                  )}
+                                  {(record.sourceFoodId?.startsWith('cloud_') || record.barcode) && (
+                                    <span className="text-[10px] font-bold px-1.5 py-0.25 bg-sky-100 text-sky-800 rounded-md whitespace-nowrap">
+                                      網路資料庫
+                                    </span>
+                                  )}
+                                  {record.aiSource === 'vision' && (
+                                    <span className="text-[10px] font-bold px-1.5 py-0.25 bg-purple-50 text-purple-700 border border-purple-100 rounded-md whitespace-nowrap">
+                                      AI 視覺辨識
+                                    </span>
+                                  )}
+                                  {record.aiSource === 'estimation' && (
+                                    <span className="text-[10px] font-bold px-1.5 py-0.25 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-md whitespace-nowrap">
+                                      AI 智慧估算
+                                    </span>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleSelectFoodWithHistory(mapRecordToSearchResult(record));
+                                    }}
+                                    className="p-1 text-slate-400 hover:text-sky-700 hover:bg-sky-50 rounded-lg transition cursor-pointer"
+                                    title="設定份量並新增"
+                                  >
+                                    <Pencil className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </div>
+
+                              {/* 2. 品牌 */}
+                              <div className="text-[11px] font-semibold text-slate-400 -mt-0.5 mb-1">
+                                {record.brand || '自訂'}
+                              </div>
+
+                              {/* 3. 重量(上次份量) · 熱量 · CPF 一排 (與主頁格式完全相同) */}
+                              <div className="flex flex-wrap items-center gap-1.5 mt-1.5 pb-0.5">
+                                <span className="text-[11px] font-bold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                                  {record.loggedAmount}{record.loggedUnit}
+                                </span>
+                                <span className="text-[11px] font-bold text-sky-800 bg-sky-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                                  {record.calories} kcal
+                                </span>
+                                <span className="text-[10px] font-bold text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">C:{record.carbs}</span>
+                                <span className="text-[10px] font-bold text-blue-800 bg-blue-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">P:{record.protein}</span>
+                                <span className="text-[10px] font-bold text-rose-800 bg-rose-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">F:{record.fat}</span>
+                              </div>
+                            </div>
+
+                            {/* 4. Quick Add Button with Animation */}
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleQuickAddHistory(record);
+                              }}
+                              disabled={isAnimating}
+                              className={`p-2.5 rounded-xl transition-all duration-300 shrink-0 cursor-pointer flex items-center justify-center ${
+                                isAnimating || isAdded
+                                  ? 'bg-emerald-500 text-white scale-110 shadow-md ring-2 ring-emerald-300'
+                                  : 'bg-sky-50 text-sky-700 hover:bg-sky-600 hover:text-white'
+                              }`}
+                              title="快速新增至當前餐點"
+                            >
+                              {isAnimating || isAdded ? (
+                                <Check className="w-5 h-5 animate-in zoom-in-75 duration-200" />
+                              ) : (
+                                <Plus className="w-5 h-5" />
+                              )}
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    /* Condition A: 無紀錄 / 首次使用 (Default State) - 顯示預設推薦基礎食品 */
+                    <div className="p-3.5 bg-slate-50/80 border border-slate-200/80 rounded-2xl space-y-2.5">
+                      <div className="flex items-center justify-between text-xs font-bold text-slate-500">
+                        <span>尚無近 7 天此餐別紀錄，為您預設推薦：</span>
+                        <span className="text-[10px] bg-slate-200/60 text-slate-600 px-2 py-0.5 rounded-md">熱門推薦</span>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {StorageService.getPresetFoods().slice(0, 4).map((preset) => (
+                          <div
+                            key={`preset_${preset.id}`}
+                            onClick={() => handleSelectFoodWithHistory(preset)}
+                            className="p-2.5 bg-white border border-slate-100 hover:border-sky-300 rounded-xl transition cursor-pointer flex items-center justify-between gap-2 group"
+                          >
+                            <div className="min-w-0 flex-1">
+                              <div className="font-bold text-xs text-slate-800 group-hover:text-sky-800 truncate">
+                                {preset.name}
+                              </div>
+                              <div className="text-[10px] font-medium text-slate-400 mt-0.5">
+                                {preset.servingAmount}{preset.servingUnit} · {preset.calories} kcal
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleFastAdd(preset);
+                              }}
+                              className={`p-1.5 rounded-lg transition ${
+                                addedIds[preset.id] ? 'bg-emerald-500 text-white' : 'text-slate-400 hover:text-sky-600 hover:bg-sky-50'
+                              }`}
+                            >
+                              {addedIds[preset.id] ? <Check className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Section Divider */}
+                  <div className="pt-2 pb-1 flex items-center gap-2">
+                    <div className="h-px bg-slate-200 flex-1" />
+                    <span className="text-[11px] font-bold text-slate-400">全庫食品與自訂項目</span>
+                    <div className="h-px bg-slate-200 flex-1" />
+                  </div>
+                </div>
+              )}
+
               {filteredFoods.length > 0 ? (
                 filteredFoods.map((food) => (
-                    <div key={food.id} onClick={() => onSelectFood(food, selectedMealType)} className="p-3 bg-white border border-slate-100 hover:border-sky-300 rounded-2xl hover:shadow-sm transition cursor-pointer flex items-start justify-between gap-3 group">
+                    <div key={food.id} onClick={() => handleSelectFoodWithHistory(food)} className="p-3 bg-white border border-slate-100 hover:border-sky-300 rounded-2xl hover:shadow-sm transition cursor-pointer flex items-start justify-between gap-3 group">
                       <div className="min-w-0 flex-1">
                         {/* 1. 名稱 & 膠囊 & 編輯 */}
                         <div className="flex items-center gap-1.5 min-w-0 h-8">
@@ -905,7 +1289,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                               type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                onSelectFood(food, selectedMealType);
+                                handleSelectFoodWithHistory(food);
                               }}
                               className="p-1 text-slate-400 hover:text-sky-700 hover:bg-sky-50 rounded-lg transition cursor-pointer"
                               title="點擊修改/設定份量"
@@ -920,15 +1304,22 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                           {(() => {
                             const isVision = food.aiSource === 'vision' || food.brand === 'AI 視覺辨識';
                             const isEstimation = food.aiSource === 'estimation' || food.brand === 'AI 智慧估算';
-                            if (isVision || isEstimation) return '一般食材';
-                            return food.brand || '一般食材';
+                            if (isVision || isEstimation) {
+                              return food.brand && food.brand !== 'AI 視覺辨識' && food.brand !== 'AI 智慧估算'
+                                ? food.brand
+                                : 'AI辨識';
+                            }
+                            return food.brand || '自訂';
                           })()}
                         </div>
 
-                        {/* 3. 重量 · 熱量 · CPF 一排 */}
+                        {/* 3. 重量 · 熱量 · CPF 一排 (與主頁格式完全相同) */}
                         <div className="flex flex-wrap items-center gap-1.5 mt-1.5 pb-0.5">
+                          <span className="text-[11px] font-bold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                            {food.servingAmount}{food.servingUnit}
+                          </span>
                           <span className="text-[11px] font-bold text-sky-800 bg-sky-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">
-                            {food.servingAmount}{food.servingUnit} · {food.calories} kcal
+                            {food.calories} kcal
                           </span>
                           <span className="text-[10px] font-bold text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">C:{food.carbs}</span>
                           <span className="text-[10px] font-bold text-blue-800 bg-blue-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">P:{food.protein}</span>
@@ -1021,7 +1412,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
 
                       {/* 2. 品牌 */}
                       <div className="text-[11px] font-semibold text-slate-400 -mt-0.5 mb-1">
-                        {food.brand || '一般食材'}
+                        {food.brand || (food.isUserCustom ? '自訂' : '一般食材')}
                       </div>
 
                       {/* 3. 重量 · 熱量 · CPF 一排 */}

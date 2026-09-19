@@ -244,14 +244,22 @@ app.post('/api/ai/estimate-nutrition', async (req, res) => {
 
     const prompt = `你是一位專業的台灣飲食營養師。使用者輸入了一道食物：「${query}」。
 請詳細估算此食物每一百公克 (per 100g) 的營養成分。
-對於「預設份量」 (defaultServingAmount)：
+特別注意：
+1. 品牌 (brand)：
+- 若使用者輸入有明確提及品牌、店家或超商（例如：義美、光泉、7-11、全家、星巴克、摩斯、麥當勞等），請辨識並填寫該品牌名稱。如果是 4 大超商請標準化為 7-11、全家、萊爾富、OK。
+- 若未提及任何品牌（例如純食物名稱「白飯」、「地瓜」、「茶葉蛋」），請務必填寫 "" (空字串)。
+2. 對於「預設份量」 (defaultServingAmount)：
 - 必須是常見的「單一份量」(例如 1 份 約 180g)，回傳 180。
 - 絕對不要乘上包裝內總份數！如果使用者提到「本包裝含 6 份，每份 180g」，你的 defaultServingAmount 必須回傳 180，絕對不可回傳 180 * 6 = 1080！
 - 請嚴格遵守此單份份量原則。
+3. 生鮮海鮮與純肉類特別提醒（如：生魚片、刺身、鮭魚/鮪魚生魚片、純海鮮、無調味煎牛肉/雞肉）：
+- 純生魚片、刺身（例如鮭魚生魚片、鮪魚生魚片、旗魚生魚片等）不包含壽司米飯，其碳水化合物 (carbsPer100g) 與糖 (sugarsPer100g) 必須標示為 0 (或 0.1 以下)！
+- 切勿將純生魚片（刺身）誤認為含有醋飯的握壽司而誤植高碳水化合物！若是握壽司請明確命名為握壽司，若使用者輸入「生魚片」或「刺身」則絕對不可填入米飯碳水。
 
 請嚴格輸出合法 JSON 格式（不要使用 markdown 程式碼區塊標記，只輸出純 JSON 物件）：
 {
   "name": "食物標準名稱",
+  "brand": "若有提及品牌請填寫品牌名稱；若未提及品牌請填空字串",
   "caloriesPer100g": 數字(大卡),
   "carbsPer100g": 數字(公克),
   "proteinPer100g": 數字(公克),
@@ -273,6 +281,12 @@ app.post('/api/ai/estimate-nutrition', async (req, res) => {
     );
 
     const parsed = extractJsonFromText(text);
+    if (parsed.brand) {
+      parsed.brand = normalizeConvenienceStoreBrand(parsed.brand);
+    }
+    if (!parsed.brand || !String(parsed.brand).trim()) {
+      parsed.brand = 'AI辨識';
+    }
     parsed._modelUsed = modelUsed;
     res.json(parsed);
   } catch (error: any) {
@@ -312,6 +326,9 @@ app.post('/api/ai/estimate-image', async (req, res) => {
    - 核心原則：使用者希望紀錄「單純一份」的營養，而非整個包裝袋的總合。
    - 例如：若包裝標示「本包裝含 6 份，每份 180g」，你的 defaultServingAmount 必須回傳 180，絕對不可回傳 180 * 6 = 1080！
    - 若為散裝料理（如餐廳飯菜），則以目測單次食用的一份重量為準。
+5. 生鮮海鮮與純肉類特別提醒（如：生魚片、刺身、鮭魚/鮪魚生魚片、純海鮮、無調味煎牛肉/雞肉）：
+   - 若畫面為純生魚片、刺身（無壽司米飯），其碳水化合物 (carbsPer100g) 與糖 (sugarsPer100g) 必須標示為 0！
+   - 切勿將純生魚片（刺身）誤認為含有醋飯的握壽司而估算碳水！
 
 請嚴格輸出純 JSON 物件（不要包含 any markdown 區塊反引號）：
 {
@@ -354,6 +371,9 @@ app.post('/api/ai/estimate-image', async (req, res) => {
     const parsed = extractJsonFromText(text);
     if (parsed.brand) {
       parsed.brand = normalizeConvenienceStoreBrand(parsed.brand);
+    }
+    if (!parsed.brand || !String(parsed.brand).trim()) {
+      parsed.brand = 'AI辨識';
     }
     if (parsed.barcode) {
       parsed.barcode = String(parsed.barcode).trim();
