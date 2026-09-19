@@ -118,6 +118,20 @@ export default function App() {
     }
   };
 
+  // 防禦性監控：若自動更新卡住超過 10 秒，強制切換至手動更新介面
+  useEffect(() => {
+    let timeoutId: NodeJS.Timeout;
+    if (isUpdatingCredentials) {
+      timeoutId = setTimeout(() => {
+        console.warn("[App] Auth update took too long, forcing manual intervention.");
+        setIsUpdatingCredentials(false);
+        setNeedsDriveAuth(true);
+        localStorage.removeItem('fitpocket_auth_locking');
+      }, 10000); // 10 seconds
+    }
+    return () => clearTimeout(timeoutId);
+  }, [isUpdatingCredentials]);
+
   useEffect(() => {
     let active = true;
 
