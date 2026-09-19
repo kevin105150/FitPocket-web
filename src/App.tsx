@@ -82,7 +82,14 @@ export default function App() {
   };
 
   const handleRestoreAuth = async () => {
+    // 防禦性檢查：防止重複觸發
+    if (localStorage.getItem('fitpocket_auth_locking') === 'true') {
+      console.log("[App] Auth is currently locking, skipping.");
+      return;
+    }
+
     try {
+      localStorage.setItem('fitpocket_auth_locking', 'true');
       setIsUpdatingCredentials(true);
       setNeedsDriveAuth(false);
       localStorage.setItem('fitpocket_redirect_pending', 'true');
@@ -93,19 +100,19 @@ export default function App() {
       }
       if (result.accessToken) {
         localStorage.removeItem('fitpocket_redirect_pending');
+        localStorage.removeItem('fitpocket_auth_locking');
         sessionStorage.removeItem('fitpocket_auto_auth_attempted');
         setIsUpdatingCredentials(false);
         setNeedsDriveAuth(false);
         // Trigger a catch-up sync
         StorageService.syncFromCloud().catch(err => console.warn("Sync error:", err));
       } else {
-        localStorage.removeItem('fitpocket_redirect_pending');
-        setIsUpdatingCredentials(false);
-        setNeedsDriveAuth(true);
+        throw new Error("No token received");
       }
     } catch (err) {
       console.error("Restore auth error:", err);
       localStorage.removeItem('fitpocket_redirect_pending');
+      localStorage.removeItem('fitpocket_auth_locking');
       setIsUpdatingCredentials(false);
       setNeedsDriveAuth(true);
     }
