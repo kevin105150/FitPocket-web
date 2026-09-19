@@ -93,6 +93,7 @@ export default function App() {
       }
       if (result.accessToken) {
         localStorage.removeItem('fitpocket_redirect_pending');
+        sessionStorage.removeItem('fitpocket_auto_auth_attempted');
         setIsUpdatingCredentials(false);
         setNeedsDriveAuth(false);
         // Trigger a catch-up sync
@@ -129,6 +130,7 @@ export default function App() {
         const redirectedToken = await handleRedirectResult();
         if (redirectedToken) {
           localStorage.removeItem('fitpocket_redirect_pending');
+          sessionStorage.removeItem('fitpocket_auto_auth_attempted');
           setNeedsDriveAuth(false);
           setIsUpdatingCredentials(false);
         }
@@ -143,6 +145,7 @@ export default function App() {
               const token = await getAccessToken();
               if (token) {
                 localStorage.removeItem('fitpocket_redirect_pending');
+                sessionStorage.removeItem('fitpocket_auto_auth_attempted');
                 setNeedsDriveAuth(false);
                 setIsUpdatingCredentials(false);
                 if (localStorage.getItem('fitpocket_sync_pending') === 'true') {
@@ -151,12 +154,21 @@ export default function App() {
                   StorageService.syncFromCloud().catch(err => console.warn("Sync error (non-blocking):", err));
                 }
               } else {
-                localStorage.removeItem('fitpocket_redirect_pending');
-                setIsUpdatingCredentials(false);
-                setNeedsDriveAuth(true);
+                // Token missing or expired -> automatically try to restore without button click
+                const alreadyAttempted = sessionStorage.getItem('fitpocket_auto_auth_attempted') === 'true';
+                if (!alreadyAttempted) {
+                  console.log("Automatically attempting silent credential refresh on startup...");
+                  sessionStorage.setItem('fitpocket_auto_auth_attempted', 'true');
+                  handleRestoreAuth();
+                } else {
+                  localStorage.removeItem('fitpocket_redirect_pending');
+                  setIsUpdatingCredentials(false);
+                  setNeedsDriveAuth(true);
+                }
               }
             } else {
               localStorage.removeItem('fitpocket_redirect_pending');
+              sessionStorage.removeItem('fitpocket_auto_auth_attempted');
               setIsUpdatingCredentials(false);
             }
           } catch (innerErr) {
