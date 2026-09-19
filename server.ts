@@ -34,44 +34,53 @@ function getGenAI(customKey?: string): GoogleGenAI | null {
   });
 }
 
-// Multi-model fallback runner to guarantee 100% uptime against 503 (high demand) or 429 (quota)
+// Multi-model fallback runner to guarantee uptime within the Gemini 3.x family
 async function generateWithFallback(
   ai: GoogleGenAI,
   preferredModel: string,
-  contents: any
+  contents: any,
+  useSearch = false
 ): Promise<{ text: string; modelUsed: string }> {
-  // Ordered cascade: preferred model -> 3.6-flash -> 3.5-flash -> 3.1-flash-lite
+  // STRICTLY Gemini 3.x models only as per AGENTS.md
   const candidateModels = Array.from(
     new Set([
-      preferredModel || 'gemini-3.8-flash',
+      preferredModel,
+      'gemini-3.8-flash',
       'gemini-3.6-flash',
       'gemini-3.5-flash',
       'gemini-3.1-flash-lite',
-    ])
+    ].filter(m => m && m.startsWith('gemini-3.')))
   );
 
   let lastError: any = null;
 
-  for (const model of candidateModels) {
+  for (const modelName of candidateModels) {
     try {
-      console.log(`[Gemini Request] Attempting model: ${model}...`);
-      const response = await ai.models.generateContent({
-        model,
-        contents,
-      });
+      console.log(`[Gemini Request] Attempting model: ${modelName} (Search: ${useSearch})...`);
+      
+      const config: any = {
+        model: modelName,
+        contents: Array.isArray(contents) ? contents : [{ role: 'user', parts: [{ text: contents }] }],
+      };
+
+      if (useSearch) {
+        config.tools = [{ googleSearch: {} }];
+      }
+
+      const response = await ai.models.generateContent(config);
 
       const text = response.text;
       if (text && text.trim().length > 0) {
-        console.log(`[Gemini Success] Successfully generated with ${model}`);
-        return { text: text.trim(), modelUsed: model };
+        console.log(`[Gemini Success] Successfully generated with ${modelName}`);
+        return { text: text.trim(), modelUsed: modelName };
       }
     } catch (err: any) {
       lastError = err;
       const status = err.status || err.code || 0;
       const message = err.message || '';
-      console.warn(`[Gemini Fallback] Model ${model} returned ${status}: ${message.slice(0, 120)}`);
+      console.warn(`[Gemini Fallback] Model ${modelName} returned ${status}: ${message.slice(0, 120)}`);
 
-      // If it's a transient server issue (503, 429, 500), immediately try the next model
+      // If it's a transient server issue (503, 429, 500), try the next 3.x model
       if (
         status === 503 ||
         status === 429 ||
@@ -83,12 +92,12 @@ async function generateWithFallback(
         continue;
       }
 
-      // If it's not a quota/demand issue, still attempt fallback to ensure user doesn't get blocked
+      // Continue to next 3.x model for any error to maximize success rate within the family
       continue;
     }
   }
 
-  throw lastError || new Error('所有可用 AI 模型目前服務繁忙，請稍後再試。');
+  throw new Error('AI 伺服器目前忙碌中或需求過大，請稍後重試。');
 }
 
 // Helper to extract JSON from AI response text
@@ -243,23 +252,22 @@ app.post('/api/ai/estimate-nutrition', async (req, res) => {
     }
 
     const prompt = `你是一位專業的台灣飲食營養師。使用者輸入了一道食物：「${query}」。
-請詳細估算此食物每一百公克 (per 100g) 的營養成分。
+請使用 Google 搜尋工具查找該食物（特別是連鎖品牌如 7-11、全家、麥當勞、摩斯等）的官方營養資訊。
+請詳細估算或抓取此食物每一百公克 (per 100g) 的營養成分。
 特別注意：
 1. 品牌 (brand)：
 - 若使用者輸入有明確提及品牌、店家或超商（例如：義美、光泉、7-11、全家、星巴克、摩斯、麥當勞等），請辨識並填寫該品牌名稱。如果是 4 大超商請標準化為 7-11、全家、萊爾富、OK。
 - 若未提及任何品牌（例如純食物名稱「白飯」、「地瓜」、「茶葉蛋」），請務必填寫 "" (空字串)。
 2. 對於「預設份量」 (defaultServingAmount)：
 - 必須是常見的「單一份量」(例如 1 份 約 180g)，回傳 180。
-- 絕對不要乘上包裝內總份數！如果使用者提到「本包裝含 6 份，每份 180g」，你的 defaultServingAmount 必須回傳 180，絕對不可回傳 180 * 6 = 1080！
 - 請嚴格遵守此單份份量原則。
-3. 生鮮海鮮與純肉類特別提醒（如：生魚片、刺身、鮭魚/鮪魚生魚片、純海鮮、無調味煎牛肉/雞肉）：
-- 純生魚片、刺身（例如鮭魚生魚片、鮪魚生魚片、旗魚生魚片等）不包含壽司米飯，其碳水化合物 (carbsPer100g) 與糖 (sugarsPer100g) 必須標示為 0 (或 0.1 以下)！
-- 切勿將純生魚片（刺身）誤認為含有醋飯的握壽司而誤植高碳水化合物！若是握壽司請明確命名為握壽司，若使用者輸入「生魚片」或「刺身」則絕對不可填入米飯碳水。
+3. 單位 (servingUnit)：飲品必填 ml，固體填 g。
 
-請嚴格輸出合法 JSON 格式（不要使用 markdown 程式碼區塊標記，只輸出純 JSON 物件）：
+請優先使用搜尋工具獲取真實數據。
+請嚴格輸出合法 JSON 格式：
 {
   "name": "食物標準名稱",
-  "brand": "若有提及品牌請填寫品牌名稱；若未提及品牌請填空字串",
+  "brand": "品牌名稱",
   "caloriesPer100g": 數字(大卡),
   "carbsPer100g": 數字(公克),
   "proteinPer100g": 數字(公克),
@@ -268,16 +276,17 @@ app.post('/api/ai/estimate-nutrition', async (req, res) => {
   "fiberPer100g": 數字(公克),
   "sodiumPer100g": 數字(毫克),
   "potassiumPer100g": 數字(毫克),
-  "defaultServingAmount": 數字(單份的基準數值，例如180，如果是液體則是毫升數如300，絕對不要回傳整包總重或乘以份數的總重),
-  "servingUnit": "食品或飲料的基準單位：如果是液體、湯品、飲料、牛奶、咖啡等，請務必填寫 'ml'；固體食品/餐點填寫 'g'；亦可依合適度填寫 '個'、'瓶'、'杯'、'包'、'份' 等（例如液體應精準判斷為 'ml' 而非 'g'）",
-  "servingSizeText": "單份份量說明 (例如: 1份 約180g，或 1瓶 約350ml)",
+  "defaultServingAmount": 數字,
+  "servingUnit": "g 或 ml",
+  "servingSizeText": "單份份量說明 (例如: 1份 約180g)",
   "explanation": "營養師簡評與健康建議 (50字以內)"
 }`;
 
     const { text, modelUsed } = await generateWithFallback(
       ai,
       model || 'gemini-3.8-flash',
-      prompt
+      prompt,
+      true // Enable Search Grounding
     );
 
     const parsed = extractJsonFromText(text);
@@ -365,7 +374,8 @@ app.post('/api/ai/estimate-image', async (req, res) => {
     const { text, modelUsed } = await generateWithFallback(
       ai,
       model || 'gemini-3.8-flash',
-      contents
+      contents,
+      true // Enable Search Grounding for product data enrichment
     );
 
     const parsed = extractJsonFromText(text);
@@ -387,6 +397,125 @@ app.post('/api/ai/estimate-image', async (req, res) => {
       error: error.message || '圖片辨識失敗',
       status: status
     });
+  }
+});
+
+// 3.5. FamilyMart Direct API Scraper Search
+app.post('/api/family/search', async (req, res) => {
+  try {
+    const { keyword } = req.body;
+    const searchKeyword = (keyword || '').trim();
+
+    const listResp = await fetch('https://foodsafety.family.com.tw/Web_FFD_2022/ws/QueryFsProductListByFilter', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json;charset=UTF-8',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+        'Referer': 'https://foodsafety.family.com.tw/Web_FFD_2022/'
+      },
+      body: JSON.stringify({ MEMBER: 'N', KEYWORD: searchKeyword })
+    });
+
+    if (!listResp.ok) {
+      throw new Error('無法連線至全家食安查詢服務');
+    }
+
+    const listData = await listResp.json();
+    if (listData.RESULT_CODE !== '00' || !Array.isArray(listData.LIST)) {
+      return res.json({ products: [] });
+    }
+
+    const allItems: any[] = [];
+    for (const cat of listData.LIST) {
+      if (Array.isArray(cat.ITEM)) {
+        for (const item of cat.ITEM) {
+          allItems.push(item);
+        }
+      }
+    }
+
+    const selectedItems = allItems.slice(0, 12);
+    
+    // Parallelize detail fetching for better performance and to avoid timeouts
+    const productPromises = selectedItems.map(async (item: any) => {
+      try {
+        const detailResp = await fetch('https://foodsafety.family.com.tw/Web_FFD_2022/ws/QueryFsProductByItem', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json;charset=UTF-8',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+            'Referer': 'https://foodsafety.family.com.tw/Web_FFD_2022/'
+          },
+          body: JSON.stringify({ MEMBER: 'N', CMNO: item.CMNO })
+        });
+
+        if (detailResp.ok) {
+          const detailData = await detailResp.json();
+          if (detailData.RESULT_CODE === '00' && Array.isArray(detailData.LIST) && detailData.LIST.length > 0) {
+            const d = detailData.LIST[0];
+            const nut = (d.NUTRIENTS && d.NUTRIENTS[0]) || {};
+            
+            let calories = 0;
+            const noteStr = d.NOTE || item.NOTE || '';
+            const calMatch = noteStr.match(/熱量\s*([0-9\.]+)\s*大卡/);
+            if (calMatch) {
+              calories = parseFloat(calMatch[1]);
+            } else if (nut.CALORIES) {
+              calories = nut.CALORIES;
+            } else {
+              calories = 200;
+            }
+
+            let servingAmount = 1;
+            let servingUnit = '份';
+            if (noteStr) {
+              const specMatch = noteStr.match(/(?:規格|每份規格)\s*([0-9\.]+)\s*(公克|克|g|G|毫升|ml|ML)/) || noteStr.match(/([0-9\.]+)\s*(公克|克|g|G|毫升|ml|ML)/);
+              if (specMatch) {
+                servingAmount = parseFloat(specMatch[1]);
+                const u = specMatch[2].toLowerCase();
+                if (u.includes('公克') || u.includes('克') || u === 'g') {
+                  servingUnit = 'g';
+                } else if (u.includes('毫升') || u === 'ml') {
+                  servingUnit = 'ml';
+                } else {
+                  servingUnit = specMatch[2];
+                }
+              }
+            }
+
+            return {
+              id: `family_${d.CMNO || Date.now()}`,
+              name: d.PRODNAME || item.PRODNAME,
+              brand: '全家',
+              calories: calories,
+              carbs: nut.CARBOHYDRATE || 0,
+              protein: nut.PROTEIN || 0,
+              fat: nut.TOTALFAT || 0,
+              sugars: nut.SUGAR || 0,
+              fiber: 0,
+              sodium: nut.SODIUM || 0,
+              potassium: 0,
+              servingAmount: servingAmount,
+              servingUnit: servingUnit,
+              servingSizeText: noteStr || '1份',
+              imageUrl: d.PROD_PIC ? `https://foodsafety.family.com.tw/product_img/${d.PROD_PIC}` : undefined,
+              isUserCustom: false
+            };
+          }
+        }
+      } catch (err) {
+        console.warn(`Error fetching details for item ${item.CMNO}:`, err);
+      }
+      return null;
+    });
+
+    const results = await Promise.all(productPromises);
+    const products = results.filter(p => p !== null);
+
+    res.json({ products });
+  } catch (error: any) {
+    console.error('Family search error:', error);
+    res.status(500).json({ error: error.message || '全家搜尋發生錯誤' });
   }
 });
 

@@ -854,15 +854,15 @@ export const SettingsScreen: React.FC = () => {
 
         {/* Dynamic Model Switcher */}
         <div className="mt-4 p-3 bg-slate-50 rounded-2xl border border-slate-100">
-          <div className="text-[10px] uppercase tracking-wider text-slate-400 font-bold mb-2">
-            動態模型切換 (3.x 系列)
+           <div className="text-[10px] uppercase tracking-wider text-slate-400 font-bold mb-2">
+            AI 模型選擇 (僅限使用 3.x 系列)
           </div>
-          <div className="flex gap-1.5">
-            {['gemini-3.5-flash', 'gemini-3.6-flash', 'gemini-3.8-flash'].map((m) => (
+          <div className="flex flex-wrap gap-1.5">
+            {['gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.1-flash-lite'].map((m) => (
               <button
                 key={m}
                 onClick={() => handleModelChange(m)}
-                className={`flex-1 py-2 text-[11px] font-bold rounded-xl transition cursor-pointer ${
+                className={`flex-[1_0_45%] py-2 text-[10px] font-bold rounded-xl transition cursor-pointer ${
                   aiModel === m
                     ? 'bg-purple-600 text-white shadow-sm'
                     : 'bg-white text-slate-500 border border-slate-100 hover:border-purple-200'

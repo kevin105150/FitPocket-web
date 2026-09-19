@@ -8,7 +8,6 @@ import {
   Camera,
   Sparkles,
   Barcode,
-  Store,
   ChefHat,
   BookmarkCheck,
   Globe,
@@ -19,10 +18,13 @@ import {
   Cloud,
   History,
   Clock,
+  Store,
 } from 'lucide-react';
 import { CustomFood, FoodSearchResult, MealType, FoodRecord } from '../types';
 import { StorageService } from '../services/storage';
 import { CloudFoodService } from '../services/cloudFoodService';
+import { FamilyCacheService } from '../services/familyCacheService';
+import { BatchCrawlModal } from './BatchCrawlModal';
 import { optimizeImageForAi } from '../utils/imageOptimizer';
 import { checkAiKeyOrWarn } from '../utils/aiHelper';
 import { getTodayString } from '../utils/dateUtils';
@@ -38,7 +40,7 @@ interface AddFoodModalProps {
   onOpenCustomFoodModal: () => void;
 }
 
-export type FoodTab = 'ALL' | 'OFFICIAL' | 'CUSTOM' | 'CLOUD' | 'AI_SCAN' | 'BARCODE';
+export type FoodTab = 'ALL' | 'OFFICIAL' | 'CUSTOM' | 'CLOUD' | 'AI_SCAN' | 'BARCODE' | 'FAMILY';
 
 export const AddFoodModal: React.FC<AddFoodModalProps> = ({
   initialMealType,
@@ -298,6 +300,64 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
   // Online Open Food Facts search state
   const [isOnlineSearching, setIsOnlineSearching] = useState(false);
   const [onlineResults, setOnlineResults] = useState<FoodSearchResult[]>([]);
+
+  // FamilyMart Search state (default empty, record history when searched)
+  const [familyKeyword, setFamilyKeyword] = useState('');
+  const [isFamilySearching, setIsFamilySearching] = useState(false);
+  const [familyResults, setFamilyResults] = useState<FoodSearchResult[]>([]);
+  const [familyError, setFamilyError] = useState('');
+  const [showBatchModal, setShowBatchModal] = useState(false);
+
+  const handleFamilySearch = async (keywordToSearch?: string) => {
+    const query = (keywordToSearch !== undefined ? keywordToSearch : familyKeyword).trim();
+    if (!query) return;
+
+    setIsFamilySearching(true);
+    setFamilyError('');
+    setFamilyResults([]);
+
+    try {
+      // 方案一 (LocalStorage) & 方案二 (Firestore) Cache check
+      const cached = await FamilyCacheService.getCachedFamilySearch(query);
+      if (cached && cached.length > 0) {
+        setFamilyResults(cached);
+        setIsFamilySearching(false);
+        return;
+      }
+
+      const res = await fetch('/api/family/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ keyword: query })
+      });
+
+      if (!res.ok) {
+        throw new Error('搜尋全家食品失敗，請稍後重試');
+      }
+
+      const data = await res.json();
+      if (data.products && Array.isArray(data.products)) {
+        setFamilyResults(data.products);
+        await FamilyCacheService.setCachedFamilySearch(query, data.products);
+        if (data.products.length === 0) {
+          setFamilyError('找不到符合的全家食品，請嘗試其他關鍵字（例如：飯糰、地瓜、茶、雞胸肉）。');
+        }
+      }
+    } catch (err: any) {
+      console.error('Family search error:', err);
+      setFamilyError(err.message || '搜尋發生錯誤');
+    } finally {
+      setIsFamilySearching(false);
+    }
+  };
+
+  const handleClearFamilyHistory = () => {
+    setFamilyKeyword('');
+    setFamilyResults([]);
+    setFamilyError('');
+    localStorage.removeItem('fitpocket_family_keyword');
+    localStorage.removeItem('fitpocket_family_results');
+  };
 
   // Cloud foods state
   const [cloudFoods, setCloudFoods] = useState<FoodSearchResult[]>([]);
@@ -699,12 +759,13 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
         <div className="p-4 border-b border-slate-100 flex gap-2">
           <button
             onClick={() => setActiveTab('ALL')}
-            className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition cursor-pointer ${
+            className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition cursor-pointer flex items-center justify-center gap-1.5 ${
               activeTab === 'ALL' || activeTab === 'OFFICIAL' || activeTab === 'CUSTOM' || activeTab === 'CLOUD'
                 ? 'bg-sky-600 text-white'
                 : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
             }`}
           >
+            <Search className="w-4 h-4" />
             一般搜尋
           </button>
           <button
@@ -712,13 +773,25 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
               if (!checkAiKeyOrWarn()) return;
               setActiveTab('AI_SCAN');
             }}
-            className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition cursor-pointer ${
+            className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition cursor-pointer flex items-center justify-center gap-1.5 ${
               activeTab === 'AI_SCAN' || activeTab === 'BARCODE'
                 ? 'bg-purple-700 text-white'
                 : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
             }`}
           >
-            AI 智慧辨識/工具
+            <Sparkles className="w-4 h-4" />
+            AI搜尋
+          </button>
+          <button
+            onClick={() => setActiveTab('FAMILY')}
+            className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition cursor-pointer flex items-center justify-center gap-1.5 ${
+              activeTab === 'FAMILY'
+                ? 'bg-emerald-600 text-white'
+                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            }`}
+          >
+            <Store className="w-4 h-4" />
+            全家搜尋
           </button>
         </div>
 
@@ -777,6 +850,152 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
 
         {/* Content Body */}
         <div ref={contentBodyRef} className="flex-1 overflow-y-auto p-4">
+          {/* TAB: FAMILY SEARCH */}
+          {activeTab === 'FAMILY' && (
+            <div className="space-y-4 max-w-md mx-auto py-2">
+              <div className="bg-emerald-50 border border-emerald-200/80 rounded-2xl p-4 text-emerald-900">
+                <div className="flex items-center gap-2 font-bold text-sm mb-1">
+                  <Store className="w-4 h-4 text-emerald-600" />
+                  全家食在購安心 官方資料庫查詢
+                </div>
+                <p className="text-xs text-emerald-700 leading-relaxed">
+                  直接串接全家便利商店官方食安與營養標示資料庫（foodsafety.family.com.tw），輸入關鍵字（例如：飯糰、地瓜、雞胸肉、茶）即可查詢真實營養成分！
+                </p>
+              </div>
+
+              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-3">
+                <label className="block text-xs font-bold text-slate-700">搜尋全家食品關鍵字</label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    placeholder="例如: 飯糰、地瓜、茶、雞胸肉"
+                    value={familyKeyword}
+                    onChange={(e) => setFamilyKeyword(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleFamilySearch()}
+                    className="flex-1 px-3 py-2.5 bg-white rounded-xl border border-slate-200 text-sm focus:outline-emerald-600"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleFamilySearch()}
+                    disabled={isFamilySearching || !familyKeyword.trim()}
+                    className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 whitespace-nowrap"
+                  >
+                    {isFamilySearching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+                    搜尋全家
+                  </button>
+                </div>
+              </div>
+
+              {/* 智慧批次爬蟲按鈕 (彈出對話框) */}
+              <button
+                type="button"
+                onClick={() => setShowBatchModal(true)}
+                className="w-full py-3 px-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white text-xs font-black rounded-2xl shadow-md transition flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <Sparkles className="w-4 h-4" />
+                <span>🎯 開啟全家智慧批次爬蟲 (20+ 預設與自訂選擇)</span>
+              </button>
+
+              {showBatchModal && (
+                <BatchCrawlModal
+                  onClose={() => setShowBatchModal(false)}
+                  onFinished={() => setShowBatchModal(false)}
+                />
+              )}
+
+              {familyError && (
+                <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{familyError}</span>
+                </div>
+              )}
+
+              {familyResults.length > 0 && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between px-1">
+                    <h5 className="text-[11px] font-black text-slate-400 uppercase tracking-wider">全家查詢結果 ({familyResults.length})</h5>
+                    <button 
+                      onClick={handleClearFamilyHistory}
+                      className="text-[10px] font-bold text-slate-400 hover:text-slate-600"
+                    >
+                      清除歷程
+                    </button>
+                  </div>
+                  {familyResults.map((food) => (
+                    <div
+                      key={food.id}
+                      onClick={() => onSelectFood(food)}
+                      className="p-3 bg-white border border-slate-100 hover:border-sky-300 rounded-2xl hover:shadow-sm transition cursor-pointer flex items-start justify-between gap-3 group"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5 min-w-0 h-8">
+                          <h4 className="font-bold text-sm text-slate-900 group-hover:text-sky-800 truncate min-w-0 shrink">
+                            {food.name}
+                          </h4>
+                          <div className="inline-flex items-center gap-1 shrink-0">
+                            <span className="text-[10px] font-bold px-1.5 py-0.25 bg-emerald-100 text-emerald-800 rounded-md whitespace-nowrap">
+                              全家官網
+                            </span>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onSelectFood(food);
+                              }}
+                              className="p-1 text-slate-400 hover:text-sky-700 hover:bg-sky-50 rounded-lg transition cursor-pointer"
+                              title="點擊修改/設定份量"
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="text-[11px] font-semibold text-slate-400 -mt-0.5 mb-1">
+                          全家
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-1.5 mt-1.5 pb-0.5">
+                          <span className="text-[11px] font-bold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                            {food.servingAmount}{food.servingUnit}
+                          </span>
+                          <span className="text-[11px] font-bold text-sky-800 bg-sky-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                            {food.calories} kcal
+                          </span>
+                          <span className="text-[10px] font-bold text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">C:{food.carbs}</span>
+                          <span className="text-[10px] font-bold text-blue-800 bg-blue-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">P:{food.protein}</span>
+                          <span className="text-[10px] font-bold text-rose-800 bg-rose-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">F:{food.fat}</span>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (onFastAddFood) {
+                            onFastAddFood(food);
+                          } else {
+                            onSelectFood(food);
+                          }
+                        }}
+                        className={`p-2 rounded-xl transition-all duration-200 shrink-0 cursor-pointer flex items-center justify-center ${
+                          addedIds[food.id]
+                            ? 'bg-emerald-500 text-white scale-105 shadow-xs'
+                            : 'text-slate-400 group-hover:text-sky-700 group-hover:bg-sky-50'
+                        }`}
+                        title="快速新增至餐點"
+                      >
+                        {addedIds[food.id] ? (
+                          <Check className="w-5 h-5 animate-in zoom-in-50 duration-200" />
+                        ) : (
+                          <Plus className="w-5 h-5" />
+                        )}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* TAB: AI SCAN */}
           {activeTab === 'AI_SCAN' && (
             <div className="space-y-4 max-w-md mx-auto py-2">
@@ -854,23 +1073,26 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                 <label className="block text-xs font-bold text-slate-700 mb-1.5">
                   或輸入食物名稱 / 外食描述
                 </label>
-                <div className="flex gap-2">
+                <div className="space-y-2.5">
                   <input
                     type="text"
                     placeholder="例如: 摩斯藜麥燒肉珍珠堡、超商烤雞便當"
                     value={aiPrompt}
                     onChange={(e) => setAiPrompt(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && handleAiTextAnalyze()}
-                    className="flex-1 px-3 py-2 bg-white rounded-xl border border-slate-200 text-sm focus:outline-purple-600"
+                    className="w-full px-3 py-2 bg-white rounded-xl border border-slate-200 text-sm focus:outline-purple-600"
                   />
-                  <button
-                    type="button"
-                    onClick={handleAiTextAnalyze}
-                    disabled={aiLoading || !aiPrompt.trim()}
-                    className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-xl shadow-xs transition flex items-center gap-1 cursor-pointer disabled:opacity-50"
-                  >
-                    {aiLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'AI 估算'}
-                  </button>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={handleAiTextAnalyze}
+                      disabled={aiLoading || !aiPrompt.trim()}
+                      className="flex-1 px-4 py-2.5 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-xl shadow-xs transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                    >
+                      {aiLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+                      AI 估算
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -1085,7 +1307,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
           )}
 
           {/* TAB: ALL, OFFICIAL, CUSTOM */}
-          {activeTab !== 'AI_SCAN' && activeTab !== 'BARCODE' && activeTab !== 'CLOUD' && (
+          {activeTab !== 'AI_SCAN' && activeTab !== 'BARCODE' && activeTab !== 'CLOUD' && activeTab !== 'FAMILY' && (
             <div className="space-y-2">
               {/* 歷史紀錄區塊 (僅在「全部」ALL 頁籤呈現) */}
               {activeTab === 'ALL' && (

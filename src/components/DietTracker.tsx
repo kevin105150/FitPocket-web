@@ -832,7 +832,7 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
               className="flex items-center gap-1.5 px-3 py-1.5 bg-white text-purple-700 hover:bg-purple-50 rounded-lg transition font-black text-[10px] shadow-2xs active:scale-95 border border-purple-100"
             >
               <Sparkles className="w-3 h-3" />
-              <span>AI 智慧搜尋</span>
+              <span>AI智慧搜尋</span>
             </button>
           </div>
         </div>

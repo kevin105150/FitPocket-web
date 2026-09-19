@@ -8,7 +8,7 @@ import {
   where,
   limit,
 } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { CloudFood, CustomFood, FoodSearchResult } from '../types';
 
 const COLLECTION_NAME = 'cloud_foods';
@@ -189,9 +189,14 @@ export const CloudFoodService = {
       updatedAt: Date.now(),
     };
 
-    const docRef = doc(db, COLLECTION_NAME, deterministicId);
-    await setDoc(docRef, cloudFood, { merge: true });
-    return { success: true, food: cloudFood };
+    try {
+      const docRef = doc(db, COLLECTION_NAME, deterministicId);
+      await setDoc(docRef, cloudFood, { merge: true });
+      return { success: true, food: cloudFood };
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `${COLLECTION_NAME}/${deterministicId}`);
+      return { success: false, reason: '寫入雲端失敗' };
+    }
   },
 
   /**
@@ -258,7 +263,7 @@ export const CloudFoodService = {
 
       return results.slice(0, maxResults);
     } catch (err) {
-      console.warn('Failed to fetch cloud foods from Firestore:', err);
+      handleFirestoreError(err, OperationType.LIST, COLLECTION_NAME);
       return [];
     }
   },

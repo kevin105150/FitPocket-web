@@ -144,6 +144,7 @@ export default function App() {
             if (u) {
               const token = await getAccessToken();
               if (token) {
+                console.log("[App] Valid Drive token found, starting sync...");
                 localStorage.removeItem('fitpocket_redirect_pending');
                 sessionStorage.removeItem('fitpocket_auto_auth_attempted');
                 setNeedsDriveAuth(false);
@@ -154,13 +155,23 @@ export default function App() {
                   StorageService.syncFromCloud().catch(err => console.warn("Sync error (non-blocking):", err));
                 }
               } else {
-                // Token missing or expired -> automatically try to restore without button click
+                // Token missing or expired
+                const isPending = localStorage.getItem('fitpocket_redirect_pending') === 'true';
+                if (isPending) {
+                  console.log("[App] Redirect pending, skipping auto-auth to avoid loop.");
+                  return;
+                }
+
                 const alreadyAttempted = sessionStorage.getItem('fitpocket_auto_auth_attempted') === 'true';
                 if (!alreadyAttempted) {
-                  console.log("Automatically attempting silent credential refresh on startup...");
+                  console.log("[App] Automatically attempting silent credential refresh...");
                   sessionStorage.setItem('fitpocket_auto_auth_attempted', 'true');
-                  handleRestoreAuth();
+                  // Use a timeout to break the stack and avoid immediate re-triggering
+                  setTimeout(() => {
+                    if (active) handleRestoreAuth();
+                  }, 1000);
                 } else {
+                  console.log("[App] Auto-auth already attempted, showing manual restore button.");
                   localStorage.removeItem('fitpocket_redirect_pending');
                   setIsUpdatingCredentials(false);
                   setNeedsDriveAuth(true);
@@ -170,6 +181,7 @@ export default function App() {
               localStorage.removeItem('fitpocket_redirect_pending');
               sessionStorage.removeItem('fitpocket_auto_auth_attempted');
               setIsUpdatingCredentials(false);
+              setNeedsDriveAuth(false);
             }
           } catch (innerErr) {
             console.error("Auth helper error during init:", innerErr);
@@ -177,7 +189,12 @@ export default function App() {
             setIsUpdatingCredentials(false);
             setNeedsDriveAuth(true);
           } finally {
-            if (active) setIsInitializing(false);
+            if (active) {
+              // Give it a tiny bit more time for any pending state updates to settle
+              setTimeout(() => {
+                if (active) setIsInitializing(false);
+              }, 500);
+            }
           }
         });
 

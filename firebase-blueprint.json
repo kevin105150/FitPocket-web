@@ -124,5 +124,17 @@
         }
       }
     }
+  },
+  "family_food_cache": {
+    "description": "Global FamilyMart food cache shared across all users",
+    "documents": {
+      "{keywordId}": {
+        "fields": {
+          "keyword": { "type": "string" },
+          "products": { "type": "array" },
+          "updatedAt": { "type": "number" }
+        }
+      }
+    }
   }
 }
