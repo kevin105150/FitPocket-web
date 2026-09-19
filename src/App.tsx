@@ -148,12 +148,16 @@ export default function App() {
         }
 
         // Check for redirect result immediately
+        console.log("[App] Checking for redirect result...");
         const redirectedToken = await handleRedirectResult();
+        console.log("[App] Redirect result found:", !!redirectedToken);
         if (redirectedToken) {
           localStorage.removeItem('fitpocket_redirect_pending');
           sessionStorage.removeItem('fitpocket_auto_auth_attempted');
           setNeedsDriveAuth(false);
           setIsUpdatingCredentials(false);
+        } else if (isPendingRedirect) {
+          console.warn("[App] Redirect pending but no token found, potential failure.");
         }
         
         // After storage is ready, handle auth state
@@ -177,26 +181,10 @@ export default function App() {
                 }
               } else {
                 // Token missing or expired
-                const isPending = localStorage.getItem('fitpocket_redirect_pending') === 'true';
-                if (isPending) {
-                  console.log("[App] Redirect pending, skipping auto-auth to avoid loop.");
-                  return;
-                }
-
-                const alreadyAttempted = sessionStorage.getItem('fitpocket_auto_auth_attempted') === 'true';
-                if (!alreadyAttempted) {
-                  console.log("[App] Automatically attempting silent credential refresh...");
-                  sessionStorage.setItem('fitpocket_auto_auth_attempted', 'true');
-                  // Use a timeout to break the stack and avoid immediate re-triggering
-                  setTimeout(() => {
-                    if (active) handleRestoreAuth();
-                  }, 1000);
-                } else {
-                  console.log("[App] Auto-auth already attempted, showing manual restore button.");
-                  localStorage.removeItem('fitpocket_redirect_pending');
-                  setIsUpdatingCredentials(false);
-                  setNeedsDriveAuth(true);
-                }
+                console.log("[App] Token missing or expired, showing manual restore button.");
+                localStorage.removeItem('fitpocket_redirect_pending');
+                setIsUpdatingCredentials(false);
+                setNeedsDriveAuth(true);
               }
             } else {
               localStorage.removeItem('fitpocket_redirect_pending');
@@ -293,31 +281,31 @@ export default function App() {
       {!isUpdatingCredentials && needsDriveAuth && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300">
           <div className="w-full max-w-sm bg-white rounded-[32px] p-6 shadow-2xl border border-slate-100 flex flex-col items-center text-center space-y-4 animate-in zoom-in-95 duration-300">
-            <div className="w-16 h-16 bg-amber-50 rounded-2xl flex items-center justify-center">
-              <CloudOff className="w-8 h-8 text-amber-600 animate-bounce" />
+            <div className="w-16 h-16 bg-sky-50 rounded-2xl flex items-center justify-center">
+              <RefreshCw className="w-8 h-8 text-sky-600" />
             </div>
             
             <div className="space-y-2">
-              <h3 className="text-lg font-black text-slate-900">雲端授權已過期</h3>
+              <h3 className="text-lg font-black text-slate-900">同步需要您的授權</h3>
               <p className="text-xs text-slate-500 leading-relaxed px-4">
-                Google 基於安全性規定，存取授權效期為 1 小時。為了確保您的飲食數據能持續即時備份至 Google Drive，請點擊下方按鈕重新建立連線。
+                為了確保您的飲食與運動數據能安全地備份至 Google Drive，請重新建立連線以進行同步。
               </p>
             </div>
 
             <div className="w-full pt-2">
               <button 
                 onClick={handleRestoreAuth}
-                className="w-full py-3.5 bg-amber-600 hover:bg-amber-700 text-white font-black rounded-2xl shadow-lg shadow-amber-200 transition active:scale-95 flex items-center justify-center gap-2 cursor-pointer"
+                className="w-full py-3.5 bg-sky-600 hover:bg-sky-700 text-white font-black rounded-2xl shadow-lg shadow-sky-200 transition active:scale-95 flex items-center justify-center gap-2 cursor-pointer"
               >
                 <RefreshCw className="w-4 h-4" />
-                更新憑證 / 立即一鍵修復授權
+                登入 Google 帳號
               </button>
               
               <button 
                 onClick={() => setNeedsDriveAuth(false)}
                 className="w-full mt-2 py-2 text-slate-400 text-[10px] font-bold hover:text-slate-600 transition cursor-pointer"
               >
-                稍後再說（將暫停雲端同步）
+                暫時不同步
               </button>
             </div>
           </div>
