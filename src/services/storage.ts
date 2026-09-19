@@ -578,10 +578,59 @@ export const StorageService = {
   },
 
   // Meals
-  getActiveMeals(): MealConfig[] {
-    return getItem<MealConfig[]>(STORAGE_KEYS.ACTIVE_MEALS, DEFAULT_MEALS);
+  getActiveMeals(date?: string): MealConfig[] {
+    let baseMeals: MealConfig[] = [];
+    if (date) {
+      const daily = this.getDailyConfig(date);
+      if (daily && daily.activeMeals && daily.activeMeals.length > 0) {
+        baseMeals = daily.activeMeals;
+      } else {
+        baseMeals = getItem<MealConfig[]>(STORAGE_KEYS.ACTIVE_MEALS, DEFAULT_MEALS);
+      }
+    } else {
+      baseMeals = getItem<MealConfig[]>(STORAGE_KEYS.ACTIVE_MEALS, DEFAULT_MEALS);
+    }
+
+    if (date) {
+      // Safeguard: Always ensure any mealType that has food records on this date is included
+      const records = this.getFoodRecordsByDate(date);
+      const activeTypes = new Set(baseMeals.map(m => m.mealType));
+      const missingMeals: MealConfig[] = [];
+
+      for (const r of records) {
+        if (!activeTypes.has(r.mealType)) {
+          activeTypes.add(r.mealType);
+          const defaultInfo = DEFAULT_MEALS.find(m => m.mealType === r.mealType);
+          missingMeals.push({
+            mealType: r.mealType,
+            customName: defaultInfo?.customName || (r.mealType === 'SNACK' ? '點心' : '餐次'),
+            isCustom: !defaultInfo,
+          });
+        }
+      }
+
+      if (missingMeals.length > 0) {
+        return [...baseMeals, ...missingMeals];
+      }
+    }
+
+    return baseMeals;
   },
-  saveActiveMeals(meals: MealConfig[]): void {
+
+  saveActiveMeals(meals: MealConfig[], date?: string): void {
+    if (date) {
+      const existing = this.getDailyConfig(date) || {
+        date,
+        carbCycle: this.getActiveCarbCycle(),
+        updatedAt: Date.now(),
+      };
+      this.saveDailyConfig({
+        ...existing,
+        activeMeals: meals,
+        updatedAt: Date.now(),
+      });
+    }
+    // Also update global default active meals template
     setItem(STORAGE_KEYS.ACTIVE_MEALS, meals);
     this.saveToCloud();
   },

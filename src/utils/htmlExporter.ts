@@ -742,12 +742,24 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
       if (waterBarEl) waterBarEl.style.width = Math.min(100, Math.round((waterIntake / waterGoal) * 100)) + '%';
 
       // Meal Sections
-      const activeMeals = APP_DATA.activeMeals || [
+      const dateConfig = (APP_DATA.dailyConfigs || []).find(d => d.date === selectedDate);
+      let activeMeals = [...(dateConfig?.activeMeals || APP_DATA.activeMeals || [
         { mealType: 'BREAKFAST', customName: '早餐' },
         { mealType: 'LUNCH', customName: '午餐' },
         { mealType: 'DINNER', customName: '晚餐' },
         { mealType: 'SNACK', customName: '點心' }
-      ];
+      ])];
+      
+      const existingTypes = new Set(activeMeals.map(m => m.mealType));
+      foods.forEach(f => {
+        if (!existingTypes.has(f.mealType)) {
+          existingTypes.add(f.mealType);
+          activeMeals.push({
+            mealType: f.mealType,
+            customName: f.mealType === 'SNACK' ? '點心' : (f.mealType === 'BREAKFAST' ? '早餐' : (f.mealType === 'LUNCH' ? '午餐' : (f.mealType === 'DINNER' ? '晚餐' : '餐次')))
+          });
+        }
+      });
 
       const mealsContainer = document.getElementById('meals-container');
       if (!mealsContainer) return;
@@ -844,7 +856,8 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
               : (Array.isArray(ex.sets) ? ex.sets : []);
 
             const isCardio = !!ex.isCardio;
-            const superset = ex.supersetGroupId ? '<span class="text-[10px] bg-purple-50 text-purple-700 px-1.5 py-0.5 rounded font-bold border border-purple-100">超級組</span>' : '';
+            const supersetLetter = ex.supersetGroupId ? String.fromCharCode(65 + ((Number(ex.supersetGroupId) - 1) % 26)) : '';
+            const superset = ex.supersetGroupId ? ('<span class="text-[10px] bg-purple-50 text-purple-700 px-1.5 py-0.5 rounded font-bold border border-purple-100">超級組 ' + supersetLetter + '</span>') : '';
             const cardioTag = isCardio ? '<span class="text-[10px] bg-sky-50 text-sky-700 px-1.5 py-0.5 rounded font-bold border border-sky-100">有氧</span>' : '';
 
             html += '<div class="bg-white p-3.5 rounded-xl border border-slate-200/60 space-y-2">' +

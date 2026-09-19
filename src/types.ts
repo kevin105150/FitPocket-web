@@ -128,6 +128,7 @@ export interface DailyConfig {
   date: string; // YYYY-MM-DD
   carbCycle: CarbCycleType;
   customGoals?: Partial<NutritionGoalPreset>;
+  activeMeals?: MealConfig[];
   updatedAt: number;
 }
 

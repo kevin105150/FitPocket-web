@@ -523,7 +523,7 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
   // Load day records & config
   const refreshRecords = () => {
     setFoodRecords(StorageService.getFoodRecordsByDate(currentDate));
-    setActiveMeals(StorageService.getActiveMeals());
+    setActiveMeals(StorageService.getActiveMeals(currentDate));
     setPresets(StorageService.getPresets());
     
     // Load daily config if exists, fallback to global active cycle
@@ -577,18 +577,18 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
     };
     const updated = [...activeMeals, newMeal];
     setActiveMeals(updated);
-    StorageService.saveActiveMeals(updated);
+    StorageService.saveActiveMeals(updated, currentDate);
     setShowAddMealModal(false);
     setNewMealNameInput('');
   };
 
   const handleDeleteMeal = (mealType: string) => {
-    // Delete associated food records
+    // Delete associated food records on this date
     StorageService.deleteFoodRecordsByMeal(currentDate, mealType);
     
     const updated = activeMeals.filter((m) => m.mealType !== mealType);
     setActiveMeals(updated);
-    StorageService.saveActiveMeals(updated);
+    StorageService.saveActiveMeals(updated, currentDate);
     
     setExpandedMeals(prev => {
       const next = { ...prev };
@@ -611,14 +611,14 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
         m.mealType === mealType ? { ...m, customName: customName.trim() } : m
       );
       setActiveMeals(updated);
-      StorageService.saveActiveMeals(updated);
+      StorageService.saveActiveMeals(updated, currentDate);
     }
     setEditingMealState(null);
   };
 
   const handleReorderMeals = (newOrder: MealConfig[]) => {
     setActiveMeals(newOrder);
-    StorageService.saveActiveMeals(newOrder);
+    StorageService.saveActiveMeals(newOrder, currentDate);
   };
 
   useEffect(() => {
