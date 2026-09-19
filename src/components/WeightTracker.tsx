@@ -23,7 +23,10 @@ export const WeightTracker: React.FC<WeightTrackerProps> = ({
   const [chartDays, setChartDays] = useState<number>(7);
   const [userProfile, setUserProfile] = useState(StorageService.getUserProfile());
 
-  const [activeTab, setActiveTab] = useState<'morning' | 'evening'>('morning');
+  const [activeTab, setActiveTab] = useState<'morning' | 'evening'>(() => {
+    const hour = new Date().getHours();
+    return hour < 12 ? 'morning' : 'evening';
+  });
   const [weightRecordToDelete, setWeightRecordToDelete] = useState<WeightRecord | null>(null);
   const [confirmSwipeDeleteId, setConfirmSwipeDeleteId] = useState<string | null>(null);
 
