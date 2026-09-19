@@ -268,9 +268,9 @@ app.post('/api/ai/estimate-nutrition', async (req, res) => {
   "fiberPer100g": 數字(公克),
   "sodiumPer100g": 數字(毫克),
   "potassiumPer100g": 數字(毫克),
-  "defaultServingAmount": 數字(單份的公克數，例如180，絕對不要回傳整包總重或乘以份數的總重),
-  "servingUnit": "g",
-  "servingSizeText": "單份份量說明 (例如: 1份 約180g)",
+  "defaultServingAmount": 數字(單份的基準數值，例如180，如果是液體則是毫升數如300，絕對不要回傳整包總重或乘以份數的總重),
+  "servingUnit": "食品或飲料的基準單位：如果是液體、湯品、飲料、牛奶、咖啡等，請務必填寫 'ml'；固體食品/餐點填寫 'g'；亦可依合適度填寫 '個'、'瓶'、'杯'、'包'、'份' 等（例如液體應精準判斷為 'ml' 而非 'g'）",
+  "servingSizeText": "單份份量說明 (例如: 1份 約180g，或 1瓶 約350ml)",
   "explanation": "營養師簡評與健康建議 (50字以內)"
 }`;
 
@@ -343,9 +343,9 @@ app.post('/api/ai/estimate-image', async (req, res) => {
   "fiberPer100g": 數字(公克),
   "sodiumPer100g": 數字(毫克),
   "potassiumPer100g": 數字(毫克),
-  "defaultServingAmount": 數字(單份公克數，例如180，絕對不要乘以份數的總重，不要回傳整包總重),
-  "servingUnit": "g",
-  "servingSizeText": "單份份量說明 (例如: 1份 約180g)",
+  "defaultServingAmount": 數字(單份基準數值，例如 180，如果是液體則是毫升數如 300，絕對不要回傳整包總重或乘以份數的總重),
+  "servingUnit": "食品或飲料的基準單位：如果是液體、湯品、飲料、牛奶、咖啡、優酪乳等，請務必填寫 'ml'；固體食品填寫 'g'；亦可依合適度填寫 '個'、'瓶'、'杯'、'包'、'份' 等（例如液體應精準判斷為 'ml' 而非 'g'）",
+  "servingSizeText": "單份份量說明 (例如: 1份 約180g，或 1瓶 約350ml)",
   "explanation": "食材分析、品牌與建議"
 }`;
 

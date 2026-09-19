@@ -141,6 +141,13 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
     pendingConsumedAmount: number;
   } | null>(null);
 
+  // Modify portion/unit confirm modal state
+  const [modifyConfirmModal, setModifyConfirmModal] = useState<{
+    show: boolean;
+    pendingFood: CustomFood;
+    pendingConsumedAmount: number;
+  } | null>(null);
+
   const [error, setError] = useState<string>('');
   const [isUnitDropdownOpen, setIsUnitDropdownOpen] = useState(false);
 
@@ -170,6 +177,41 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
     // 2. Immediately persist locally and close modal without delay
     onSave(foodToSave, consumed);
     onClose();
+  };
+
+  const handleFinalStepSave = async (food: CustomFood, parsedConsumed: number) => {
+    // If uploading to cloud, perform duplicate pre-check
+    if (food.isSharedToCloud) {
+      setIsSharing(true);
+      try {
+        const preCheck = await CloudFoodService.preCheckCloudFood({
+          name: food.name,
+          brand: food.brand,
+          servingUnit: food.servingUnit,
+        });
+
+        if (preCheck.exists && preCheck.existingFood) {
+          setIsSharing(false);
+          const isIdentical = isAllFieldsIdentical(food, preCheck.existingFood);
+          if (!isIdentical) {
+            // Show duplicate resolution dialog only if fields differ
+            setDuplicateModal({
+              show: true,
+              existingFood: preCheck.existingFood,
+              pendingFood: food,
+              pendingConsumedAmount: parsedConsumed,
+            });
+            return;
+          }
+        }
+      } catch (checkErr) {
+        console.warn('Pre-check failed, continuing:', checkErr);
+      } finally {
+        setIsSharing(false);
+      }
+    }
+
+    await executeSave(food, parsedConsumed, !!food.isSharedToCloud);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -214,38 +256,22 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
       isSharedToCloud: shareToCloud && !isTfdaFood({ id: initialFood?.id, brand: normalizedBrand }),
     };
 
-    // If uploading to cloud, perform duplicate pre-check
-    if (food.isSharedToCloud) {
-      setIsSharing(true);
-      try {
-        const preCheck = await CloudFoodService.preCheckCloudFood({
-          name: food.name,
-          brand: food.brand,
-          servingUnit: food.servingUnit,
-        });
+    // Check if serving size or unit changed compared to initial values
+    const isServingChanged = initialFood && (
+      Number(initialFood.servingAmount) !== parsedDefault ||
+      initialFood.servingUnit !== servingUnit
+    );
 
-        if (preCheck.exists && preCheck.existingFood) {
-          setIsSharing(false);
-          const isIdentical = isAllFieldsIdentical(food, preCheck.existingFood);
-          if (!isIdentical) {
-            // Show duplicate resolution dialog only if fields differ
-            setDuplicateModal({
-              show: true,
-              existingFood: preCheck.existingFood,
-              pendingFood: food,
-              pendingConsumedAmount: parsedConsumed,
-            });
-            return;
-          }
-        }
-      } catch (checkErr) {
-        console.warn('Pre-check failed, continuing:', checkErr);
-      } finally {
-        setIsSharing(false);
-      }
+    if (isServingChanged) {
+      setModifyConfirmModal({
+        show: true,
+        pendingFood: food,
+        pendingConsumedAmount: parsedConsumed,
+      });
+      return;
     }
 
-    await executeSave(food, parsedConsumed, !!food.isSharedToCloud);
+    await handleFinalStepSave(food, parsedConsumed);
   };
 
   const isManualMode = mode === 'CUSTOM';
@@ -514,33 +540,21 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
     <div className="pt-2 border-t border-slate-100">
       <div className="flex items-center justify-between mb-1">
         <label className="block text-xs font-semibold text-slate-700">每份份量 (基準食品份量)</label>
-        {!isManualMode && (
-          <span className="text-[10px] text-slate-400 font-medium">唯讀基準值</span>
-        )}
       </div>
       <div className="grid grid-cols-2 gap-3">
         <input
           type="number"
           value={servingAmount}
-          readOnly={!isManualMode}
-          onChange={(e) => isManualMode && handleServingAmountChange(e.target.value)}
-          className={`w-full px-3 py-2 rounded-xl border font-medium transition-colors ${
-            !isManualMode
-              ? 'border-slate-200 bg-slate-100 text-slate-600 cursor-not-allowed'
-              : 'border-slate-200 text-slate-800 focus:outline-sky-600 bg-white'
-          }`}
+          onChange={(e) => handleServingAmountChange(e.target.value)}
+          className="w-full px-3 py-2 rounded-xl border font-medium transition-colors border-slate-200 text-slate-800 focus:outline-sky-600 bg-white"
         />
         <div className="relative">
           <div
-            onClick={() => isManualMode && setIsUnitDropdownOpen(!isUnitDropdownOpen)}
-            className={`w-full px-3 py-2 rounded-xl border font-medium flex items-center justify-between transition-colors ${
-              !isManualMode
-                ? 'border-slate-200 bg-slate-100 text-slate-600 cursor-not-allowed'
-                : 'border-slate-200 text-slate-800 bg-white cursor-pointer shadow-2xs hover:border-sky-500'
-            }`}
+            onClick={() => setIsUnitDropdownOpen(!isUnitDropdownOpen)}
+            className="w-full px-3 py-2 rounded-xl border font-medium flex items-center justify-between transition-colors border-slate-200 text-slate-800 bg-white cursor-pointer shadow-2xs hover:border-sky-500"
           >
             <span>{unitOptions.find(o => o.value === servingUnit)?.label || servingUnit}</span>
-            {isManualMode && <ChevronDown className="w-4 h-4 text-slate-400" />}
+            <ChevronDown className="w-4 h-4 text-slate-400" />
           </div>
           
           {isUnitDropdownOpen && (
@@ -963,6 +977,55 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
                 className="w-full py-2 text-slate-500 hover:text-slate-700 font-semibold text-xs transition cursor-pointer"
               >
                 返回修改
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Portions/Unit modification confirmation dialog */}
+      {modifyConfirmModal && modifyConfirmModal.show && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div className="bg-white w-full max-w-md rounded-3xl p-6 shadow-2xl space-y-4 border border-slate-100 animate-in zoom-in-95 duration-150">
+            <div className="flex items-start gap-3">
+              <div className="p-2.5 bg-amber-50 text-amber-600 rounded-2xl shrink-0">
+                <AlertTriangle className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-slate-900">確認修改每份份量與單位？</h3>
+                <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                  您修改了「<span className="font-bold text-slate-800">{modifyConfirmModal.pendingFood.name}</span>」的每份基準份量或單位。
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-amber-50/50 p-3.5 rounded-2xl border border-amber-100/70 text-xs text-amber-900 space-y-1">
+              <div className="font-bold text-amber-800">⚠️ 修改基準的影響：</div>
+              <p className="leading-relaxed text-amber-700">
+                修改每份基準份量（例如從 {initialFood?.servingAmount}{initialFood?.servingUnit} 改為 {modifyConfirmModal.pendingFood.servingAmount}{modifyConfirmModal.pendingFood.servingUnit}）會改變每份食品的營養標示對照基準。這會影響本紀錄或未來新增時的比例換算。
+              </p>
+            </div>
+
+            <div className="flex gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setModifyConfirmModal(null)}
+                className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs rounded-xl transition cursor-pointer"
+              >
+                取消並返回
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  const food = modifyConfirmModal.pendingFood;
+                  const consumed = modifyConfirmModal.pendingConsumedAmount;
+                  setModifyConfirmModal(null);
+                  await handleFinalStepSave(food, consumed);
+                }}
+                className="flex-1 py-2.5 bg-sky-600 hover:bg-sky-700 text-white font-bold text-xs rounded-xl transition shadow-xs cursor-pointer flex items-center justify-center gap-1.5"
+              >
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                確認修改並儲存
               </button>
             </div>
           </div>
