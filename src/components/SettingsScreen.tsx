@@ -1605,7 +1605,7 @@ export const SettingsScreen: React.FC = () => {
                               status: 'approved',
                               dailyLimit: devQuota.dailyLimit,
                               todayUsage: devQuota.todayUsage,
-                              lastUsed: new Date().toISOString()
+                              lastUsedAt: new Date().toISOString()
                             });
                           }
                         }}
@@ -1665,7 +1665,7 @@ export const SettingsScreen: React.FC = () => {
                   </div>
                 ) : devQuota?.status === 'pending' ? (
                   <div className="bg-amber-50/70 border border-amber-100 p-3 rounded-xl text-xs text-amber-800 flex items-center justify-between gap-2">
-                    <span>您的共享金鑰申請已送交管理員 (Kevin)，核准後即可每日使用 20 次。</span>
+                    <span>您的共享金鑰申請已送交管理員，核准後即可每日使用 20 次。</span>
                     <button
                       type="button"
                       onClick={fetchDevQuota}

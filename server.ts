@@ -427,13 +427,14 @@ async function generateWithFallback(
   };
 }> {
   // STRICTLY Gemini 3.x models only as per AGENTS.md
+  // Priority order for speed: Lite models first for simple tasks if preferred, but usually Flash 8b/Flash are fast.
   const candidateModels = Array.from(
     new Set([
       preferredModel,
+      'gemini-3.1-flash-lite', // Fastest in 3.x family
       'gemini-3.8-flash',
       'gemini-3.6-flash',
       'gemini-3.5-flash',
-      'gemini-3.1-flash-lite',
     ].filter(m => m && m.startsWith('gemini-3.')))
   );
 
@@ -443,15 +444,22 @@ async function generateWithFallback(
     try {
       console.log(`[Gemini Request] Attempting model: ${modelName} (Search: ${useSearch})...`);
       
+      const isLite = modelName.includes('lite');
+      
       const config: any = {
         model: modelName,
         contents: Array.isArray(contents) ? contents : [{ role: 'user', parts: [{ text: contents }] }],
+        generationConfig: {
+          responseMimeType: 'application/json',
+          temperature: isLite ? 0.4 : 0.7, // Lower temperature for lite models for more stability
+        }
       };
 
       if (useSearch) {
         config.tools = [{ googleSearch: {} }];
       }
 
+      // Fast timeout for lite models if they are secondary
       const response = await ai.models.generateContent(config);
 
       const text = response.text;
@@ -949,44 +957,36 @@ app.post('/api/ai/estimate-nutrition', async (req, res) => {
 
     const ai = getGenAIClient(authResult.apiKeyToUse!);
 
-    const prompt = `你是一位專業的台灣飲食營養師。使用者輸入了一道食物：「${query}」。
-請使用 Google 搜尋工具查找該食物（特別是連鎖品牌如 7-11、全家、麥當勞、摩斯等）的官方營養資訊。
-請詳細估算或抓取此食物每一百公克 (per 100g) 的營養成分。
-特別注意：
-1. 品牌 (brand)：
-- 若使用者輸入有明確提及品牌、店家或超商（例如：義美、光泉、7-11、全家、星巴克、摩斯、麥當勞等），請辨識並填寫該品牌名稱。如果是 4 大超商請標準化為 7-11、全家、萊爾富、OK。
-- 若未提及任何品牌（例如純食物名稱「白飯」、「地瓜」、「茶葉蛋」），請務必填寫 "" (空字串)。
-2. 對於「預設份量」 (defaultServingAmount)：
-- 必須是常見的「單一份量」(例如 1 份 約 180g)，回傳 180。
-- 請嚴格遵守此單份份量原則。
-3. 單位 (servingUnit)：飲品必填 ml，固體填 g。
-
-請優先使用搜尋工具獲取真實數據。
-請嚴格輸出合法 JSON 格式：
+    const prompt = `你是一位專業營養師。請分析食物「${query}」並以 JSON 格式回傳每 100g 的營養成分。
+如果是連鎖品牌 (如 7-11, 全家, 麥當勞) 請優先搜尋官方數據。
+1. 品牌 (brand): 僅填寫品牌/超商名稱，無品牌則填 ""。
+2. 份量: defaultServingAmount 須為常見單一份量(如 180)，servingUnit 填 g 或 ml。
+3. 嚴格遵守 JSON 格式：
 {
-  "name": "食物標準名稱",
-  "brand": "品牌名稱",
-  "caloriesPer100g": 數字(大卡),
-  "carbsPer100g": 數字(公克),
-  "proteinPer100g": 數字(公克),
-  "fatPer100g": 數字(公克),
-  "sugarsPer100g": 數字(公克),
-  "fiberPer100g": 數字(公克),
-  "sodiumPer100g": 數字(毫克),
-  "potassiumPer100g": 數字(毫克),
+  "name": "食物名稱",
+  "brand": "品牌或空字串",
+  "caloriesPer100g": 數字,
+  "carbsPer100g": 數字,
+  "proteinPer100g": 數字,
+  "fatPer100g": 數字,
+  "sugarsPer100g": 數字,
+  "fiberPer100g": 數字,
+  "sodiumPer100g": 數字,
+  "potassiumPer100g": 數字,
   "defaultServingAmount": 數字,
-  "servingUnit": "g 或 ml",
-  "servingSizeText": "單份份量說明 (例如: 1份 約180g)",
-  "explanation": "營養師簡評與健康建議 (50字以內)"
+  "servingUnit": "g" | "ml",
+  "servingSizeText": "份量說明",
+  "explanation": "50字內建議"
 }`;
 
     const { text, modelUsed, usageMetadata } = await generateWithFallback(
       ai,
-      model || 'gemini-3.8-flash',
+      model || 'gemini-3.1-flash-lite',
       prompt,
       true // Enable Search Grounding
     );
 
+    // In JSON mode, text is a pure JSON string
     const parsed = extractJsonFromText(text);
     if (parsed.brand) {
       parsed.brand = normalizeConvenienceStoreBrand(parsed.brand);
@@ -1033,43 +1033,27 @@ app.post('/api/ai/estimate-image', async (req, res) => {
 
     const ai = getGenAIClient(authResult.apiKeyToUse!);
 
-    const prompt = `請仔細辨識這張照片中的食物、商品包裝或料理。
-特別注意：
-1. 品牌 (brand)：若包裝或畫面中有標籤、超商、品牌商標或店名，請務必辨識出來。如果是台灣 4 大超商，請嚴格按照以下標準超商名稱填寫：
-   - 統一超商 / 7-11 / 7-Eleven / 小七 -> "7-11"
-   - 全家 / FamilyMart -> "全家"
-   - 萊爾富 / Hi-Life -> "萊爾富"
-   - OK超商 / OKmart -> "OK"
-   若為其他品牌（例如：義美、光泉、好市多、麥當勞等）請填寫該品牌；若無品牌純自製料理請填 ""。
-2. 條碼 (barcode)：若照片中有商品國際條碼 (EAN-13, UPC 等數字)，請辨識並填寫其數字字串；若無 or 看不清楚請填 ""。
-3. 營養成分：
-   - **營養標示優先性 (極其重要)**：如果包裝上有明確的「營養標示（Nutrition Facts）」表格，**必須 100% 完全以該營養標示表格上印刷的真實數值為最優先基準**。
-   - **嚴禁無根據瞎猜或亂估計**：對於並非強制標示、或者在包裝上**完全沒有列出**的特定非強制標示營養素（如：鉀 potassiumPer100g、膳食纖維 fiberPer100g、糖 sugarsPer100g、鈉等），**請不要自行評估或憑空捏造估計出一個大於 0 的正數，必須一律填入 0**！(例如：如果該營養標示表格上沒有印出鉀或膳食纖維，請不要猜測，直接填 0)。
-4. 份量判定：若為商品包裝，請優先以營養標示上的「一份 (serving)」為基準回傳 defaultServingAmount，絕對不可回傳整包裝的總重，也不可乘以包裝總份數。
-   - 核心原則：使用者希望紀錄「單純一份」的營養，而非整個包裝袋的總合。
-   - 例如：若包裝標示「本包裝含 6 份，每份 180g」，你的 defaultServingAmount 必須回傳 180，絕對不可回傳 180 * 6 = 1080！
-   - 若為散裝料理（如餐廳飯菜），則以目測單次食用的一份重量為準。
-5. 生鮮海鮮與純肉類特別提醒（如：生魚片、刺身、鮭魚/鮪魚生魚片、純海鮮、無調味煎牛肉/雞肉）：
-   - 若畫面為純生魚片、刺身（無壽司米飯），其碳水化合物 (carbsPer100g) 與糖 (sugarsPer100g) 必須標示為 0！
-   - 切勿將純生魚片（刺身）誤認為含有醋飯的握壽司而估算碳水！
-
-請嚴格輸出純 JSON 物件（不要包含 any markdown 區塊反引號）：
+    const prompt = `請分析圖片中的食物。若包裝上有「營養標示」，嚴格依其數值回傳。
+1. 品牌: 台灣超商標準化 (7-11, 全家, 萊爾富, OK)。
+2. 份量: 以「單一份」基準，勿回傳整包總重。
+3. 數據: 若無標示纖維/鉀/糖，請填 0。純生魚片/刺身之碳水/糖須為 0。
+4. 格式要求：
 {
-  "name": "辨識出的食物品名 (例如: 經典茶葉蛋、原味優格)",
-  "brand": "辨識到的品牌 (4大超商請填 7-11、全家、萊爾富、OK；無品牌填空字串)",
-  "barcode": "商品條碼數字 (無則填空字串)",
-  "caloriesPer100g": 數字(大卡),
-  "carbsPer100g": 數字(公克),
-  "proteinPer100g": 數字(公克),
-  "fatPer100g": 數字(公克),
-  "sugarsPer100g": 數字(公克，若包裝標示未列出糖或非天然高糖食品，請直接填 0),
-  "fiberPer100g": 數字(公克，若包裝標示未列出纖維或非高纖食品，請直接填 0),
-  "sodiumPer100g": 數字(毫克),
-  "potassiumPer100g": 數字(毫克，若包裝標示未列出鉀，請直接填 0),
-  "defaultServingAmount": 數字(單份基準數值，例如 180，如果是液體則是毫升數如 300，絕對不要回傳整包總重或乘以份數的總重),
-  "servingUnit": "食品或飲料的基準單位：如果是液體、湯品、飲料、牛奶、咖啡、優酪乳等，請務必填寫 'ml'；固體食品填寫 'g'；亦可依合適度填寫 '個'、'瓶'、'杯'、'包'、'份' 等（例如液體應精準判斷為 'ml' 而非 'g'）",
-  "servingSizeText": "單份份量說明 (例如: 1份 約180g，或 1瓶 約350ml)",
-  "explanation": "食材分析、品牌與建議"
+  "name": "品名",
+  "brand": "品牌或空字串",
+  "barcode": "條碼或空字串",
+  "caloriesPer100g": 數字,
+  "carbsPer100g": 數字,
+  "proteinPer100g": 數字,
+  "fatPer100g": 數字,
+  "sugarsPer100g": 數字,
+  "fiberPer100g": 數字,
+  "sodiumPer100g": 數字,
+  "potassiumPer100g": 數字,
+  "defaultServingAmount": 數字,
+  "servingUnit": "g" | "ml",
+  "servingSizeText": "份量說明",
+  "explanation": "分析建議"
 }`;
 
     const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, '');
@@ -1091,6 +1075,7 @@ app.post('/api/ai/estimate-image', async (req, res) => {
       false
     );
 
+    // In JSON mode, text is a pure JSON string
     const parsed = extractJsonFromText(text);
     if (parsed.brand) {
       parsed.brand = normalizeConvenienceStoreBrand(parsed.brand);
