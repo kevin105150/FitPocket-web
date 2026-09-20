@@ -473,7 +473,8 @@ export const SettingsScreen: React.FC = () => {
     try {
       const res = await fetch(`/api/ai/developer-quota?userEmail=${encodeURIComponent(user.email)}`);
       const data = await res.json();
-      if (data.ok) {
+      // Server returns direct data if found, or status: 'not_requested'
+      if (data && !data.error) {
         setDevQuota({
           dailyLimit: data.dailyLimit,
           todayUsage: data.todayUsage,
