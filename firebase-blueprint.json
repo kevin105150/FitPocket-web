@@ -214,5 +214,27 @@
         }
       }
     }
+  },
+  "ai_whitelist": {
+    "description": "Developer AI API Key shared quota whitelist and daily usage tracking",
+    "documents": {
+      "{whitelistId}": {
+        "fields": {
+          "email": { "type": "string" },
+          "uid": { "type": "string" },
+          "displayName": { "type": "string" },
+          "photoURL": { "type": "string" },
+          "status": { "type": "string" },
+          "dailyLimit": { "type": "number" },
+          "todayUsage": { "type": "number" },
+          "totalUsage": { "type": "number" },
+          "quotaCycleDate": { "type": "string" },
+          "requestedAt": { "type": "number" },
+          "approvedAt": { "type": "number" },
+          "lastUsedAt": { "type": "number" },
+          "notes": { "type": "string" }
+        }
+      }
+    }
   }
 }

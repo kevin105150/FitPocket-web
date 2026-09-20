@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 import { Camera, Image, X, Flashlight, RefreshCw, AlertCircle, Loader2, Sparkles, CheckCircle2, ChevronDown, Check } from 'lucide-react';
 import { StorageService } from '../services/storage';
+import { getAiRequestParams } from '../utils/aiHelper';
 
 interface BarcodeScannerModalProps {
   isOpen: boolean;
@@ -10,55 +11,71 @@ interface BarcodeScannerModalProps {
 }
 
 /**
- * Format raw camera device labels to intuitive Chinese names (e.g., "後置鏡頭 1", "前置鏡頭 1")
+ * Rank and format camera device labels to intuitive Chinese names.
+ * Prioritizes back cameras and "main" lenses over ultra-wide or front lenses for better barcode focus.
  */
-function formatCameraDevices<T extends { id?: string; deviceId?: string; label?: string }>(
+function rankAndFormatCameras<T extends { id?: string; deviceId?: string; label?: string }>(
   devices: T[]
 ): Array<{ id: string; label: string }> {
+  // 1. Identify types and assign base scores
+  const scored = devices.map((d, index) => {
+    const id = d.id || d.deviceId || String(index);
+    const label = (d.label || '').toLowerCase();
+    let score = 0;
+
+    const isBack = 
+      label.includes('back') || 
+      label.includes('rear') || 
+      label.includes('environment') || 
+      label.includes('後') || 
+      label.includes('main');
+      
+    const isFront = 
+      label.includes('front') || 
+      label.includes('user') || 
+      label.includes('前') || 
+      label.includes('selfie') || 
+      label.includes('facetime');
+
+    const isUltraWide = label.includes('ultra wide') || label.includes('0.5x') || label.includes('超廣角');
+    const isTele = label.includes('tele') || label.includes('遠攝');
+
+    if (isBack) score += 100;
+    if (isFront) score -= 100;
+    if (label.includes('main') || label.includes('primary')) score += 50;
+    if (isUltraWide) score -= 60; // Strongly de-prioritize ultra wide for barcodes
+    if (isTele) score -= 10;
+    
+    // Tie-break by original index (usually primary cameras are earlier in system list)
+    score -= index;
+
+    return { 
+      id, 
+      label: d.label || '', 
+      score, 
+      isBack, 
+      isFront 
+    };
+  });
+
+  // 2. Sort by score descending
+  scored.sort((a, b) => b.score - a.score);
+
+  // 3. Format names sequentially for the sorted list
   let backCount = 0;
   let frontCount = 0;
 
-  return devices.map((d, index) => {
-    const id = d.id || d.deviceId || String(index);
-    const rawLabel = (d.label || '').toLowerCase();
-
-    const isFront =
-      rawLabel.includes('front') ||
-      rawLabel.includes('user') ||
-      rawLabel.includes('前') ||
-      rawLabel.includes('selfie') ||
-      rawLabel.includes('facetime');
-
-    const isBack =
-      rawLabel.includes('back') ||
-      rawLabel.includes('rear') ||
-      rawLabel.includes('environment') ||
-      rawLabel.includes('後') ||
-      rawLabel.includes('main') ||
-      rawLabel.includes('wide') ||
-      rawLabel.includes('tele');
-
+  return scored.map((s) => {
     let formattedName = '';
-    if (isFront) {
+    if (s.isFront) {
       frontCount++;
       formattedName = `前置鏡頭 ${frontCount}`;
-    } else if (isBack) {
+    } else {
       backCount++;
       formattedName = `後置鏡頭 ${backCount}`;
-    } else {
-      if (index === 0) {
-        backCount++;
-        formattedName = `後置鏡頭 ${backCount}`;
-      } else if (index === 1 && frontCount === 0) {
-        frontCount++;
-        formattedName = `前置鏡頭 ${frontCount}`;
-      } else {
-        backCount++;
-        formattedName = `後置鏡頭 ${backCount}`;
-      }
+      if (backCount === 1) formattedName += ' (推薦使用)';
     }
-
-    return { id, label: formattedName };
+    return { id: s.id, label: formattedName };
   });
 }
 
@@ -69,20 +86,48 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
 }) => {
   const [activeMode, setActiveMode] = useState<'camera' | 'file'>('camera');
   const [isScanning, setIsScanning] = useState(false);
+  const [isExiting, setIsExiting] = useState(false);
   const [scanError, setScanError] = useState('');
   const [isProcessingFile, setIsProcessingFile] = useState(false);
   const [detectedCode, setDetectedCode] = useState<string | null>(null);
-  const [availableCameras, setAvailableCameras] = useState<Array<{ id: string; label: string }>>([]);
+  const [availableCameras, setAvailableCameras] = useState<Array<{ id: string; label: string }>>([
+    { id: 'environment', label: '後置主鏡頭 (推薦)' },
+    { id: 'user', label: '前置鏡頭' },
+  ]);
   const [selectedCameraId, setSelectedCameraId] = useState<string>('');
   const [isTorchOn, setIsTorchOn] = useState(false);
   const [hasTorch, setHasTorch] = useState(false);
   const [isCameraDropdownOpen, setIsCameraDropdownOpen] = useState(false);
+  const [shouldRender, setShouldRender] = useState(isOpen);
 
   const html5QrcodeRef = useRef<Html5Qrcode | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const nativeCameraInputRef = useRef<HTMLInputElement | null>(null);
   const dropdownRef = useRef<HTMLDivElement | null>(null);
   const activeRequestIdRef = useRef<number>(0);
+  const isStoppingRef = useRef<boolean>(false);
+
+  const handleClose = async () => {
+    if (isExiting) return;
+    setIsExiting(true);
+    await stopCamera();
+    onClose();
+  };
+
+  // Synchronize isOpen with shouldRender and handle automatic exit cleanup
+  useEffect(() => {
+    if (isOpen) {
+      setShouldRender(true);
+      setIsExiting(false);
+    } else if (shouldRender) {
+      setIsExiting(true);
+      stopCamera();
+      const timer = setTimeout(() => {
+        setShouldRender(false);
+      }, 350); // Match or exceed CSS transition duration
+      return () => clearTimeout(timer);
+    }
+  }, [isOpen]);
 
   // Close camera dropdown when clicking outside
   useEffect(() => {
@@ -121,22 +166,19 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
     }
   };
 
-  // Handle successful detection
-  const handleSuccess = (code: string) => {
+  const handleSuccess = async (code: string) => {
     const cleanCode = code.trim();
     if (!cleanCode) return;
     setDetectedCode(cleanCode);
     playBeep();
 
-    // Stop scanner if active
-    if (html5QrcodeRef.current && html5QrcodeRef.current.isScanning) {
-      html5QrcodeRef.current.stop().catch(() => {});
-    }
+    setIsExiting(true);
+    await stopCamera();
+    // Allow animation to complete
+    await new Promise(r => setTimeout(r, 400));
 
-    setTimeout(() => {
-      onDetected(cleanCode);
-      onClose();
-    }, 600);
+    onDetected(cleanCode);
+    onClose();
   };
 
   // Start live camera stream scanner
@@ -144,18 +186,20 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
     setScanError('');
     setDetectedCode(null);
 
-    await stopCamera(); // Increments activeRequestIdRef.current
+    await stopCamera(); // Increments activeRequestIdRef.current and stops previous stream cleanly
     const myRequestId = activeRequestIdRef.current;
 
     try {
-      const devices = await Html5Qrcode.getCameras();
-      if (myRequestId !== activeRequestIdRef.current) return;
-
-      if (devices && devices.length > 0) {
-        setAvailableCameras(formatCameraDevices(devices));
+      const qrCodeElementId = 'barcode-live-scanner-viewport';
+      // Ensure element exists before initializing
+      const element = document.getElementById(qrCodeElementId);
+      if (!element) {
+        if (myRequestId === activeRequestIdRef.current) {
+          setScanError('掃描視窗初始化失敗，請重試。');
+        }
+        return;
       }
 
-      const qrCodeElementId = 'barcode-live-scanner-viewport';
       const html5Qrcode = new Html5Qrcode(qrCodeElementId);
       html5QrcodeRef.current = html5Qrcode;
 
@@ -165,19 +209,23 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
         Html5QrcodeSupportedFormats.UPC_A,
         Html5QrcodeSupportedFormats.UPC_E,
         Html5QrcodeSupportedFormats.CODE_128,
-        Html5QrcodeSupportedFormats.CODE_39,
-        Html5QrcodeSupportedFormats.QR_CODE,
       ];
 
       const config = {
-        fps: 15,
-        qrbox: { width: 280, height: 160 },
+        fps: 20,
+        qrbox: (viewWidth: number, viewHeight: number) => {
+          const width = Math.floor(viewWidth * 0.8);
+          const height = Math.floor(viewHeight * 0.4);
+          return { width, height };
+        },
         formatsToSupport,
-        aspectRatio: 1.333,
+        disableFlip: false,
       };
 
       const cameraConstraint = cameraId
-        ? { deviceId: { exact: cameraId } }
+        ? (cameraId === 'environment' || cameraId === 'user'
+            ? { facingMode: cameraId }
+            : { deviceId: { exact: cameraId } })
         : { facingMode: 'environment' };
 
       try {
@@ -193,37 +241,56 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
         );
       } catch (startErr) {
         if (myRequestId !== activeRequestIdRef.current) {
-          try { await html5Qrcode.stop(); } catch {}
+          if (html5QrcodeRef.current) {
+            try { 
+              await html5QrcodeRef.current.stop(); 
+              html5QrcodeRef.current.clear(); 
+            } catch {}
+            html5QrcodeRef.current = null;
+          }
           return;
         }
-        console.warn('Barcode camera exact constraint failed, attempting environment fallback:', startErr);
-        await html5Qrcode.start(
-          { facingMode: 'environment' },
-          config,
-          (decodedText) => {
-            if (myRequestId === activeRequestIdRef.current) {
-              handleSuccess(decodedText);
-            }
-          },
-          () => {}
-        );
+        console.warn('Barcode camera constraint failed, attempting environment fallback:', startErr);
+        
+        if (html5QrcodeRef.current) {
+          await html5QrcodeRef.current.start(
+            { facingMode: 'environment' },
+            config,
+            (decodedText) => {
+              if (myRequestId === activeRequestIdRef.current) {
+                handleSuccess(decodedText);
+              }
+            },
+            () => {}
+          );
+        }
       }
 
       if (myRequestId !== activeRequestIdRef.current) {
-        try { await html5Qrcode.stop(); } catch {}
+        if (html5QrcodeRef.current) {
+          try { 
+            await html5QrcodeRef.current.stop(); 
+            html5QrcodeRef.current.clear(); 
+          } catch {}
+          html5QrcodeRef.current = null;
+        }
         return;
       }
 
       setIsScanning(true);
 
-      // Re-query cameras after permission is granted to get real camera labels
+      // Query cameras after permission is granted and camera is active to get valid labeled devices
       try {
         const postDevices = await Html5Qrcode.getCameras();
         if (myRequestId === activeRequestIdRef.current && postDevices && postDevices.length > 0) {
-          setAvailableCameras(formatCameraDevices(postDevices));
+          const formatted = rankAndFormatCameras(postDevices);
+          setAvailableCameras(formatted);
+          if (!cameraId && formatted.length > 0) {
+            setSelectedCameraId(formatted[0].id);
+          }
         }
       } catch {
-        // ignore
+        // ignore device enumeration errors if not supported on platform
       }
 
       // Check torch support
@@ -250,18 +317,56 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   // Stop camera when closing or switching mode
   const stopCamera = async () => {
     activeRequestIdRef.current += 1;
-    if (html5QrcodeRef.current) {
-      if (html5QrcodeRef.current.isScanning) {
-        try {
-          await html5QrcodeRef.current.stop();
-        } catch {
-          // ignore
+
+    // 1. Forcefully stop ALL active video/media streams in the document immediately
+    // This is the most reliable way to release hardware regardless of library state
+    try {
+      const allVideos = document.querySelectorAll('video');
+      allVideos.forEach(v => {
+        if (v.srcObject) {
+          try {
+            const ms = v.srcObject as MediaStream;
+            if (ms && ms.getTracks) {
+              ms.getTracks().forEach(t => {
+                try { t.stop(); } catch {}
+              });
+            }
+            v.srcObject = null;
+            v.load(); // Force reset video element state
+          } catch {}
         }
+      });
+    } catch {}
+
+    if (isStoppingRef.current) return;
+    isStoppingRef.current = true;
+
+    try {
+      if (html5QrcodeRef.current) {
+        const instance = html5QrcodeRef.current;
+        html5QrcodeRef.current = null;
+        
+        // Use isScanning check or try-catch for safety
+        try {
+          // If the library is still in start transition, stop might throw
+          // but we've already stopped the tracks above manually
+          await instance.stop();
+        } catch (stopErr) {
+          // It's common for stop() to fail if start() hasn't finished
+        }
+        
+        try {
+          instance.clear();
+        } catch (clearErr) {}
       }
-      html5QrcodeRef.current = null;
+
+      // Brief hardware release pause
+      await new Promise(r => setTimeout(r, 200));
+    } finally {
+      isStoppingRef.current = false;
+      setIsScanning(false);
+      setIsTorchOn(false);
     }
-    setIsScanning(false);
-    setIsTorchOn(false);
   };
 
   // Toggle flashlight
@@ -280,6 +385,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
 
   useEffect(() => {
     if (isOpen && activeMode === 'camera') {
+      setIsExiting(false);
       const timer = setTimeout(() => {
         startCamera(selectedCameraId);
       }, 300);
@@ -288,9 +394,10 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
         stopCamera();
       };
     } else {
+      // Ensure camera is stopped if modal is closed or not in camera mode
       stopCamera();
     }
-  }, [isOpen, activeMode, selectedCameraId]);
+  }, [isOpen, activeMode]);
 
   // Handle File / Photo image barcode scanning
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -309,10 +416,13 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
         if (decodedText) {
           handleSuccess(decodedText);
           setIsProcessingFile(false);
+          try { tempScanner.clear(); } catch {}
           return;
         }
       } catch {
         // html5-qrcode standard decoder didn't find barcode, proceed to native & AI fallback
+      } finally {
+        try { tempScanner.clear(); } catch {}
       }
 
       // 2. Try browser native BarcodeDetector API if supported
@@ -346,19 +456,25 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
         }
 
         try {
-          const userKey = StorageService.getGeminiApiKey();
+          const aiParams = getAiRequestParams();
           const res = await fetch('/api/ai/read-barcode', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               imageBase64: base64,
               mimeType: file.type || 'image/jpeg',
-              customApiKey: userKey,
+              customApiKey: aiParams.customApiKey,
+              apiKeySource: aiParams.apiKeySource,
+              userEmail: aiParams.userEmail,
+              userUid: aiParams.userUid,
             }),
           });
 
           if (res.ok) {
             const data = await res.json();
+            if (data._usage) {
+              StorageService.recordApiUsage(data._usage);
+            }
             if (data.barcode) {
               handleSuccess(data.barcode);
               setIsProcessingFile(false);
@@ -379,14 +495,14 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
     }
   };
 
-  if (!isOpen) return null;
+  if (!shouldRender) return null;
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-md animate-in fade-in duration-200">
+    <div className={`fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-md transition-opacity duration-300 ${isExiting ? 'opacity-0 pointer-events-none' : 'animate-in fade-in'}`}>
       {/* Hidden div for html5-qrcode file decoder */}
       <div id="temp-barcode-file-decoder" className="hidden" />
 
-      <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-100 flex flex-col max-h-[90vh]">
+      <div className={`bg-white rounded-3xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-100 flex flex-col h-auto max-h-[90vh] transition-all duration-300 ${isExiting ? 'scale-95 opacity-0' : 'scale-100 opacity-100'}`}>
         {/* Header */}
         <div className="p-4 bg-slate-900 text-white flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2">
@@ -399,11 +515,9 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
             </div>
           </div>
           <button
-            onClick={() => {
-              stopCamera();
-              onClose();
-            }}
-            className="p-1.5 text-slate-400 hover:text-white rounded-full hover:bg-slate-800 transition cursor-pointer"
+            onClick={handleClose}
+            disabled={isExiting}
+            className="p-1.5 text-slate-400 hover:text-white rounded-full hover:bg-slate-800 transition cursor-pointer disabled:opacity-50"
           >
             <X className="w-5 h-5" />
           </button>
@@ -459,25 +573,37 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
             <div className="space-y-3">
               {/* Scanner Container */}
               <div className="relative rounded-2xl overflow-hidden bg-slate-950 aspect-[4/3] border border-slate-800 shadow-inner flex items-center justify-center">
-                <div id="barcode-live-scanner-viewport" className="w-full h-full object-cover" />
+                {/* Hide library's internal shaded region elements via CSS targeting */}
+                <div 
+                  id="barcode-live-scanner-viewport" 
+                  className="w-full h-full object-cover [&>video]:object-cover [&>video]:w-full [&>video]:h-full [&_#qr-shaded-region]:!border-0 [&_#qr-shaded-region]:!bg-transparent" 
+                />
 
                 {/* Scanning Frame Overlay & Laser Line */}
                 {isScanning && !detectedCode && (
-                  <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-                    {/* Scanning box boundary */}
-                    <div className="w-[80%] h-[55%] border-2 border-blue-400/80 rounded-2xl relative shadow-[0_0_20px_rgba(59,130,246,0.3)] backdrop-brightness-105">
+                  <div className="absolute inset-0 pointer-events-none flex flex-col items-center justify-center">
+                    {/* Scanning box boundary - matched to 80% width, 40% height to match qrbox calculation */}
+                    <div className="w-[80%] h-[40%] border-2 border-blue-400/80 rounded-2xl relative shadow-[0_0_30px_rgba(59,130,246,0.4)] backdrop-brightness-110">
                       {/* Laser Line Animation */}
-                      <div className="absolute inset-x-2 h-0.5 bg-gradient-to-r from-transparent via-blue-400 to-transparent shadow-[0_0_12px_#3b82f6] animate-[pulse_1.5s_infinite]" />
+                      <div className="absolute inset-x-3 h-0.5 bg-gradient-to-r from-transparent via-blue-400 to-transparent shadow-[0_0_15px_#3b82f6] animate-[pulse_1s_infinite] top-1/2" />
+                      
+                      {/* Scan Pulse */}
+                      <div className="absolute inset-0 border-4 border-blue-400/20 rounded-2xl animate-pulse" />
 
                       {/* Target corner accents */}
-                      <div className="absolute -top-1 -left-1 w-4 h-4 border-t-3 border-l-3 border-blue-500 rounded-tl-lg" />
-                      <div className="absolute -top-1 -right-1 w-4 h-4 border-t-3 border-r-3 border-blue-500 rounded-tr-lg" />
-                      <div className="absolute -bottom-1 -left-1 w-4 h-4 border-b-3 border-l-3 border-blue-500 rounded-bl-lg" />
-                      <div className="absolute -bottom-1 -right-1 w-4 h-4 border-b-3 border-r-3 border-blue-500 rounded-br-lg" />
+                      <div className="absolute -top-1 -left-1 w-6 h-6 border-t-4 border-l-4 border-blue-500 rounded-tl-xl" />
+                      <div className="absolute -top-1 -right-1 w-6 h-6 border-t-4 border-r-4 border-blue-500 rounded-tr-xl" />
+                      <div className="absolute -bottom-1 -left-1 w-6 h-6 border-b-4 border-l-4 border-blue-500 rounded-bl-xl" />
+                      <div className="absolute -bottom-1 -right-1 w-6 h-6 border-b-4 border-r-4 border-blue-500 rounded-br-xl" />
                     </div>
 
-                    <div className="absolute bottom-3 text-[11px] font-bold text-white/90 bg-slate-900/80 px-3 py-1 rounded-full backdrop-blur-sm border border-white/10">
-                      將商品條碼置於框內
+                    <div className="mt-8 flex flex-col items-center gap-2">
+                      <div className="text-[11px] font-bold text-white bg-blue-600/90 px-4 py-1.5 rounded-full backdrop-blur-md shadow-lg border border-blue-400/30 animate-bounce">
+                        將條碼對準框內中央
+                      </div>
+                      <div className="text-[10px] text-blue-200/80 font-medium">
+                        提示：若無法辨識，請試著稍微拉遠或靠近
+                      </div>
                     </div>
                   </div>
                 )}
@@ -655,10 +781,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
         {/* Footer */}
         <div className="p-3 bg-slate-50 border-t border-slate-100 flex justify-end shrink-0">
           <button
-            onClick={() => {
-              stopCamera();
-              onClose();
-            }}
+            onClick={handleClose}
             className="px-4 py-2 text-xs font-bold text-slate-600 hover:text-slate-900 rounded-xl hover:bg-slate-200 transition cursor-pointer"
           >
             關閉

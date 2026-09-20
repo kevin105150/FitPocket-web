@@ -73,6 +73,9 @@ export const AiCameraModal: React.FC<AiCameraModalProps> = ({
   const [isTorchOn, setIsTorchOn] = useState(false);
   const [hasTorch, setHasTorch] = useState(false);
   const [isCameraDropdownOpen, setIsCameraDropdownOpen] = useState(false);
+  const [isExiting, setIsExiting] = useState(false);
+  const [shouldRender, setShouldRender] = useState(isOpen);
+  const isStoppingRef = useRef(false);
 
   // Captured photo preview state
   const [capturedImageBase64, setCapturedImageBase64] = useState<string | null>(null);
@@ -83,6 +86,28 @@ export const AiCameraModal: React.FC<AiCameraModalProps> = ({
   const nativeCameraInputRef = useRef<HTMLInputElement | null>(null);
   const dropdownRef = useRef<HTMLDivElement | null>(null);
   const activeRequestIdRef = useRef<number>(0);
+
+  const handleClose = async () => {
+    if (isExiting) return;
+    setIsExiting(true);
+    await stopStream();
+    onClose();
+  };
+
+  // Synchronize isOpen with shouldRender and handle automatic exit cleanup
+  useEffect(() => {
+    if (isOpen) {
+      setShouldRender(true);
+      setIsExiting(false);
+    } else if (shouldRender) {
+      setIsExiting(true);
+      stopStream();
+      const timer = setTimeout(() => {
+        setShouldRender(false);
+      }, 350); // Slightly longer than CSS transition
+      return () => clearTimeout(timer);
+    }
+  }, [isOpen]);
 
   // Close camera dropdown when clicking outside
   useEffect(() => {
@@ -100,34 +125,67 @@ export const AiCameraModal: React.FC<AiCameraModalProps> = ({
   }, [isCameraDropdownOpen]);
 
   // Stop camera media stream
-  const stopStream = () => {
+  const stopStream = async () => {
     activeRequestIdRef.current += 1;
-    if (videoRef.current) {
-      videoRef.current.onloadedmetadata = null;
-      try {
-        videoRef.current.pause();
-      } catch (pauseErr) {
-        console.warn('[AiCameraModal] Pause failed:', pauseErr);
+
+    // 1. Forcefully stop ALL active video/media streams in the document immediately
+    try {
+      const allVideos = document.querySelectorAll('video');
+      allVideos.forEach(v => {
+        if (v.srcObject) {
+          try {
+            const ms = v.srcObject as MediaStream;
+            if (ms && ms.getTracks) {
+              ms.getTracks().forEach(t => t.stop());
+            }
+            v.srcObject = null;
+          } catch {}
+        }
+      });
+    } catch {}
+
+    if (isStoppingRef.current) return;
+    isStoppingRef.current = true;
+
+    try {
+      // 2. Stop tracks in the state stream
+      if (stream) {
+        try {
+          stream.getTracks().forEach((track) => track.stop());
+        } catch {}
+        setStream(null);
       }
-    }
-    if (stream) {
-      stream.getTracks().forEach((track) => track.stop());
-      setStream(null);
-    }
-    if (videoRef.current && videoRef.current.srcObject) {
-      const srcStream = videoRef.current.srcObject as MediaStream;
-      if (srcStream && srcStream.getTracks) {
-        srcStream.getTracks().forEach((track) => track.stop());
+      
+      // 3. Stop tracks specifically in the local video ref
+      if (videoRef.current) {
+        const v = videoRef.current;
+        v.onloadedmetadata = null;
+        if (v.srcObject) {
+          try {
+            const ms = v.srcObject as MediaStream;
+            if (ms && ms.getTracks) {
+              ms.getTracks().forEach(t => t.stop());
+            }
+          } catch {}
+          v.srcObject = null;
+        }
+        try {
+          v.pause();
+        } catch {}
       }
-      videoRef.current.srcObject = null;
+      
+      setIsTorchOn(false);
+      // Brief pause to allow browser to finish hardware release
+      await new Promise(r => setTimeout(r, 100));
+    } finally {
+      isStoppingRef.current = false;
     }
-    setIsTorchOn(false);
   };
 
   // Start live camera stream
   const startCamera = async (deviceId?: string) => {
     setCameraError('');
-    stopStream(); // Increments activeRequestIdRef.current
+    await stopStream(); // Increments activeRequestIdRef.current and WAITS for hardware release
 
     const myRequestId = activeRequestIdRef.current;
 
@@ -190,16 +248,30 @@ export const AiCameraModal: React.FC<AiCameraModalProps> = ({
 
     if (videoRef.current) {
       videoRef.current.srcObject = mediaStream;
-      videoRef.current.onloadedmetadata = () => {
-        if (videoRef.current && myRequestId === activeRequestIdRef.current) {
-          const playPromise = videoRef.current.play();
+      
+      // Attempt to play immediately but wrap in a robust catch block
+      const video = videoRef.current;
+      if (video && video.isConnected) {
+        try {
+          const playPromise = video.play();
           if (playPromise !== undefined) {
-            playPromise.catch((err) => {
-              console.warn('[AiCameraModal] Playback interrupted safely:', err);
-            });
+            await playPromise;
+          }
+        } catch (err: any) {
+          // Benign error if modal is closed or tab is hidden
+          const msg = err.message || '';
+          if (
+            err.name === 'AbortError' || 
+            err.name === 'NotAllowedError' || 
+            msg.includes('interrupted') ||
+            msg.includes('media was removed')
+          ) {
+            console.log('[AiCameraModal] Playback interrupted or blocked safely:', err.name || 'Interrupted');
+          } else {
+            console.warn('[AiCameraModal] Playback error:', err);
           }
         }
-      };
+      }
     }
 
     // Re-enumerate camera devices AFTER permission is granted to get accurate labels
@@ -289,9 +361,12 @@ export const AiCameraModal: React.FC<AiCameraModalProps> = ({
   };
 
   // Confirm photo and trigger Gemini AI analysis
-  const handleConfirm = () => {
+  const handleConfirm = async () => {
     if (!capturedImageBase64) return;
-    stopStream();
+    setIsExiting(true);
+    await stopStream();
+    // Tiny delay for animation
+    await new Promise(r => setTimeout(r, 300));
     onCaptured(capturedImageBase64, capturedMimeType);
     onClose();
   };
@@ -305,16 +380,16 @@ export const AiCameraModal: React.FC<AiCameraModalProps> = ({
         clearTimeout(timer);
         stopStream();
       };
-    } else {
+    } else if (!isOpen || activeMode !== 'camera' || capturedImageBase64) {
       stopStream();
     }
-  }, [isOpen, activeMode, selectedCameraId, capturedImageBase64]);
+  }, [isOpen, activeMode, capturedImageBase64]);
 
-  if (!isOpen) return null;
+  if (!shouldRender) return null;
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-md animate-in fade-in duration-200">
-      <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-100 flex flex-col max-h-[90vh]">
+    <div className={`fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-md transition-opacity duration-300 ${isExiting ? 'opacity-0 pointer-events-none' : 'animate-in fade-in'}`}>
+      <div className={`bg-white rounded-3xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-100 flex flex-col max-h-[90vh] transition-transform duration-300 ${isExiting ? 'scale-95' : ''}`}>
         {/* Header */}
         <div className="p-4 bg-slate-900 text-white flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2">
@@ -327,11 +402,9 @@ export const AiCameraModal: React.FC<AiCameraModalProps> = ({
             </div>
           </div>
           <button
-            onClick={() => {
-              stopStream();
-              onClose();
-            }}
-            className="p-1.5 text-slate-400 hover:text-white rounded-full hover:bg-slate-800 transition cursor-pointer"
+            onClick={handleClose}
+            disabled={isExiting}
+            className="p-1.5 text-slate-400 hover:text-white rounded-full hover:bg-slate-800 transition cursor-pointer disabled:opacity-50"
           >
             <X className="w-5 h-5" />
           </button>

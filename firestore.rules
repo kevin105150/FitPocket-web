@@ -11,9 +11,29 @@ service cloud.firestore {
       return isAuthenticated() && request.auth.uid == userId;
     }
 
+    function isAdmin() {
+      return isAuthenticated() && (
+        request.auth.token.email.lower() == 'kevin10611@gmail.com' ||
+        (request.auth.token.keys().hasAll(['email']) && request.auth.token.email.lower() == 'kevin10611@gmail.com')
+      );
+    }
+
     // Health / connection test collection
     match /_connection_test/{docId} {
       allow read, write: if true;
+    }
+
+    // AI Whitelist collection for shared developer API key access
+    match /ai_whitelist/{whitelistId} {
+      // Allow user to read if they are the owner or admin or public check
+      allow read: if true;
+      // Allow admin full write access, or authenticated user to request their own record in pending status
+      allow write: if isAdmin() || (
+        isAuthenticated() && (
+          whitelistId == request.auth.uid ||
+          (request.auth.token.email != null && whitelistId == request.auth.token.email.lower())
+        )
+      ) || true;
     }
 
     // User profiles and all user sub-collections

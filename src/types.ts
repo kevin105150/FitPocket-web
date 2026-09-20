@@ -204,3 +204,59 @@ export interface UserProfile {
   fitnessGoal: 'fat_loss' | 'maintain' | 'muscle_gain';
   updatedAt?: number;
 }
+
+export type AiKeySource = 'custom' | 'developer';
+
+export type AiWhitelistStatus = 'approved' | 'pending' | 'rejected' | 'not_requested';
+
+export interface AiWhitelistUser {
+  id?: string;
+  email: string;
+  uid?: string;
+  displayName?: string;
+  photoURL?: string;
+  status: 'approved' | 'pending' | 'rejected';
+  dailyLimit: number; // default: 20
+  todayUsage: number;
+  totalUsage: number;
+  quotaCycleDate: string; // "YYYY-MM-DD" Pacific Time
+  requestedAt: number;
+  approvedAt?: number | null;
+  lastUsedAt?: number;
+  notes?: string;
+}
+
+export interface DeveloperQuotaInfo {
+  dailyLimit: number;
+  todayUsage: number;
+  remaining: number;
+  quotaCycleDate: string;
+  status: 'approved' | 'pending' | 'rejected' | 'not_requested';
+  isAdmin?: boolean;
+}
+
+export interface ApiFeatureUsage {
+  calls: number;
+  tokens: number;
+}
+
+export interface ApiUsageStats {
+  totalCalls: number;
+  totalTokens: number;
+  promptTokens: number;
+  candidatesTokens: number;
+  // Daily Quota Tracking (Automatically resets on Google API Daily Reset Time: 00:00 PT)
+  dailyCalls: number;
+  dailyTokens: number;
+  dailyPromptTokens: number;
+  dailyCandidatesTokens: number;
+  quotaCycleDate: string; // The Pacific Time date string e.g. "2026-09-20"
+  // Custom limits configured by user (null = unlimited)
+  dailyCallsLimit: number | null; // e.g. 1500 calls/day
+  dailyTokensLimit: number | null; // e.g. 1000000 tokens/day
+  lastUsedAt?: number;
+  breakdownByFeature?: Record<string, ApiFeatureUsage>;
+  breakdownByModel?: Record<string, ApiFeatureUsage>;
+  updatedAt?: number;
+}
+

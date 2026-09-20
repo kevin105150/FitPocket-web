@@ -22,7 +22,7 @@ import { StorageService } from '../services/storage';
 import { isCardioExercise } from '../data/defaults';
 import { DateNavigator } from './DateNavigator';
 import { WorkoutTimerModal } from './WorkoutTimerModal';
-import { checkAiKeyOrWarn } from '../utils/aiHelper';
+import { checkAiKeyOrWarn, getAiRequestParams } from '../utils/aiHelper';
 import { motion } from 'motion/react';
 
 export const getSupersetLetter = (groupId: number): string => {
@@ -439,19 +439,25 @@ export const TrainingTracker: React.FC<TrainingTrackerProps> = ({
     if (!checkAiKeyOrWarn()) return;
     setAiLoading(true);
     try {
-      const userKey = StorageService.getGeminiApiKey();
+      const aiParams = getAiRequestParams();
       const model = StorageService.getSelectedAiModel();
       const res = await fetch('/api/ai/workout-suggest', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           bodyPart: selectedMuscle, 
-          customApiKey: userKey,
+          customApiKey: aiParams.customApiKey,
+          apiKeySource: aiParams.apiKeySource,
+          userEmail: aiParams.userEmail,
+          userUid: aiParams.userUid,
           model
         }),
       });
       if (res.ok) {
         const data = await res.json();
+        if (data._usage) {
+          StorageService.recordApiUsage(data._usage);
+        }
         setAiSuggestions(data.exercises || []);
       }
     } catch (e) {

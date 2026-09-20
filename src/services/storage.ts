@@ -1,5 +1,7 @@
-import { getTodayString } from '../utils/dateUtils';
+import { getTodayString, getGoogleApiQuotaCycleDate } from '../utils/dateUtils';
 import {
+  AiKeySource,
+  ApiUsageStats,
   CarbCycleType,
   CustomFood,
   DailyConfig,
@@ -45,7 +47,9 @@ const STORAGE_KEYS = {
   CUSTOM_BODY_PARTS: 'fitpocket_custom_body_parts',
   GEMINI_KEY: 'fitpocket_gemini_key',
   GEMINI_MODEL: 'fitpocket_gemini_model',
+  AI_KEY_SOURCE: 'fitpocket_ai_key_source',
   WORKOUT_PRESETS: 'fitpocket_workout_presets',
+  API_USAGE: 'fitpocket_api_usage',
   MIGRATED: 'fitpocket_idb_migrated',
 };
 
@@ -61,6 +65,30 @@ function notifySyncStatus(status: SyncStatus) {
   currentSyncStatus = status;
   syncListeners.forEach(listener => listener(status));
 }
+
+// Pub/Sub for API Usage stats
+const apiUsageListeners: ((stats: ApiUsageStats) => void)[] = [];
+function notifyApiUsageListeners(stats: ApiUsageStats) {
+  apiUsageListeners.forEach(listener => listener(stats));
+}
+
+const DEFAULT_API_USAGE: ApiUsageStats = {
+  totalCalls: 0,
+  totalTokens: 0,
+  promptTokens: 0,
+  candidatesTokens: 0,
+  dailyCalls: 0,
+  dailyTokens: 0,
+  dailyPromptTokens: 0,
+  dailyCandidatesTokens: 0,
+  quotaCycleDate: getGoogleApiQuotaCycleDate(),
+  dailyCallsLimit: 1500,
+  dailyTokensLimit: 1000000,
+  lastUsedAt: undefined,
+  breakdownByFeature: {},
+  breakdownByModel: {},
+  updatedAt: 0,
+};
 
 // Memory cache for synchronous access
 const memoryCache: Record<string, any> = {};
@@ -707,13 +735,182 @@ export const StorageService = {
     this.saveToCloud();
   },
 
-  // Gemini Model Selection
+  // AI Key Source ('custom' | 'developer')
+  getAiKeySource(): AiKeySource {
+    const customKey = this.getGeminiApiKey();
+    return getItem<AiKeySource>(STORAGE_KEYS.AI_KEY_SOURCE, customKey ? 'custom' : 'developer');
+  },
+  saveAiKeySource(source: AiKeySource): void {
+    setItem(STORAGE_KEYS.AI_KEY_SOURCE, source);
+    this.saveToCloud();
+  },
+
   getSelectedAiModel(): string {
     return getItem<string>(STORAGE_KEYS.GEMINI_MODEL, 'gemini-3.8-flash');
   },
   saveSelectedAiModel(model: string): void {
     setItem(STORAGE_KEYS.GEMINI_MODEL, model);
     this.saveToCloud();
+  },
+
+  // API Usage Statistics
+  getApiUsageStats(): ApiUsageStats {
+    const raw = getItem<ApiUsageStats>(STORAGE_KEYS.API_USAGE, DEFAULT_API_USAGE);
+    const currentCycleDate = getGoogleApiQuotaCycleDate();
+    
+    // If the Google API quota cycle has rolled over (new Pacific Time day), reset daily counters to 0
+    if (raw.quotaCycleDate !== currentCycleDate) {
+      const rolledOverStats: ApiUsageStats = {
+        ...raw,
+        dailyCalls: 0,
+        dailyTokens: 0,
+        dailyPromptTokens: 0,
+        dailyCandidatesTokens: 0,
+        quotaCycleDate: currentCycleDate,
+        updatedAt: Date.now(),
+      };
+      setItem(STORAGE_KEYS.API_USAGE, rolledOverStats);
+      notifyApiUsageListeners(rolledOverStats);
+      return rolledOverStats;
+    }
+    
+    return raw;
+  },
+
+  checkDailyQuotaReset(): ApiUsageStats {
+    return this.getApiUsageStats();
+  },
+
+  setApiUsageLimits(limits: {
+    dailyCallsLimit?: number | null;
+    dailyTokensLimit?: number | null;
+  }): ApiUsageStats {
+    const current = this.getApiUsageStats();
+    const updatedStats: ApiUsageStats = {
+      ...current,
+      dailyCallsLimit: limits.dailyCallsLimit !== undefined ? limits.dailyCallsLimit : current.dailyCallsLimit,
+      dailyTokensLimit: limits.dailyTokensLimit !== undefined ? limits.dailyTokensLimit : current.dailyTokensLimit,
+      updatedAt: Date.now(),
+    };
+    setItem(STORAGE_KEYS.API_USAGE, updatedStats);
+    this.saveToCloud();
+    notifyApiUsageListeners(updatedStats);
+    return updatedStats;
+  },
+
+  recordApiUsage(usage: {
+    promptTokens?: number;
+    candidatesTokens?: number;
+    totalTokens?: number;
+    feature?: string;
+    model?: string;
+  }): ApiUsageStats {
+    const current = this.getApiUsageStats();
+    const promptTokens = Number(usage.promptTokens) || 0;
+    const candidatesTokens = Number(usage.candidatesTokens) || 0;
+    const totalTokens = Number(usage.totalTokens) || (promptTokens + candidatesTokens);
+    
+    // Lifetime totals
+    const nextCalls = (Number(current.totalCalls) || 0) + 1;
+    const nextPrompt = (Number(current.promptTokens) || 0) + promptTokens;
+    const nextCandidates = (Number(current.candidatesTokens) || 0) + candidatesTokens;
+    const nextTotal = (Number(current.totalTokens) || 0) + totalTokens;
+
+    // Daily totals
+    const nextDailyCalls = (Number(current.dailyCalls) || 0) + 1;
+    const nextDailyPrompt = (Number(current.dailyPromptTokens) || 0) + promptTokens;
+    const nextDailyCandidates = (Number(current.dailyCandidatesTokens) || 0) + candidatesTokens;
+    const nextDailyTotal = (Number(current.dailyTokens) || 0) + totalTokens;
+    
+    const featureKey = usage.feature || 'general';
+    const currentFeat = current.breakdownByFeature?.[featureKey] || { calls: 0, tokens: 0 };
+    const nextBreakdownByFeature = {
+      ...(current.breakdownByFeature || {}),
+      [featureKey]: {
+        calls: (Number(currentFeat.calls) || 0) + 1,
+        tokens: (Number(currentFeat.tokens) || 0) + totalTokens,
+      },
+    };
+
+    const modelKey = usage.model || 'gemini-3.8-flash';
+    const currentModel = current.breakdownByModel?.[modelKey] || { calls: 0, tokens: 0 };
+    const nextBreakdownByModel = {
+      ...(current.breakdownByModel || {}),
+      [modelKey]: {
+        calls: (Number(currentModel.calls) || 0) + 1,
+        tokens: (Number(currentModel.tokens) || 0) + totalTokens,
+      },
+    };
+
+    const newStats: ApiUsageStats = {
+      totalCalls: nextCalls,
+      totalTokens: nextTotal,
+      promptTokens: nextPrompt,
+      candidatesTokens: nextCandidates,
+      dailyCalls: nextDailyCalls,
+      dailyTokens: nextDailyTotal,
+      dailyPromptTokens: nextDailyPrompt,
+      dailyCandidatesTokens: nextDailyCandidates,
+      quotaCycleDate: current.quotaCycleDate || getGoogleApiQuotaCycleDate(),
+      dailyCallsLimit: current.dailyCallsLimit !== undefined ? current.dailyCallsLimit : 1500,
+      dailyTokensLimit: current.dailyTokensLimit !== undefined ? current.dailyTokensLimit : 1000000,
+      lastUsedAt: Date.now(),
+      breakdownByFeature: nextBreakdownByFeature,
+      breakdownByModel: nextBreakdownByModel,
+      updatedAt: Date.now(),
+    };
+
+    setItem(STORAGE_KEYS.API_USAGE, newStats);
+    this.saveToCloud();
+    notifyApiUsageListeners(newStats);
+    return newStats;
+  },
+
+  resetDailyApiUsageStats(): void {
+    const current = this.getApiUsageStats();
+    const resetStats: ApiUsageStats = {
+      ...current,
+      dailyCalls: 0,
+      dailyTokens: 0,
+      dailyPromptTokens: 0,
+      dailyCandidatesTokens: 0,
+      updatedAt: Date.now(),
+    };
+    setItem(STORAGE_KEYS.API_USAGE, resetStats);
+    this.saveToCloud();
+    notifyApiUsageListeners(resetStats);
+  },
+
+  resetApiUsageStats(): void {
+    const current = this.getApiUsageStats();
+    const resetStats: ApiUsageStats = {
+      totalCalls: 0,
+      totalTokens: 0,
+      promptTokens: 0,
+      candidatesTokens: 0,
+      dailyCalls: 0,
+      dailyTokens: 0,
+      dailyPromptTokens: 0,
+      dailyCandidatesTokens: 0,
+      quotaCycleDate: getGoogleApiQuotaCycleDate(),
+      dailyCallsLimit: current.dailyCallsLimit !== undefined ? current.dailyCallsLimit : 1500,
+      dailyTokensLimit: current.dailyTokensLimit !== undefined ? current.dailyTokensLimit : 1000000,
+      lastUsedAt: undefined,
+      breakdownByFeature: {},
+      breakdownByModel: {},
+      updatedAt: Date.now(),
+    };
+    setItem(STORAGE_KEYS.API_USAGE, resetStats);
+    this.saveToCloud();
+    notifyApiUsageListeners(resetStats);
+  },
+
+  subscribeApiUsage(listener: (stats: ApiUsageStats) => void): () => void {
+    apiUsageListeners.push(listener);
+    return () => {
+      const idx = apiUsageListeners.indexOf(listener);
+      if (idx > -1) apiUsageListeners.splice(idx, 1);
+    };
   },
 
   // Export / Backup all data
@@ -740,6 +937,7 @@ export const StorageService = {
       geminiApiKey: rawKey, // already encrypted in storage
       geminiModel: this.getSelectedAiModel(),
       dailyConfigs: this.getDailyConfigs(),
+      apiUsage: this.getApiUsageStats(),
     };
     return JSON.stringify(data, null, 2);
   },
@@ -766,6 +964,10 @@ export const StorageService = {
       if (data.geminiApiKey) setItem(STORAGE_KEYS.GEMINI_KEY, data.geminiApiKey);
       if (data.geminiModel) setItem(STORAGE_KEYS.GEMINI_MODEL, data.geminiModel);
       if (data.dailyConfigs) setItem(STORAGE_KEYS.DAILY_CONFIGS, data.dailyConfigs);
+      if (data.apiUsage) {
+        setItem(STORAGE_KEYS.API_USAGE, data.apiUsage);
+        notifyApiUsageListeners(data.apiUsage);
+      }
       
       // After manual import, immediately upload to cloud to make this the "latest" version
       this.saveToCloud();
@@ -883,6 +1085,15 @@ export const StorageService = {
       if (incoming.geminiModel) {
         setItem(STORAGE_KEYS.GEMINI_MODEL, incoming.geminiModel);
         localChanged = true;
+      }
+      if (incoming.apiUsage) {
+        const localUsage = this.getApiUsageStats();
+        const incomingUsage = incoming.apiUsage as ApiUsageStats;
+        if ((incomingUsage.updatedAt || 0) > (localUsage.updatedAt || 0) || (incomingUsage.totalCalls || 0) > (localUsage.totalCalls || 0)) {
+          setItem(STORAGE_KEYS.API_USAGE, incomingUsage);
+          notifyApiUsageListeners(incomingUsage);
+          localChanged = true;
+        }
       }
 
       // If we integrated changes, upload the new merged state back to cloud

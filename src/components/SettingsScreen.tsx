@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { getTodayString } from '../utils/dateUtils';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { getTodayString, getNextGoogleApiResetInfo } from '../utils/dateUtils';
 import { generateFullAppExportHtml } from '../utils/htmlExporter';
 import {
   Settings,
@@ -23,12 +23,41 @@ import {
   RefreshCw,
   Search,
   X,
+  Activity,
+  Cpu,
+  Zap,
+  RotateCcw,
+  Clock,
+  Barcode,
+  Dumbbell,
+  SlidersHorizontal,
+  ShieldAlert,
+  Gauge,
+  Image as ImageIcon,
+  Crown,
+  ShieldCheck,
+  UserCheck,
+  UserX,
+  Shield,
+  Lock,
+  Unlock,
+  Send,
+  Users,
+  CheckCircle2,
+  UserPlus,
+  Filter,
+  Camera,
+  Loader2,
 } from 'lucide-react';
 import {
   CustomFood,
   UserProfile,
   CarbCycleType,
   NutritionGoalPreset,
+  ApiUsageStats,
+  AiKeySource,
+  AiWhitelistUser,
+  DeveloperQuotaInfo,
 } from '../types';
 import { StorageService } from '../services/storage';
 import { CloudFoodService } from '../services/cloudFoodService';
@@ -36,6 +65,11 @@ import { CARB_CYCLE_INFO, getCarbCycleBadgeStyle } from '../data/defaults';
 import { GoalSettingModal } from './GoalSettingModal';
 import { CustomFoodModal } from './CustomFoodModal';
 import { ExportHtmlModal } from './ExportHtmlModal';
+import { BarcodeScannerModal } from './BarcodeScannerModal';
+import { AiCameraModal } from './AiCameraModal';
+import { MacroCalorieVerifier } from './MacroCalorieVerifier';
+import { optimizeImageForAi } from '../utils/imageOptimizer';
+import { checkAiKeyOrWarn, getAiRequestParams } from '../utils/aiHelper';
 import { auth, loginWithGoogle, logout, testFirebaseConnection, getAccessToken } from '../lib/firebase';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { motion } from 'motion/react';
@@ -56,11 +90,15 @@ export const SettingsScreen: React.FC = () => {
 
   const handleLogin = async () => {
     try {
-      await loginWithGoogle(true);
-      setHasDriveToken(true);
-      flashMessage('已成功登入並開始同步雲端資料！');
-    } catch (err) {
-      console.error(err);
+      const res = await loginWithGoogle(true);
+      if (res?.accessToken || res?.user) {
+        setHasDriveToken(true);
+        flashMessage('已成功登入並開始同步雲端資料！');
+      }
+    } catch (err: any) {
+      console.warn('Login notice:', err);
+      const msg = err?.message || '登入遭遇問題，請確認瀏覽器未封鎖彈跳視窗或在新分頁中開啟。';
+      flashMessage(msg);
     }
   };
 
@@ -68,13 +106,14 @@ export const SettingsScreen: React.FC = () => {
     try {
       flashMessage('正在與 Google 帳號建立授權連線...');
       const result = await loginWithGoogle(false);
-      if (result.accessToken) {
+      if (result.accessToken || result.user) {
         setHasDriveToken(true);
         flashMessage('成功恢復 Google Drive 雲端同步授權！');
       }
-    } catch (err) {
-      console.error(err);
-      flashMessage('修復失敗，請確認是否允許彈跳視窗或重新授權');
+    } catch (err: any) {
+      console.warn('Restore auth notice:', err);
+      const msg = err?.message || '修復失敗，請確認是否允許彈跳視窗或在新分頁中開啟應用。';
+      flashMessage(msg);
     }
   };
 
@@ -100,11 +139,307 @@ export const SettingsScreen: React.FC = () => {
   const [aiModel, setAiModel] = useState<string>(
     StorageService.getSelectedAiModel()
   );
+  const [aiKeySource, setAiKeySource] = useState<AiKeySource>(() =>
+    StorageService.getAiKeySource()
+  );
+  const [devQuota, setDevQuota] = useState<DeveloperQuotaInfo | null>(null);
+  const [loadingDevQuota, setLoadingDevQuota] = useState(false);
+  const [requestingAccess, setRequestingAccess] = useState(false);
+
+  // Admin Management State (for Kevin10611@gmail.com)
+  const isAdmin = (user?.email || '').toLowerCase() === 'kevin10611@gmail.com';
+  const [adminWhitelist, setAdminWhitelist] = useState<AiWhitelistUser[]>([]);
+  const [loadingAdminWhitelist, setLoadingAdminWhitelist] = useState(false);
+  const [adminSearch, setAdminSearch] = useState('');
+  const [adminFilter, setAdminFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
+  const [showAddWhitelistModal, setShowAddWhitelistModal] = useState(false);
+  const [showEditWhitelistModal, setShowEditWhitelistModal] = useState(false);
+  const [selectedWhitelistUser, setSelectedWhitelistUser] = useState<AiWhitelistUser | null>(null);
+
+  // Form states for Add / Edit Whitelist User
+  const [formEmail, setFormEmail] = useState('');
+  const [formDisplayName, setFormDisplayName] = useState('');
+  const [formDailyLimit, setFormDailyLimit] = useState(20);
+  const [formStatus, setFormStatus] = useState<'approved' | 'pending' | 'rejected'>('approved');
+  const [formNotes, setFormNotes] = useState('');
+  const [formResetToday, setFormResetToday] = useState(false);
+  const [submittingAdminForm, setSubmittingAdminForm] = useState(false);
+
+  const [apiUsage, setApiUsage] = useState<ApiUsageStats>(() =>
+    StorageService.getApiUsageStats()
+  );
+  const [showResetUsageConfirm, setShowResetUsageConfirm] = useState(false);
   const [cloudFoodCount, setCloudFoodCount] = useState<number | null>(null);
 
   useEffect(() => {
     CloudFoodService.getCloudFoodsCount().then((count) => setCloudFoodCount(count));
   }, []);
+
+  // Admin Database Food Management States
+  const [showDatabaseFoodModal, setShowDatabaseFoodModal] = useState(false);
+  const [selectedCollection, setSelectedCollection] = useState<'cloud_foods' | 'family_foods' | 'open_foods'>('cloud_foods');
+  const [adminDatabaseFoods, setAdminDatabaseFoods] = useState<any[]>([]);
+  const [loadingDatabaseFoods, setLoadingDatabaseFoods] = useState(false);
+  const [adminFoodSearch, setAdminFoodSearch] = useState('');
+  
+  // For editing or adding a food
+  const [showEditAdminFoodModal, setShowEditAdminFoodModal] = useState(false);
+  const [editingAdminFood, setEditingAdminFood] = useState<any | null>(null);
+
+  // Editing form states
+  const [editFoodName, setEditFoodName] = useState('');
+  const [editFoodBrand, setEditFoodBrand] = useState('');
+  const [editFoodCalories, setEditFoodCalories] = useState(0);
+  const [editFoodCarbs, setEditFoodCarbs] = useState(0);
+  const [editFoodProtein, setEditFoodProtein] = useState(0);
+  const [editFoodFat, setEditFoodFat] = useState(0);
+  const [editFoodSugars, setEditFoodSugars] = useState(0);
+  const [editFoodFiber, setEditFoodFiber] = useState(0);
+  const [editFoodSodium, setEditFoodSodium] = useState(0);
+  const [editFoodPotassium, setEditFoodPotassium] = useState(0);
+  const [editFoodServingAmount, setEditFoodServingAmount] = useState(100);
+  const [editFoodServingUnit, setEditFoodServingUnit] = useState('g');
+  const [editFoodImageUrl, setEditFoodImageUrl] = useState('');
+  const [editFoodBarcode, setEditFoodBarcode] = useState('');
+
+  const [showBarcodeScannerForAdmin, setShowBarcodeScannerForAdmin] = useState(false);
+  const [showAiCameraModalForAdmin, setShowAiCameraModalForAdmin] = useState(false);
+  const [isAiAnalyzingAdminFood, setIsAiAnalyzingAdminFood] = useState(false);
+  const [aiAnalysisAdminStatus, setAiAnalysisAdminStatus] = useState('');
+  const [aiAnalysisAdminProgress, setAiAnalysisAdminProgress] = useState(0);
+  const aiPhotoInputRef = useRef<HTMLInputElement | null>(null);
+
+  const handleAdminAiImageCaptured = async (base64: string, mimeType: string) => {
+    if (!checkAiKeyOrWarn()) return;
+
+    setIsAiAnalyzingAdminFood(true);
+    setAiAnalysisAdminProgress(30);
+    setAiAnalysisAdminStatus('正在優化圖片以加快 AI 辨識...');
+
+    try {
+      const optimizedBase64 = await optimizeImageForAi(base64, 768, 768, 0.7);
+      const aiParams = getAiRequestParams();
+      const model = StorageService.getSelectedAiModel();
+
+      setAiAnalysisAdminProgress(50);
+      setAiAnalysisAdminStatus(`[${model}] AI 智慧辨識營養標示與食物中...`);
+
+      const res = await fetch('/api/ai/estimate-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          imageBase64: optimizedBase64,
+          mimeType: mimeType || 'image/jpeg',
+          customApiKey: aiParams.customApiKey,
+          apiKeySource: aiParams.apiKeySource,
+          userEmail: aiParams.userEmail,
+          userUid: aiParams.userUid,
+          model,
+        }),
+      });
+
+      setAiAnalysisAdminProgress(85);
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || 'AI 辨識失敗');
+      }
+
+      const result = await res.json();
+      if (result._usage) {
+        StorageService.recordApiUsage(result._usage);
+      }
+
+      const defaultAmount = Number(result.defaultServingAmount) || 100;
+      const ratio = defaultAmount / 100;
+
+      setEditFoodName(result.name || '');
+      if (result.brand && result.brand !== 'AI辨識') {
+        setEditFoodBrand(result.brand);
+      }
+      if (result.barcode) {
+        setEditFoodBarcode(result.barcode);
+      }
+      if (result.imageUrl) {
+        setEditFoodImageUrl(result.imageUrl);
+      }
+      setEditFoodServingAmount(defaultAmount);
+      setEditFoodServingUnit(result.servingUnit || 'g');
+      setEditFoodCalories(Math.round((Number(result.caloriesPer100g) || 0) * ratio * 10) / 10);
+      setEditFoodCarbs(Math.round((Number(result.carbsPer100g) || 0) * ratio * 10) / 10);
+      setEditFoodProtein(Math.round((Number(result.proteinPer100g) || 0) * ratio * 10) / 10);
+      setEditFoodFat(Math.round((Number(result.fatPer100g) || 0) * ratio * 10) / 10);
+      setEditFoodSugars(Math.round((Number(result.sugarsPer100g) || 0) * ratio * 10) / 10);
+      setEditFoodFiber(Math.round((Number(result.fiberPer100g) || 0) * ratio * 10) / 10);
+      setEditFoodSodium(Math.round((Number(result.sodiumPer100g) || 0) * ratio * 10) / 10);
+      setEditFoodPotassium(Math.round((Number(result.potassiumPer100g) || 0) * ratio * 10) / 10);
+
+      flashMessage('✨ AI 智慧辨識成功！已自動填入營養與規格資料');
+    } catch (err: any) {
+      console.error('Admin AI image analysis error:', err);
+      flashMessage(`AI 辨識錯誤：${err.message || err}`);
+    } finally {
+      setIsAiAnalyzingAdminFood(false);
+      setAiAnalysisAdminProgress(0);
+      setAiAnalysisAdminStatus('');
+    }
+  };
+
+  const fetchAdminDatabaseFoods = async (collectionName: 'cloud_foods' | 'family_foods' | 'open_foods') => {
+    setLoadingDatabaseFoods(true);
+    try {
+      const { collection, getDocs, query, limit } = await import('firebase/firestore');
+      const { db } = await import('../lib/firebase');
+      const colRef = collection(db, collectionName);
+      const q = query(colRef, limit(300));
+      const querySnap = await getDocs(q);
+      const list: any[] = [];
+      querySnap.forEach((docSnap) => {
+        list.push({
+          id: docSnap.id,
+          ...docSnap.data()
+        });
+      });
+      list.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+      setAdminDatabaseFoods(list);
+    } catch (err: any) {
+      console.error('Failed to fetch database foods:', err);
+      flashMessage(`載入資料庫失敗：${err.message || err}`);
+    } finally {
+      setLoadingDatabaseFoods(false);
+    }
+  };
+
+  const handleSaveAdminFood = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editFoodName.trim()) {
+      flashMessage('請輸入食品名稱');
+      return;
+    }
+    
+    try {
+      const { doc, setDoc } = await import('firebase/firestore');
+      const { db } = await import('../lib/firebase');
+      
+      let docId = editingAdminFood?.id;
+      if (!docId) {
+        const brand = editFoodBrand.trim();
+        const name = editFoodName.trim();
+        const unit = editFoodServingUnit.trim();
+        const barcode = editFoodBarcode.trim();
+        
+        if (collectionNameForHashing(selectedCollection) === 'cloud_foods') {
+          const { generateDeterministicCloudId } = await import('../services/cloudFoodService');
+          docId = generateDeterministicCloudId(brand, name, unit);
+        } else if (collectionNameForHashing(selectedCollection) === 'open_foods') {
+          const { generateDeterministicOpenFoodId } = await import('../services/openFoodService');
+          docId = generateDeterministicOpenFoodId(brand, name, unit, barcode);
+        } else {
+          docId = `family_${Date.now()}`;
+        }
+      }
+      
+      const docRef = doc(db, selectedCollection, docId!);
+      
+      const dataToSave = {
+        id: docId,
+        name: editFoodName.trim(),
+        brand: editFoodBrand.trim() || (selectedCollection === 'family_foods' ? '全家' : selectedCollection === 'open_foods' ? 'Open Food Facts' : '自訂'),
+        calories: Number(editFoodCalories) || 0,
+        carbs: Number(editFoodCarbs) || 0,
+        protein: Number(editFoodProtein) || 0,
+        fat: Number(editFoodFat) || 0,
+        sugars: Number(editFoodSugars) || 0,
+        fiber: Number(editFoodFiber) || 0,
+        sodium: Number(editFoodSodium) || 0,
+        potassium: Number(editFoodPotassium) || 0,
+        servingAmount: Number(editFoodServingAmount) || 100,
+        servingUnit: editFoodServingUnit.trim() || 'g',
+        imageUrl: editFoodImageUrl.trim(),
+        barcode: editFoodBarcode.trim(),
+        updatedAt: Date.now(),
+      };
+      
+      if (!editingAdminFood) {
+        (dataToSave as any).createdAt = Date.now();
+      } else {
+        (dataToSave as any).createdAt = editingAdminFood.createdAt || Date.now();
+      }
+      
+      await setDoc(docRef, dataToSave, { merge: true });
+      flashMessage(editingAdminFood ? '食品修改成功！' : '食品新增成功！');
+      setShowEditAdminFoodModal(false);
+      setEditingAdminFood(null);
+      
+      fetchAdminDatabaseFoods(selectedCollection);
+    } catch (err: any) {
+      console.error('Error saving admin food:', err);
+      flashMessage(`儲存失敗：${err.message || err}`);
+    }
+  };
+
+  const collectionNameForHashing = (col: string): string => col;
+
+  const handleDeleteAdminFood = async (foodId: string) => {
+    if (!window.confirm('確定要永久刪除此食品項目嗎？這將無法復原！')) {
+      return;
+    }
+    try {
+      const { doc, deleteDoc } = await import('firebase/firestore');
+      const { db } = await import('../lib/firebase');
+      const docRef = doc(db, selectedCollection, foodId);
+      await deleteDoc(docRef);
+      flashMessage('食品已成功刪除！');
+      fetchAdminDatabaseFoods(selectedCollection);
+    } catch (err: any) {
+      console.error('Error deleting admin food:', err);
+      flashMessage(`刪除失敗：${err.message || err}`);
+    }
+  };
+
+  useEffect(() => {
+    const unsubscribe = StorageService.subscribeApiUsage((stats) => {
+      setApiUsage(stats);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Google API Quota reset countdown and auto-check
+  const [resetInfo, setResetInfo] = useState(() => getNextGoogleApiResetInfo());
+  const [showLimitModal, setShowLimitModal] = useState(false);
+  const [callsLimitInput, setCallsLimitInput] = useState('');
+  const [tokensLimitInput, setTokensLimitInput] = useState('');
+  const [isCallsLimitEnabled, setIsCallsLimitEnabled] = useState(true);
+  const [isTokensLimitEnabled, setIsTokensLimitEnabled] = useState(true);
+
+  useEffect(() => {
+    const updateCountdown = () => {
+      const info = getNextGoogleApiResetInfo();
+      setResetInfo(info);
+      StorageService.checkDailyQuotaReset();
+    };
+    updateCountdown();
+    const interval = setInterval(updateCountdown, 15000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleOpenLimitModal = () => {
+    setIsCallsLimitEnabled(apiUsage.dailyCallsLimit !== null);
+    setCallsLimitInput(apiUsage.dailyCallsLimit !== null ? String(apiUsage.dailyCallsLimit) : '1500');
+    setIsTokensLimitEnabled(apiUsage.dailyTokensLimit !== null);
+    setTokensLimitInput(apiUsage.dailyTokensLimit !== null ? String(apiUsage.dailyTokensLimit) : '1000000');
+    setShowLimitModal(true);
+  };
+
+  const handleSaveLimits = () => {
+    const parsedCalls = isCallsLimitEnabled ? (parseInt(callsLimitInput, 10) || 1500) : null;
+    const parsedTokens = isTokensLimitEnabled ? (parseInt(tokensLimitInput, 10) || 1000000) : null;
+    StorageService.setApiUsageLimits({
+      dailyCallsLimit: parsedCalls,
+      dailyTokensLimit: parsedTokens,
+    });
+    setShowLimitModal(false);
+    flashMessage('API 每日呼叫次數與 Token 上限已更新！');
+  };
 
   // Modals
   const [showGoalModal, setShowGoalModal] = useState(false);
@@ -126,6 +461,274 @@ export const SettingsScreen: React.FC = () => {
   const flashMessage = (msg: string) => {
     setSavedMessage(msg);
     setTimeout(() => setSavedMessage(''), 3000);
+  };
+
+  // Fetch developer quota for current user
+  const fetchDevQuota = useCallback(async () => {
+    if (!user?.email) {
+      setDevQuota(null);
+      return;
+    }
+    setLoadingDevQuota(true);
+    try {
+      const res = await fetch(`/api/ai/developer-quota?userEmail=${encodeURIComponent(user.email)}`);
+      const data = await res.json();
+      if (data.ok) {
+        setDevQuota({
+          dailyLimit: data.dailyLimit,
+          todayUsage: data.todayUsage,
+          remaining: data.remaining,
+          quotaCycleDate: data.quotaCycleDate,
+          status: data.status,
+          isAdmin: data.isAdmin,
+        });
+      }
+    } catch (err) {
+      console.warn('Failed to fetch developer quota:', err);
+    } finally {
+      setLoadingDevQuota(false);
+    }
+  }, [user?.email]);
+
+  // Fetch Admin Whitelist users
+  const fetchAdminWhitelist = useCallback(async () => {
+    if (!isAdmin || !user?.email) return;
+    setLoadingAdminWhitelist(true);
+    try {
+      const res = await fetch(`/api/admin/whitelist?adminEmail=${encodeURIComponent(user.email)}`);
+      const data = await res.json();
+      if (data.ok && Array.isArray(data.users)) {
+        setAdminWhitelist(data.users);
+      } else if (data.error) {
+        flashMessage(`載入白名單失敗：${data.error}`);
+      }
+    } catch (err: any) {
+      console.warn('Failed to fetch admin whitelist:', err);
+      flashMessage('無法載入白名單清單，請稍後重試');
+    } finally {
+      setLoadingAdminWhitelist(false);
+    }
+  }, [isAdmin, user?.email]);
+
+  useEffect(() => {
+    fetchDevQuota();
+  }, [fetchDevQuota]);
+
+  useEffect(() => {
+    if (isAdmin) {
+      fetchAdminWhitelist();
+    }
+  }, [isAdmin, fetchAdminWhitelist]);
+
+  // User Request Access
+  const handleRequestAccess = async () => {
+    if (!user?.email) {
+      flashMessage('請先登入 Google 帳號後再送出申請！');
+      return;
+    }
+    setRequestingAccess(true);
+    try {
+      const res = await fetch('/api/ai/request-access', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: user.email,
+          uid: user.uid,
+          displayName: user.displayName || '',
+          photoURL: user.photoURL || '',
+        }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        flashMessage(data.message || '申請已送出！請靜候開發者審核。');
+        await fetchDevQuota();
+        if (isAdmin) await fetchAdminWhitelist();
+      } else {
+        flashMessage(`申請失敗：${data.error || '未知原因'}`);
+      }
+    } catch (err: any) {
+      flashMessage(`申請過程發生錯誤：${err.message}`);
+    } finally {
+      setRequestingAccess(false);
+    }
+  };
+
+  // Switch AI Key Source
+  const handleAiKeySourceChange = (source: AiKeySource) => {
+    setAiKeySource(source);
+    StorageService.saveAiKeySource(source);
+    flashMessage(
+      source === 'developer'
+        ? '已切換為「開發者共享金鑰 (白名單審核制)」'
+        : '已切換為「個人自備 API 金鑰」'
+    );
+  };
+
+  // Admin Actions
+  const handleAdminApprove = async (targetEmail: string, dailyLimit = 20) => {
+    if (!user?.email) return;
+    try {
+      const res = await fetch('/api/admin/whitelist/update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          adminEmail: user.email,
+          targetEmail,
+          status: 'approved',
+          dailyLimit,
+        }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        flashMessage(`已核准 ${targetEmail} 的 AI 使用權限 (每日 ${dailyLimit} 次)！`);
+        await fetchAdminWhitelist();
+        if (user.email.toLowerCase() === targetEmail.toLowerCase()) {
+          await fetchDevQuota();
+        }
+      } else {
+        flashMessage(`操作失敗：${data.error}`);
+      }
+    } catch (err: any) {
+      flashMessage(`操作發生錯誤：${err.message}`);
+    }
+  };
+
+  const handleAdminReject = async (targetEmail: string) => {
+    if (!user?.email) return;
+    try {
+      const res = await fetch('/api/admin/whitelist/update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          adminEmail: user.email,
+          targetEmail,
+          status: 'rejected',
+        }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        flashMessage(`已拒絕 / 停用 ${targetEmail} 的使用權限。`);
+        await fetchAdminWhitelist();
+        if (user.email.toLowerCase() === targetEmail.toLowerCase()) {
+          await fetchDevQuota();
+        }
+      } else {
+        flashMessage(`操作失敗：${data.error}`);
+      }
+    } catch (err: any) {
+      flashMessage(`操作發生錯誤：${err.message}`);
+    }
+  };
+
+  const handleAdminDelete = async (targetEmail: string) => {
+    if (!user?.email) return;
+    if (!window.confirm(`確定要將 ${targetEmail} 從白名單記錄中完全刪除嗎？`)) return;
+    try {
+      const res = await fetch('/api/admin/whitelist/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          adminEmail: user.email,
+          targetEmail,
+        }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        flashMessage(`已刪除 ${targetEmail} 的白名單記錄。`);
+        await fetchAdminWhitelist();
+        if (user.email.toLowerCase() === targetEmail.toLowerCase()) {
+          await fetchDevQuota();
+        }
+      } else {
+        flashMessage(`刪除失敗：${data.error}`);
+      }
+    } catch (err: any) {
+      flashMessage(`刪除發生錯誤：${err.message}`);
+    }
+  };
+
+  const handleOpenEditUser = (u: AiWhitelistUser) => {
+    setSelectedWhitelistUser(u);
+    setFormEmail(u.email);
+    setFormDisplayName(u.displayName || '');
+    setFormDailyLimit(u.dailyLimit || 20);
+    setFormStatus(u.status);
+    setFormNotes(u.notes || '');
+    setFormResetToday(false);
+    setShowEditWhitelistModal(true);
+  };
+
+  const handleSaveEditUser = async () => {
+    if (!user?.email || !selectedWhitelistUser) return;
+    setSubmittingAdminForm(true);
+    try {
+      const res = await fetch('/api/admin/whitelist/update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          adminEmail: user.email,
+          targetEmail: selectedWhitelistUser.email,
+          status: formStatus,
+          dailyLimit: Number(formDailyLimit) || 20,
+          notes: formNotes,
+          resetTodayUsage: formResetToday,
+          displayName: formDisplayName,
+        }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        flashMessage(`已更新 ${selectedWhitelistUser.email} 的設定！`);
+        setShowEditWhitelistModal(false);
+        await fetchAdminWhitelist();
+        if (user.email.toLowerCase() === selectedWhitelistUser.email.toLowerCase()) {
+          await fetchDevQuota();
+        }
+      } else {
+        flashMessage(`儲存失敗：${data.error}`);
+      }
+    } catch (err: any) {
+      flashMessage(`儲存發生錯誤：${err.message}`);
+    } finally {
+      setSubmittingAdminForm(false);
+    }
+  };
+
+  const handleCreateWhitelistUser = async () => {
+    if (!user?.email) return;
+    if (!formEmail.trim() || !formEmail.includes('@')) {
+      flashMessage('請輸入有效的使用者 Email 信箱！');
+      return;
+    }
+    setSubmittingAdminForm(true);
+    try {
+      const res = await fetch('/api/admin/whitelist/update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          adminEmail: user.email,
+          targetEmail: formEmail.trim(),
+          displayName: formDisplayName.trim(),
+          status: formStatus,
+          dailyLimit: Number(formDailyLimit) || 20,
+          notes: formNotes,
+        }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        flashMessage(`已成功將 ${formEmail.trim()} 加入白名單！`);
+        setShowAddWhitelistModal(false);
+        setFormEmail('');
+        setFormDisplayName('');
+        setFormNotes('');
+        await fetchAdminWhitelist();
+      } else {
+        flashMessage(`新增失敗：${data.error}`);
+      }
+    } catch (err: any) {
+      flashMessage(`新增發生錯誤：${err.message}`);
+    } finally {
+      setSubmittingAdminForm(false);
+    }
   };
 
   // Profile calculations
@@ -239,6 +842,7 @@ export const SettingsScreen: React.FC = () => {
     requestedModel?: string;
     latencyMs?: number;
     error?: string;
+    quotaRemaining?: number;
   } | null>(null);
 
   // Firebase Connection Test
@@ -287,10 +891,22 @@ export const SettingsScreen: React.FC = () => {
       const res = await fetch('/api/ai/test-connection', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ customApiKey: geminiKey, model: aiModel }),
+        body: JSON.stringify({
+          customApiKey: aiKeySource === 'custom' ? geminiKey : undefined,
+          apiKeySource: aiKeySource,
+          model: aiModel,
+          userEmail: user?.email || '',
+          userUid: user?.uid || '',
+        }),
       });
       const data = await res.json();
+      if (data._usage) {
+        StorageService.recordApiUsage(data._usage);
+      }
       setTestResult(data);
+      if (aiKeySource === 'developer') {
+        fetchDevQuota();
+      }
     } catch (err: any) {
       setTestResult({ ok: false, error: err.message || '連線伺服器逾時或失敗' });
     } finally {
@@ -344,6 +960,23 @@ export const SettingsScreen: React.FC = () => {
   };
 
   const presetFoodCount = StorageService.getPresetFoods().length;
+
+  // Filtered Whitelist for Admin
+  const filteredWhitelist = adminWhitelist.filter((u: AiWhitelistUser) => {
+    if (adminFilter !== 'all' && u.status !== adminFilter) return false;
+    if (adminSearch.trim()) {
+      const q = adminSearch.toLowerCase();
+      const matchEmail = (u.email || '').toLowerCase().includes(q);
+      const matchName = (u.displayName || '').toLowerCase().includes(q);
+      const matchNotes = (u.notes || '').toLowerCase().includes(q);
+      return matchEmail || matchName || matchNotes;
+    }
+    return true;
+  });
+
+  const pendingCount = adminWhitelist.filter((u) => u.status === 'pending').length;
+  const approvedCount = adminWhitelist.filter((u) => u.status === 'approved').length;
+  const totalCallsToday = adminWhitelist.reduce((acc, curr) => acc + (curr.todayUsage || 0), 0);
 
   return (
     <div className="space-y-5 pb-28 max-w-2xl mx-auto">
@@ -816,46 +1449,243 @@ export const SettingsScreen: React.FC = () => {
         )}
       </div>
 
-      {/* 5. Gemini API Key Configuration */}
+      {/* 5. Gemini AI Configuration & Whitelist */}
       <div className="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-2xs space-y-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Key className="w-5 h-5 text-purple-600" />
-            <h3 className="font-bold text-slate-900 text-sm">Gemini AI API 金鑰設定 (必填)</h3>
+            <Sparkles className="w-5 h-5 text-purple-600" />
+            <div>
+              <h3 className="font-bold text-slate-900 text-sm">Gemini AI 金鑰與模式設定</h3>
+              <p className="text-[11px] text-slate-400">支援「開發者共享金鑰 (白名單審核制)」與「自備個人金鑰」</p>
+            </div>
           </div>
           <div>
-            {geminiKey ? (
+            {aiKeySource === 'developer' ? (
+              <span className="px-2.5 py-1 bg-purple-50 text-purple-700 border border-purple-200 rounded-full text-xs font-bold whitespace-nowrap flex items-center gap-1">
+                <ShieldCheck className="w-3.5 h-3.5" />
+                開發者共享模式
+              </span>
+            ) : geminiKey ? (
               <span className="px-2.5 py-1 bg-sky-50 text-sky-700 border border-sky-200 rounded-full text-xs font-bold whitespace-nowrap">
-                已設定
+                個人金鑰已設定
               </span>
             ) : (
               <span className="px-2.5 py-1 bg-amber-50 text-amber-700 border border-amber-200 rounded-full text-xs font-bold whitespace-nowrap">
-                尚未設定
+                個人金鑰未設定
               </span>
             )}
           </div>
         </div>
-        
-        <div className="bg-purple-50/70 border border-purple-100 p-3.5 rounded-2xl text-xs text-purple-900 space-y-2">
-          <p className="font-bold">💡 為什麼需要填寫 API Key？</p>
-          <p className="leading-relaxed text-purple-800">
-            為確保隱私與獨立配額，本應用的所有 AI 智慧分析與拍照辨識功能，<strong>一律需要使用者自行輸入個人的 Google Gemini API Key</strong> 才能使用。系統不提供預設金鑰。
-          </p>
+
+        {/* Dual Mode Switcher Tabs */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 p-1.5 bg-slate-100/80 rounded-2xl border border-slate-200/60">
+          <button
+            type="button"
+            onClick={() => handleAiKeySourceChange('developer')}
+            className={`py-2.5 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer ${
+              aiKeySource === 'developer'
+                ? 'bg-white text-purple-700 shadow-sm border border-purple-200/60'
+                : 'text-slate-500 hover:text-slate-700 hover:bg-white/50'
+            }`}
+          >
+            <Shield className="w-4 h-4 text-purple-600" />
+            <span>開發者共享金鑰 (白名單審核制)</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => handleAiKeySourceChange('custom')}
+            className={`py-2.5 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer ${
+              aiKeySource === 'custom'
+                ? 'bg-white text-sky-700 shadow-sm border border-sky-200/60'
+                : 'text-slate-500 hover:text-slate-700 hover:bg-white/50'
+            }`}
+          >
+            <Key className="w-4 h-4 text-sky-600" />
+            <span>個人自備 API 金鑰 (無限制)</span>
+          </button>
         </div>
 
-        <button
-          type="button"
-          onClick={() => setShowApiKeyModal(true)}
-          className="w-full py-3 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-2xl text-xs transition flex items-center justify-center gap-2 shadow-sm cursor-pointer"
-        >
-          <Key className="w-4 h-4" />
-          <span>{geminiKey ? '修改 / 更新 Gemini API Key' : '立即設定 Gemini API Key'}</span>
-        </button>
+        {/* Developer Mode Content */}
+        {aiKeySource === 'developer' && (
+          <div className="space-y-3 animate-in fade-in duration-200">
+            <div className="bg-purple-50/70 border border-purple-100 p-3.5 rounded-2xl text-xs text-purple-900 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="font-bold flex items-center gap-1.5">
+                  <ShieldCheck className="w-4 h-4 text-purple-600" />
+                  每日 20 次限額
+                </span>
+              </div>
+              <p className="leading-relaxed text-purple-800/90 text-[11px]">
+                開發者金鑰由後端安全保管，不暴露於瀏覽器前端。為避免 API 額度超載，使用前需經由開發者審核通過白名單，通過後每日享免費 20 次 AI 智慧辨識呼叫額度。
+              </p>
+            </div>
 
-        {/* Dynamic Model Switcher */}
-        <div className="mt-4 p-3 bg-slate-50 rounded-2xl border border-slate-100">
-           <div className="text-[10px] uppercase tracking-wider text-slate-400 font-bold mb-2">
-            AI 模型選擇 (僅限使用 3.x 系列)
+            {!user ? (
+              <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-amber-900">
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>使用開發者共享金鑰需先登入 Google 帳號以辨識使用者身分。</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleLogin}
+                  className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-xl whitespace-nowrap transition cursor-pointer shadow-xs"
+                >
+                  立即登入 Google 帳號
+                </button>
+              </div>
+            ) : (
+              <div className="p-4 bg-slate-50 border border-slate-200/80 rounded-2xl space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200/60 pb-3">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center font-bold text-xs">
+                      {user.displayName ? user.displayName.slice(0, 1) : user.email?.slice(0, 1).toUpperCase()}
+                    </div>
+                    <div>
+                      <div className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
+                        <span>{user.displayName || 'Google 使用者'}</span>
+                        {devQuota?.isAdmin && (
+                          <span className="px-1.5 py-0.2 bg-amber-100 text-amber-800 border border-amber-300 rounded text-[10px] font-extrabold flex items-center gap-0.5">
+                            <Crown className="w-3 h-3 text-amber-600" />
+                            系統管理員
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-[11px] text-slate-400">{user.email}</div>
+                    </div>
+                  </div>
+
+                  {/* Status Badge */}
+                  <div>
+                    {loadingDevQuota ? (
+                      <span className="text-xs text-slate-400 flex items-center gap-1">
+                        <RefreshCw className="w-3 h-3 animate-spin" /> 查詢額度中...
+                      </span>
+                    ) : devQuota?.status === 'approved' ? (
+                      <span className="px-2.5 py-1 bg-sky-50 text-sky-700 border border-sky-200 rounded-full text-xs font-bold flex items-center gap-1">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-sky-600" />
+                        已核准白名單
+                      </span>
+                    ) : devQuota?.status === 'pending' ? (
+                      <span className="px-2.5 py-1 bg-amber-50 text-amber-700 border border-amber-200 rounded-full text-xs font-bold flex items-center gap-1">
+                        <Clock className="w-3.5 h-3.5 text-amber-600" />
+                        審核中
+                      </span>
+                    ) : devQuota?.status === 'rejected' ? (
+                      <span className="px-2.5 py-1 bg-rose-50 text-rose-700 border border-rose-200 rounded-full text-xs font-bold flex items-center gap-1">
+                        <UserX className="w-3.5 h-3.5 text-rose-600" />
+                        未通過 / 已停用
+                      </span>
+                    ) : (
+                      <span className="px-2.5 py-1 bg-slate-200/80 text-slate-600 rounded-full text-xs font-bold">
+                        尚未申請
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Quota Progress & Details */}
+                {devQuota?.status === 'approved' ? (
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="text-slate-600 font-semibold flex items-center gap-1">
+                        <Activity className="w-3.5 h-3.5 text-purple-600" />
+                        今日開發者配額消耗
+                      </span>
+                      <span className="font-bold text-purple-700">
+                        {devQuota.todayUsage} / {devQuota.dailyLimit} 次
+                        <span className="text-slate-400 font-normal ml-1">
+                          (剩餘 {devQuota.remaining} 次)
+                        </span>
+                      </span>
+                    </div>
+
+                    <div className="w-full bg-slate-200/70 h-2.5 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all duration-300 ${
+                          devQuota.todayUsage >= devQuota.dailyLimit
+                            ? 'bg-rose-500'
+                            : devQuota.todayUsage >= devQuota.dailyLimit * 0.8
+                            ? 'bg-amber-500'
+                            : 'bg-purple-600'
+                        }`}
+                        style={{
+                          width: `${Math.min(
+                            100,
+                            (devQuota.todayUsage / Math.max(1, devQuota.dailyLimit)) * 100
+                          )}%`,
+                        }}
+                      />
+                    </div>
+
+                    <div className="flex justify-between items-center text-[10px] text-slate-400 pt-1">
+                      <span>週期重設基準：每日太平洋時間 00:00 (自動歸零)</span>
+                      <button
+                        type="button"
+                        onClick={fetchDevQuota}
+                        className="text-purple-600 hover:text-purple-700 font-semibold flex items-center gap-1 cursor-pointer"
+                      >
+                        <RefreshCw className="w-2.5 h-2.5" /> 重新整理額度
+                      </button>
+                    </div>
+                  </div>
+                ) : devQuota?.status === 'pending' ? (
+                  <div className="bg-amber-50/70 border border-amber-100 p-3 rounded-xl text-xs text-amber-800 flex items-center justify-between gap-2">
+                    <span>您的共享金鑰申請已送交管理員 (Kevin)，核准後即可每日使用 20 次。</span>
+                    <button
+                      type="button"
+                      onClick={fetchDevQuota}
+                      className="px-2.5 py-1 bg-amber-200/70 hover:bg-amber-200 text-amber-900 rounded-lg text-[11px] font-bold cursor-pointer shrink-0"
+                    >
+                      重新整理狀態
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-1">
+                    <span className="text-xs text-slate-600">
+                      尚未取得白名單資格。點擊下方按鈕即可向管理員送出使用申請。
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleRequestAccess}
+                      disabled={requestingAccess}
+                      className="w-full sm:w-auto px-4 py-2.5 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-xl text-xs transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 shadow-xs"
+                    >
+                      <Send className="w-3.5 h-3.5" />
+                      <span>{requestingAccess ? '送出申請中...' : '送出白名單使用申請'}</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Custom API Key Mode Content */}
+        {aiKeySource === 'custom' && (
+          <div className="space-y-3 animate-in fade-in duration-200">
+            <div className="bg-sky-50/70 border border-sky-100 p-3.5 rounded-2xl text-xs text-sky-900 space-y-2">
+              <p className="font-bold">💡 為什麼需要填寫個人的 API Key？</p>
+              <p className="leading-relaxed text-sky-800 text-[11px]">
+                使用個人的 Google Gemini API Key 可享有個人專屬的官方免費或付費額度，無每日 20 次限制，資料傳輸更獨立。金鑰僅儲存在您的瀏覽器本機與授權資料庫中。
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowApiKeyModal(true)}
+              className="w-full py-3 bg-sky-600 hover:bg-sky-700 text-white font-bold rounded-2xl text-xs transition flex items-center justify-center gap-2 shadow-sm cursor-pointer"
+            >
+              <Key className="w-4 h-4" />
+              <span>{geminiKey ? '修改 / 更新個人 Gemini API Key' : '立即設定個人 Gemini API Key'}</span>
+            </button>
+          </div>
+        )}
+
+        {/* Dynamic Model Switcher (Gemini 3.x only) */}
+        <div className="mt-4 p-3.5 bg-slate-50 rounded-2xl border border-slate-100">
+          <div className="text-[10px] uppercase tracking-wider text-slate-400 font-bold mb-2">
+            AI 模型選擇 (僅限使用 3.x 家族架構)
           </div>
           <div className="flex flex-wrap gap-1.5">
             {['gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.1-flash-lite'].map((m) => (
@@ -883,7 +1713,7 @@ export const SettingsScreen: React.FC = () => {
             className="w-full py-2.5 px-4 bg-purple-50 hover:bg-purple-100 border border-purple-200 text-purple-700 text-xs font-bold rounded-xl transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${testingAi ? 'animate-spin' : ''}`} />
-            <span>{testingAi ? '正在測試 AI 通訊與延遲...' : '即時測試 AI API 連線'}</span>
+            <span>{testingAi ? '正在測試 AI 通訊與延遲...' : '即時測試目前 AI 連線狀態'}</span>
           </button>
 
           {testResult && (
@@ -906,6 +1736,9 @@ export const SettingsScreen: React.FC = () => {
                 <div className="text-[11px] text-sky-700 space-y-0.5">
                   <p>• 運作模型：<span className="font-mono font-semibold">{testResult.modelUsed}</span></p>
                   <p>• 回應延遲：<span className="font-semibold">{testResult.latencyMs} 毫秒</span></p>
+                  {aiKeySource === 'developer' && testResult.quotaRemaining !== undefined && (
+                    <p>• 今日開發者共享配額剩餘：<span className="font-bold text-purple-800">{testResult.quotaRemaining} 次</span></p>
+                  )}
                   <p className="text-sky-600/90 font-medium">智慧飲食估算、照片辨識、訓練推薦等所有 AI 功能皆已就緒！</p>
                 </div>
               ) : (
@@ -967,18 +1800,649 @@ export const SettingsScreen: React.FC = () => {
             )}
           </div>
         </div>
+      </div>
 
-        {apiKeyStatus === 'saved' && (
-          <div className="mt-3 flex items-center gap-1.5 text-[11px] font-bold text-sky-600 bg-sky-50 py-1.5 px-3 rounded-lg animate-in fade-in slide-in-from-top-1">
-            <Check className="w-3.5 h-3.5" />
-            <span>API 金鑰已成功儲存並同步至雲端！</span>
+      {/* 👑 5.0.5 Admin Whitelist Management Panel (Visible ONLY to Kevin10611@gmail.com) */}
+      {isAdmin && (
+        <div className="bg-gradient-to-br from-amber-500/10 via-purple-500/5 to-white rounded-3xl p-5 border-2 border-amber-400/60 shadow-md space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-200/80 pb-3">
+            <div className="flex items-center gap-2">
+              <div className="w-9 h-9 rounded-2xl bg-amber-500 text-white flex items-center justify-center shadow-xs">
+                <Crown className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-bold text-slate-900 text-sm flex items-center gap-1.5">
+                  <span>開發者專屬管理後台：AI 白名單與配額控管</span>
+                  <span className="px-2 py-0.5 bg-amber-100 text-amber-800 border border-amber-300 rounded text-[10px] font-extrabold">
+                    Admin
+                  </span>
+                </h3>
+                <p className="text-[11px] text-slate-500">
+                  即時審核使用者申請、自訂個別使用者每日呼叫次數上限 (強制 20 次防護)
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-2 w-full">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowDatabaseFoodModal(true);
+                  setSelectedCollection('cloud_foods');
+                  fetchAdminDatabaseFoods('cloud_foods');
+                }}
+                className="w-full px-4 py-2.5 bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold rounded-xl transition flex items-center justify-center gap-2 shadow-xs cursor-pointer"
+              >
+                <Database className="w-4 h-4" />
+                <span>管理食品資料庫</span>
+              </button>
+              <button
+                type="button"
+                onClick={fetchAdminWhitelist}
+                disabled={loadingAdminWhitelist}
+                className="w-full px-4 py-2.5 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-xs font-bold rounded-xl transition flex items-center justify-center gap-2 shadow-2xs cursor-pointer disabled:opacity-50"
+              >
+                <RefreshCw className={`w-4 h-4 ${loadingAdminWhitelist ? 'animate-spin' : ''}`} />
+                <span>重新整理</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setFormEmail('');
+                  setFormDisplayName('');
+                  setFormDailyLimit(20);
+                  setFormStatus('approved');
+                  setFormNotes('');
+                  setShowAddWhitelistModal(true);
+                }}
+                className="w-full px-4 py-2.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-xl transition flex items-center justify-center gap-2 shadow-xs cursor-pointer"
+              >
+                <UserPlus className="w-4 h-4" />
+                <span>手動新增使用者</span>
+              </button>
+            </div>
           </div>
-        )}
 
-        {apiKeyStatus === 'deleted' && (
-          <div className="mt-3 flex items-center gap-1.5 text-[11px] font-bold text-rose-600 bg-rose-50 py-1.5 px-3 rounded-lg animate-in fade-in slide-in-from-top-1">
-            <AlertCircle className="w-3.5 h-3.5" />
-            <span>API 金鑰已刪除。</span>
+          {/* Admin Quick Metrics Cards */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+            <div className="bg-white p-3 rounded-2xl border border-slate-200/80 shadow-2xs flex flex-col">
+              <span className="text-[10px] font-bold text-slate-400 uppercase">總註冊/申請用戶</span>
+              <span className="text-xl font-black text-slate-800 mt-1">{adminWhitelist.length} 人</span>
+            </div>
+            <div className="bg-white p-3 rounded-2xl border border-amber-200/80 shadow-2xs flex flex-col">
+              <span className="text-[10px] font-bold text-amber-600 uppercase flex items-center gap-1">
+                待審核申請
+                {pendingCount > 0 && (
+                  <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping inline-block" />
+                )}
+              </span>
+              <span className="text-xl font-black text-amber-600 mt-1">{pendingCount} 人</span>
+            </div>
+            <div className="bg-white p-3 rounded-2xl border border-sky-200/80 shadow-2xs flex flex-col">
+              <span className="text-[10px] font-bold text-sky-600 uppercase">已核准使用中</span>
+              <span className="text-xl font-black text-sky-600 mt-1">{approvedCount} 人</span>
+            </div>
+            <div className="bg-white p-3 rounded-2xl border border-purple-200/80 shadow-2xs flex flex-col">
+              <span className="text-[10px] font-bold text-purple-600 uppercase">今日全站調用總次數</span>
+              <span className="text-xl font-black text-purple-700 mt-1">{totalCallsToday} 次</span>
+            </div>
+          </div>
+
+          {/* Search & Filter Toolbar */}
+          <div className="flex flex-col sm:flex-row gap-2 items-center justify-between">
+            <div className="relative w-full sm:w-64">
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={adminSearch}
+                onChange={(e) => setAdminSearch(e.target.value)}
+                placeholder="搜尋 Email、暱稱或備註..."
+                className="w-full pl-8.5 pr-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-amber-500/30"
+              />
+              {adminSearch && (
+                <button
+                  type="button"
+                  onClick={() => setAdminSearch('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+
+            {/* Status Filter Buttons */}
+            <div className="flex flex-wrap gap-1 w-full sm:w-auto">
+              {[
+                { id: 'all', label: '全部' },
+                { id: 'pending', label: `待審核 (${pendingCount})` },
+                { id: 'approved', label: `已核准 (${approvedCount})` },
+                { id: 'rejected', label: '已拒絕' },
+              ].map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setAdminFilter(tab.id as any)}
+                  className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition cursor-pointer ${
+                    adminFilter === tab.id
+                      ? 'bg-amber-600 text-white shadow-xs'
+                      : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200/80'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Whitelist Users List */}
+          <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
+            {loadingAdminWhitelist && adminWhitelist.length === 0 ? (
+              <div className="p-8 text-center text-slate-400 text-xs flex items-center justify-center gap-2">
+                <RefreshCw className="w-4 h-4 animate-spin" />
+                <span>讀取白名單名冊中...</span>
+              </div>
+            ) : filteredWhitelist.length === 0 ? (
+              <div className="p-8 text-center bg-white rounded-2xl border border-slate-200 text-slate-400 text-xs">
+                尚無符合篩選條件的使用者記錄
+              </div>
+            ) : (
+              filteredWhitelist.map((u) => (
+                <div
+                  key={u.email}
+                  className={`p-3.5 bg-white rounded-2xl border transition-all ${
+                    u.status === 'pending'
+                      ? 'border-amber-300 shadow-xs bg-amber-50/20'
+                      : u.status === 'approved'
+                      ? 'border-slate-200/80'
+                      : 'border-slate-200 opacity-70'
+                  }`}
+                >
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                    {/* User Info */}
+                    <div className="flex items-start sm:items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-full bg-slate-100 text-slate-700 flex items-center justify-center font-bold text-xs shrink-0 mt-0.5 sm:mt-0">
+                        {u.displayName ? u.displayName.slice(0, 1) : u.email.slice(0, 1).toUpperCase()}
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-bold text-slate-900 text-xs">{u.displayName || '未設定暱稱'}</span>
+                          <span className="text-[11px] text-slate-500 font-mono">({u.email})</span>
+                          {u.email.toLowerCase() === 'kevin10611@gmail.com' && (
+                            <span className="px-1.5 py-0.2 bg-amber-100 text-amber-800 border border-amber-300 rounded text-[9px] font-extrabold">
+                              👑 管理員
+                            </span>
+                          )}
+                          {/* Status Badge */}
+                          {u.status === 'approved' ? (
+                            <span className="px-2 py-0.5 bg-sky-50 text-sky-700 border border-sky-200 rounded-full text-[10px] font-bold">
+                              已核准
+                            </span>
+                          ) : u.status === 'pending' ? (
+                            <span className="px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 rounded-full text-[10px] font-bold animate-pulse">
+                              待審核
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 bg-rose-50 text-rose-700 border border-rose-200 rounded-full text-[10px] font-bold">
+                              已拒絕
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Quota info */}
+                        <div className="text-[11px] text-slate-500 mt-1 flex flex-wrap items-center gap-3">
+                          <span>
+                            每日額度：<strong className="text-slate-800">{u.dailyLimit || 20} 次</strong>
+                          </span>
+                          <span>
+                            今日已用：<strong className="text-purple-700">{u.todayUsage || 0} 次</strong>
+                          </span>
+                          {u.notes && (
+                            <span className="text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded text-[10px]">
+                              備註: {u.notes}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Action Buttons */}
+                    <div className="flex items-center gap-1.5 self-end sm:self-center shrink-0">
+                      {u.status === 'pending' && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => handleAdminApprove(u.email, u.dailyLimit || 20)}
+                            className="px-2.5 py-1 bg-sky-600 hover:bg-sky-700 text-white rounded-lg text-[11px] font-bold transition flex items-center gap-1 cursor-pointer shadow-2xs"
+                          >
+                            <Check className="w-3 h-3" />
+                            <span>核准 (20次)</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleAdminReject(u.email)}
+                            className="px-2 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-[11px] font-bold transition cursor-pointer"
+                          >
+                            拒絕
+                          </button>
+                        </>
+                      )}
+
+                      {u.status === 'approved' && u.email.toLowerCase() !== 'kevin10611@gmail.com' && (
+                        <button
+                          type="button"
+                          onClick={() => handleAdminReject(u.email)}
+                          className="px-2 py-1 bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-700 rounded-lg text-[11px] font-semibold transition cursor-pointer"
+                        >
+                          停用
+                        </button>
+                      )}
+
+                      {u.status === 'rejected' && (
+                        <button
+                          type="button"
+                          onClick={() => handleAdminApprove(u.email, u.dailyLimit || 20)}
+                          className="px-2.5 py-1 bg-sky-600 hover:bg-sky-700 text-white rounded-lg text-[11px] font-bold transition cursor-pointer"
+                        >
+                          重新核准
+                        </button>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={() => handleOpenEditUser(u)}
+                        className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition cursor-pointer"
+                        title="編輯配額與設定"
+                      >
+                        <Edit2 className="w-3.5 h-3.5" />
+                      </button>
+
+                      {u.email.toLowerCase() !== 'kevin10611@gmail.com' && (
+                        <button
+                          type="button"
+                          onClick={() => handleAdminDelete(u.email)}
+                          className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
+                          title="自白名單刪除"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 5.1 AI API Usage & Token Metrics */}
+      <div className="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-2xs space-y-4">
+        <div className="flex flex-wrap items-center justify-between border-b border-slate-100 pb-3 gap-2">
+          <div className="flex items-center gap-2">
+            <Activity className="w-5 h-5 text-indigo-600" />
+            <div>
+              <h3 className="font-bold text-slate-900 text-sm">AI API 使用量與 Token 消耗統計</h3>
+              <p className="text-[11px] text-slate-400">即時監控 API 請求次數與權杖消耗，支援每日自動重設與上限自訂</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleOpenLimitModal}
+              className="text-[11px] font-bold text-indigo-700 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100/80 px-2.5 py-1 rounded-xl transition flex items-center gap-1.5 cursor-pointer border border-indigo-100"
+              title="自訂每日 API 呼叫次數與 Token 上限"
+            >
+              <SlidersHorizontal className="w-3.5 h-3.5" />
+              <span>自訂每日上限</span>
+            </button>
+            {apiUsage.totalCalls > 0 && (
+              <button
+                type="button"
+                onClick={() => setShowResetUsageConfirm(true)}
+                className="text-[11px] font-bold text-slate-400 hover:text-rose-600 flex items-center gap-1 transition px-2 py-1 rounded-xl hover:bg-rose-50 cursor-pointer"
+                title="重設統計數據"
+              >
+                <RotateCcw className="w-3 h-3" />
+                <span>重設統計</span>
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Google API Daily Reset Cycle & Countdown Banner */}
+        <div className="p-3.5 bg-gradient-to-r from-sky-50/70 via-indigo-50/50 to-purple-50/70 border border-sky-100/80 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs">
+          <div className="flex items-start sm:items-center gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-sky-100 text-sky-700 flex items-center justify-center shrink-0">
+              <Clock className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="font-bold text-slate-800 flex items-center gap-1.5">
+                <span>Google API 每日額度重設週期</span>
+                <span className="text-[10px] font-bold bg-sky-100 text-sky-800 px-1.5 py-0.2 rounded font-mono">
+                  00:00 PT
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-500">
+                每日太平洋時間 00:00（本地時間約 {resetInfo.formattedLocalTime}）自動將今日呼叫次數與 Token 歸零
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 self-start sm:self-center shrink-0">
+            <div className="px-2.5 py-1 bg-white/90 border border-sky-200/80 rounded-xl text-slate-700 font-bold text-[11px] shadow-2xs flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              <span>距離歸零：</span>
+              <span className="font-mono text-indigo-700">
+                {resetInfo.hoursRemaining} 時 {resetInfo.minutesRemaining} 分
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Daily Quota Progress Bars */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {/* Today's API Calls */}
+          {(() => {
+            const currentDailyCalls = apiUsage.dailyCalls || 0;
+            const limit = apiUsage.dailyCallsLimit;
+            const hasLimit = limit !== null && limit !== undefined && limit > 0;
+            const pct = hasLimit ? Math.min(100, Math.round((currentDailyCalls / limit) * 100)) : 0;
+            const isExceeded = hasLimit && currentDailyCalls >= limit;
+            const isWarning = hasLimit && !isExceeded && pct >= 80;
+
+            return (
+              <div className={`p-3.5 rounded-2xl border transition-all ${
+                isExceeded
+                  ? 'bg-rose-50/60 border-rose-200'
+                  : isWarning
+                  ? 'bg-amber-50/60 border-amber-200'
+                  : 'bg-indigo-50/40 border-indigo-100/80'
+              }`}>
+                <div className="flex items-center justify-between mb-1.5">
+                  <div className="flex items-center gap-1.5">
+                    <Zap className={`w-4 h-4 ${isExceeded ? 'text-rose-600' : isWarning ? 'text-amber-600' : 'text-indigo-600'}`} />
+                    <span className="text-xs font-bold text-slate-800">今日 API 呼叫次數</span>
+                  </div>
+                  <div className="text-[11px] font-bold">
+                    {hasLimit ? (
+                      <span className={isExceeded ? 'text-rose-600' : isWarning ? 'text-amber-600' : 'text-indigo-600'}>
+                        {pct}%
+                      </span>
+                    ) : (
+                      <span className="text-slate-400 font-normal">無限制</span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex items-baseline justify-between mb-2">
+                  <div className="text-xl font-black text-slate-900 tracking-tight">
+                    {currentDailyCalls.toLocaleString()}{' '}
+                    <span className="text-xs font-normal text-slate-500">
+                      / {hasLimit ? `${limit.toLocaleString()} 次` : '無上限'}
+                    </span>
+                  </div>
+                  {hasLimit && (
+                    <div className="text-[10px] font-medium text-slate-500">
+                      {isExceeded ? (
+                        <span className="text-rose-600 font-bold flex items-center gap-0.5">
+                          <ShieldAlert className="w-3 h-3" /> 已達今日上限
+                        </span>
+                      ) : (
+                        <span>剩餘 {Math.max(0, limit - currentDailyCalls).toLocaleString()} 次</span>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Progress bar */}
+                {hasLimit && (
+                  <div className="w-full bg-slate-200/70 h-2 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full transition-all duration-500 rounded-full ${
+                        isExceeded ? 'bg-rose-500' : isWarning ? 'bg-amber-500' : 'bg-indigo-600'
+                      }`}
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
+          {/* Today's Tokens */}
+          {(() => {
+            const currentDailyTokens = apiUsage.dailyTokens || 0;
+            const limit = apiUsage.dailyTokensLimit;
+            const hasLimit = limit !== null && limit !== undefined && limit > 0;
+            const pct = hasLimit ? Math.min(100, Math.round((currentDailyTokens / limit) * 100)) : 0;
+            const isExceeded = hasLimit && currentDailyTokens >= limit;
+            const isWarning = hasLimit && !isExceeded && pct >= 80;
+
+            return (
+              <div className={`p-3.5 rounded-2xl border transition-all ${
+                isExceeded
+                  ? 'bg-rose-50/60 border-rose-200'
+                  : isWarning
+                  ? 'bg-amber-50/60 border-amber-200'
+                  : 'bg-purple-50/40 border-purple-100/80'
+              }`}>
+                <div className="flex items-center justify-between mb-1.5">
+                  <div className="flex items-center gap-1.5">
+                    <Cpu className={`w-4 h-4 ${isExceeded ? 'text-rose-600' : isWarning ? 'text-amber-600' : 'text-purple-600'}`} />
+                    <span className="text-xs font-bold text-slate-800">今日 Token 消耗</span>
+                  </div>
+                  <div className="text-[11px] font-bold">
+                    {hasLimit ? (
+                      <span className={isExceeded ? 'text-rose-600' : isWarning ? 'text-amber-600' : 'text-purple-600'}>
+                        {pct}%
+                      </span>
+                    ) : (
+                      <span className="text-slate-400 font-normal">無限制</span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex items-baseline justify-between mb-2">
+                  <div className="text-xl font-black text-slate-900 tracking-tight">
+                    {currentDailyTokens.toLocaleString()}{' '}
+                    <span className="text-xs font-normal text-slate-500">
+                      / {hasLimit ? `${limit.toLocaleString()} tok` : '無上限'}
+                    </span>
+                  </div>
+                  {hasLimit && (
+                    <div className="text-[10px] font-medium text-slate-500">
+                      {isExceeded ? (
+                        <span className="text-rose-600 font-bold flex items-center gap-0.5">
+                          <ShieldAlert className="w-3 h-3" /> 已達今日上限
+                        </span>
+                      ) : (
+                        <span>剩餘 {Math.max(0, limit - currentDailyTokens).toLocaleString()} tok</span>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Progress bar */}
+                {hasLimit && (
+                  <div className="w-full bg-slate-200/70 h-2 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full transition-all duration-500 rounded-full ${
+                        isExceeded ? 'bg-rose-500' : isWarning ? 'bg-amber-500' : 'bg-purple-600'
+                      }`}
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+        </div>
+
+        {/* Lifetime Totals & Token Breakdown Header */}
+        <div className="pt-2">
+          <div className="text-[11px] font-bold text-slate-500 mb-2 flex items-center justify-between">
+            <span>歷史累計總消耗</span>
+            <span className="text-[10px] text-slate-400 font-mono">
+              計費週期起始日：{apiUsage.quotaCycleDate || '今日'}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+            {/* Total Calls */}
+            <div className="p-3 bg-slate-50 border border-slate-100 rounded-2xl space-y-1">
+              <div className="flex items-center justify-between text-slate-600">
+                <span className="text-[11px] font-bold">累計呼叫</span>
+                <Zap className="w-3 h-3 text-slate-400" />
+              </div>
+              <div className="text-lg font-black text-slate-900 tracking-tight">
+                {apiUsage.totalCalls.toLocaleString()} <span className="text-xs font-normal text-slate-500">次</span>
+              </div>
+              <div className="text-[10px] text-slate-400 font-medium">
+                總發送請求數
+              </div>
+            </div>
+
+            {/* Total Tokens */}
+            <div className="p-3 bg-slate-50 border border-slate-100 rounded-2xl space-y-1">
+              <div className="flex items-center justify-between text-slate-600">
+                <span className="text-[11px] font-bold">累計 Token</span>
+                <Cpu className="w-3 h-3 text-slate-400" />
+              </div>
+              <div className="text-lg font-black text-slate-900 tracking-tight">
+                {apiUsage.totalTokens.toLocaleString()} <span className="text-xs font-normal text-slate-500">tok</span>
+              </div>
+              <div className="text-[10px] text-slate-400 font-medium">
+                總權杖消耗量
+              </div>
+            </div>
+
+            {/* Prompt Tokens */}
+            <div className="p-3 bg-slate-50 border border-slate-100 rounded-2xl space-y-1">
+              <div className="flex items-center justify-between text-slate-600">
+                <span className="text-[11px] font-bold">提示詞 (輸入)</span>
+                <span className="text-[10px] font-bold text-slate-400 font-mono">
+                  {apiUsage.totalTokens > 0
+                    ? `${Math.round((apiUsage.promptTokens / apiUsage.totalTokens) * 100)}%`
+                    : '0%'}
+                </span>
+              </div>
+              <div className="text-lg font-black text-slate-800 tracking-tight">
+                {apiUsage.promptTokens.toLocaleString()}
+              </div>
+              <div className="text-[10px] text-slate-400 font-medium">
+                Prompt Tokens
+              </div>
+            </div>
+
+            {/* Candidates Tokens */}
+            <div className="p-3 bg-slate-50 border border-slate-100 rounded-2xl space-y-1">
+              <div className="flex items-center justify-between text-slate-600">
+                <span className="text-[11px] font-bold">生成結果 (輸出)</span>
+                <span className="text-[10px] font-bold text-slate-400 font-mono">
+                  {apiUsage.totalTokens > 0
+                    ? `${Math.round((apiUsage.candidatesTokens / apiUsage.totalTokens) * 100)}%`
+                    : '0%'}
+                </span>
+              </div>
+              <div className="text-lg font-black text-slate-800 tracking-tight">
+                {apiUsage.candidatesTokens.toLocaleString()}
+              </div>
+              <div className="text-[10px] text-slate-400 font-medium">
+                Output Tokens
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Feature Breakdown Table / List */}
+        <div className="space-y-2 pt-1 border-t border-slate-100">
+          <div className="text-[11px] font-bold text-slate-600 flex items-center justify-between">
+            <span>各功能模組使用細項</span>
+            {apiUsage.lastUsedAt && (
+              <span className="text-[10px] text-slate-400 font-medium flex items-center gap-1">
+                <Clock className="w-3 h-3" />
+                最後使用：{new Date(apiUsage.lastUsedAt).toLocaleString()}
+              </span>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+            {[
+              {
+                key: 'image_recognition',
+                label: '照片 / 圖片飲食辨識',
+                icon: ImageIcon,
+                color: 'text-sky-600 bg-sky-50',
+              },
+              {
+                key: 'nutrition_estimate',
+                label: '文字描述營養估算',
+                icon: Utensils,
+                color: 'text-amber-600 bg-amber-50',
+              },
+              {
+                key: 'barcode_ocr',
+                label: '商品條碼視覺 OCR',
+                icon: Barcode,
+                color: 'text-emerald-600 bg-emerald-50',
+              },
+              {
+                key: 'workout_suggest',
+                label: 'AI 訓練動作推薦',
+                icon: Dumbbell,
+                color: 'text-rose-600 bg-rose-50',
+              },
+              {
+                key: 'connection_test',
+                label: 'API 連線測試與驗證',
+                icon: RefreshCw,
+                color: 'text-purple-600 bg-purple-50',
+              },
+            ].map((feat) => {
+              const usage = apiUsage.breakdownByFeature?.[feat.key] || { calls: 0, tokens: 0 };
+              const IconComponent = feat.icon;
+              return (
+                <div
+                  key={feat.key}
+                  className="p-2.5 bg-slate-50/70 border border-slate-100 rounded-xl flex items-center justify-between gap-2"
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className={`w-6 h-6 rounded-lg flex items-center justify-center shrink-0 ${feat.color}`}>
+                      <IconComponent className="w-3.5 h-3.5" />
+                    </div>
+                    <span className="font-bold text-slate-700 truncate">{feat.label}</span>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <div className="font-bold text-slate-800 text-[11px]">
+                      {usage.calls} <span className="text-[10px] text-slate-400 font-normal">次</span>
+                    </div>
+                    <div className="text-[10px] text-slate-400 font-mono">
+                      {usage.tokens.toLocaleString()} tok
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Model Usage Distribution */}
+        {Object.keys(apiUsage.breakdownByModel || {}).length > 0 && (
+          <div className="pt-2 border-t border-slate-100 space-y-1.5">
+            <div className="text-[11px] font-bold text-slate-500">模型呼叫分佈</div>
+            <div className="flex flex-wrap gap-1.5">
+              {Object.entries(apiUsage.breakdownByModel || {}).map(([modelName, mUsage]) => (
+                <div
+                  key={modelName}
+                  className="px-2.5 py-1 bg-purple-50/60 border border-purple-100/80 rounded-lg text-[10px] font-medium text-purple-900 flex items-center gap-1.5"
+                >
+                  <span className="font-bold font-mono">{modelName.replace('gemini-', '')}</span>
+                  <span className="text-purple-400">|</span>
+                  <span>{mUsage.calls} 次</span>
+                  <span className="text-purple-400">·</span>
+                  <span className="font-mono">{mUsage.tokens.toLocaleString()} tok</span>
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </div>
@@ -1333,6 +2797,1113 @@ export const SettingsScreen: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Reset API Usage Confirm Modal */}
+      {showResetUsageConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl space-y-4 animate-in zoom-in-95">
+            <div className="w-12 h-12 rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center mx-auto">
+              <RotateCcw className="w-6 h-6" />
+            </div>
+            <div className="text-center space-y-1.5">
+              <h3 className="font-bold text-slate-900 text-base">重設 API 使用量統計？</h3>
+              <p className="text-xs text-slate-500 leading-relaxed">
+                確定要將目前記錄的總呼叫次數（{apiUsage.totalCalls} 次）與 Token 消耗量（{apiUsage.totalTokens.toLocaleString()} tokens）歸零重新計算嗎？此操作不會影響您的 API 金鑰。
+              </p>
+            </div>
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowResetUsageConfirm(false)}
+                className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition cursor-pointer"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  StorageService.resetApiUsageStats();
+                  setShowResetUsageConfirm(false);
+                  flashMessage('已成功重設 API 使用量與 Token 統計數據！');
+                }}
+                className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl text-xs transition cursor-pointer shadow-sm shadow-rose-200"
+              >
+                確認歸零
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Custom API Quota Limits Modal */}
+      {showLimitModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white rounded-3xl max-w-md w-full overflow-hidden shadow-2xl space-y-0 animate-in zoom-in-95 border border-slate-100">
+            {/* Modal Header */}
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/70">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center">
+                  <SlidersHorizontal className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-900 text-sm">自訂每日 API 額度上限</h3>
+                  <p className="text-[11px] text-slate-400">設定每日呼叫次數與權杖使用警示上限</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowLimitModal(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-200 rounded-xl transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 space-y-5 max-h-[75vh] overflow-y-auto">
+              {/* Daily Calls Limit Section */}
+              <div className="p-4 bg-slate-50/80 border border-slate-200/80 rounded-2xl space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={isCallsLimitEnabled}
+                      onChange={(e) => setIsCallsLimitEnabled(e.target.checked)}
+                      className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                    />
+                    <span className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
+                      <Zap className="w-3.5 h-3.5 text-indigo-600" />
+                      每日 API 呼叫次數上限
+                    </span>
+                  </label>
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
+                    isCallsLimitEnabled ? 'bg-indigo-100 text-indigo-800' : 'bg-slate-200 text-slate-500'
+                  }`}>
+                    {isCallsLimitEnabled ? '已啟用' : '無限制'}
+                  </span>
+                </div>
+
+                {isCallsLimitEnabled && (
+                  <div className="space-y-2 pt-1 animate-in fade-in">
+                    <div className="relative">
+                      <input
+                        type="number"
+                        min="1"
+                        step="50"
+                        value={callsLimitInput}
+                        onChange={(e) => setCallsLimitInput(e.target.value)}
+                        placeholder="例如：1500"
+                        className="w-full px-3.5 py-2.5 bg-white rounded-xl border border-slate-200 font-mono text-xs text-slate-800 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition pr-12"
+                      />
+                      <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">
+                        次 / 日
+                      </span>
+                    </div>
+
+                    {/* Quick Presets */}
+                    <div className="flex items-center gap-1.5 pt-1">
+                      <span className="text-[10px] text-slate-400 font-medium">快速設定：</span>
+                      {[200, 500, 1500, 3000].map((val) => (
+                        <button
+                          key={val}
+                          type="button"
+                          onClick={() => setCallsLimitInput(String(val))}
+                          className={`px-2 py-0.5 rounded-lg text-[10px] font-bold border transition cursor-pointer ${
+                            callsLimitInput === String(val)
+                              ? 'bg-indigo-600 text-white border-indigo-600'
+                              : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-300'
+                          }`}
+                        >
+                          {val === 1500 ? `${val} (標準)` : val}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Daily Tokens Limit Section */}
+              <div className="p-4 bg-slate-50/80 border border-slate-200/80 rounded-2xl space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={isTokensLimitEnabled}
+                      onChange={(e) => setIsTokensLimitEnabled(e.target.checked)}
+                      className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500 cursor-pointer"
+                    />
+                    <span className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
+                      <Cpu className="w-3.5 h-3.5 text-purple-600" />
+                      每日 Token 消耗上限
+                    </span>
+                  </label>
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
+                    isTokensLimitEnabled ? 'bg-purple-100 text-purple-800' : 'bg-slate-200 text-slate-500'
+                  }`}>
+                    {isTokensLimitEnabled ? '已啟用' : '無限制'}
+                  </span>
+                </div>
+
+                {isTokensLimitEnabled && (
+                  <div className="space-y-2 pt-1 animate-in fade-in">
+                    <div className="relative">
+                      <input
+                        type="number"
+                        min="1000"
+                        step="50000"
+                        value={tokensLimitInput}
+                        onChange={(e) => setTokensLimitInput(e.target.value)}
+                        placeholder="例如：1000000"
+                        className="w-full px-3.5 py-2.5 bg-white rounded-xl border border-slate-200 font-mono text-xs text-slate-800 focus:outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-100 transition pr-14"
+                      />
+                      <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">
+                        tok / 日
+                      </span>
+                    </div>
+
+                    {/* Quick Presets */}
+                    <div className="flex items-center gap-1.5 pt-1">
+                      <span className="text-[10px] text-slate-400 font-medium">快速設定：</span>
+                      {[
+                        { label: '20萬', val: 200000 },
+                        { label: '50萬', val: 500000 },
+                        { label: '100萬 (標準)', val: 1000000 },
+                        { label: '200萬', val: 2000000 },
+                      ].map((item) => (
+                        <button
+                          key={item.val}
+                          type="button"
+                          onClick={() => setTokensLimitInput(String(item.val))}
+                          className={`px-2 py-0.5 rounded-lg text-[10px] font-bold border transition cursor-pointer ${
+                            tokensLimitInput === String(item.val)
+                              ? 'bg-purple-600 text-white border-purple-600'
+                              : 'bg-white text-slate-600 border-slate-200 hover:border-purple-300'
+                          }`}
+                        >
+                          {item.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Google API Reset Note */}
+              <div className="p-3 bg-sky-50/70 border border-sky-100 rounded-xl flex items-start gap-2.5 text-xs text-sky-900">
+                <Clock className="w-4 h-4 text-sky-600 shrink-0 mt-0.5" />
+                <div className="space-y-0.5">
+                  <div className="font-bold text-[11px] text-sky-950">
+                    每日自動重設機制 (Google API Quota Cycle)
+                  </div>
+                  <p className="text-[10px] text-sky-800/90 leading-relaxed">
+                    每日太平洋時間 00:00（即本地時間 {resetInfo.formattedLocalTime}），系統會自動將今日的「已呼叫次數」與「已消耗 Token」歸零，與 Google Gemini API 伺服器額度同步。
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowLimitModal(false)}
+                className="py-2.5 px-4 bg-slate-200/80 hover:bg-slate-300 text-slate-700 font-bold rounded-xl text-xs transition cursor-pointer"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveLimits}
+                className="py-2.5 px-5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs transition cursor-pointer shadow-sm shadow-indigo-200 flex items-center gap-1.5"
+              >
+                <Check className="w-3.5 h-3.5" />
+                <span>儲存上限設定</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Admin: Add Whitelist User Modal */}
+      {showAddWhitelistModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white rounded-3xl max-w-md w-full overflow-hidden shadow-2xl space-y-0 animate-in zoom-in-95 border border-slate-100">
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-amber-50/70">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-amber-500 text-white flex items-center justify-center">
+                  <UserPlus className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-900 text-sm">手動新增白名單使用者</h3>
+                  <p className="text-[11px] text-slate-500">授權指定 Google 帳號使用開發者共享 API 金鑰</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAddWhitelistModal(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-200 rounded-xl transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-700">使用者 Google Email 信箱 *</label>
+                <input
+                  type="email"
+                  value={formEmail}
+                  onChange={(e) => setFormEmail(e.target.value)}
+                  placeholder="例如: friend@gmail.com"
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/30"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-700">使用者暱稱 (選填)</label>
+                <input
+                  type="text"
+                  value={formDisplayName}
+                  onChange={(e) => setFormDisplayName(e.target.value)}
+                  placeholder="例如: 小明 / GymBro"
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/30"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-700">每日呼叫上限 (次)</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="1000"
+                    value={formDailyLimit}
+                    onChange={(e) => setFormDailyLimit(Math.max(1, parseInt(e.target.value, 10) || 20))}
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-amber-700 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/30"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-700">初始狀態</label>
+                  <select
+                    value={formStatus}
+                    onChange={(e) => setFormStatus(e.target.value as any)}
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/30 cursor-pointer"
+                  >
+                    <option value="approved">已核准 (可立即使用)</option>
+                    <option value="pending">待審核 (暫不可用)</option>
+                    <option value="rejected">已拒絕 / 停用</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-700">備註說明 (選填)</label>
+                <input
+                  type="text"
+                  value={formNotes}
+                  onChange={(e) => setFormNotes(e.target.value)}
+                  placeholder="例如: 健身房好友、測試人員"
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/30"
+                />
+              </div>
+            </div>
+
+            <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowAddWhitelistModal(false)}
+                className="py-2.5 px-4 bg-slate-200/80 hover:bg-slate-300 text-slate-700 font-bold rounded-xl text-xs transition cursor-pointer"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={handleCreateWhitelistUser}
+                disabled={submittingAdminForm}
+                className="py-2.5 px-5 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-xl text-xs transition cursor-pointer shadow-xs flex items-center gap-1.5 disabled:opacity-50"
+              >
+                <Check className="w-3.5 h-3.5" />
+                <span>{submittingAdminForm ? '儲存中...' : '確認新增'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Admin: Edit Whitelist User Modal */}
+      {showEditWhitelistModal && selectedWhitelistUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white rounded-3xl max-w-md w-full overflow-hidden shadow-2xl space-y-0 animate-in zoom-in-95 border border-slate-100">
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/80">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center">
+                  <Edit2 className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-900 text-sm">編輯使用者白名單與配額</h3>
+                  <p className="text-[11px] text-slate-500 font-mono">{selectedWhitelistUser.email}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowEditWhitelistModal(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-200 rounded-xl transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-700">顯示暱稱</label>
+                <input
+                  type="text"
+                  value={formDisplayName}
+                  onChange={(e) => setFormDisplayName(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-purple-500/30"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-700">每日呼叫上限 (次)</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="1000"
+                    value={formDailyLimit}
+                    onChange={(e) => setFormDailyLimit(Math.max(1, parseInt(e.target.value, 10) || 20))}
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-purple-700 focus:bg-white focus:outline-none focus:ring-2 focus:ring-purple-500/30"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-700">授權狀態</label>
+                  <select
+                    value={formStatus}
+                    onChange={(e) => setFormStatus(e.target.value as any)}
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:bg-white focus:outline-none focus:ring-2 focus:ring-purple-500/30 cursor-pointer"
+                  >
+                    <option value="approved">已核准 (Approved)</option>
+                    <option value="pending">待審核 (Pending)</option>
+                    <option value="rejected">拒絕 / 停用 (Rejected)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-700">備註說明</label>
+                <input
+                  type="text"
+                  value={formNotes}
+                  onChange={(e) => setFormNotes(e.target.value)}
+                  placeholder="例如: 核心 VIP 用戶、測試人員"
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-purple-500/30"
+                />
+              </div>
+
+              <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200/80 flex items-center justify-between">
+                <div>
+                  <div className="text-xs font-bold text-slate-800">
+                    今日已呼叫：{selectedWhitelistUser.todayUsage || 0} 次
+                  </div>
+                  <div className="text-[10px] text-slate-400">勾選以立即手動重設該用戶今日調用次數為 0</div>
+                </div>
+                <label className="flex items-center gap-1.5 cursor-pointer text-xs font-bold text-purple-700">
+                  <input
+                    type="checkbox"
+                    checked={formResetToday}
+                    onChange={(e) => setFormResetToday(e.target.checked)}
+                    className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500"
+                  />
+                  <span>今日歸零</span>
+                </label>
+              </div>
+            </div>
+
+            <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowEditWhitelistModal(false)}
+                className="py-2.5 px-4 bg-slate-200/80 hover:bg-slate-300 text-slate-700 font-bold rounded-xl text-xs transition cursor-pointer"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveEditUser}
+                disabled={submittingAdminForm}
+                className="py-2.5 px-5 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-xl text-xs transition cursor-pointer shadow-xs flex items-center gap-1.5 disabled:opacity-50"
+              >
+                <Check className="w-3.5 h-3.5" />
+                <span>{submittingAdminForm ? '儲存中...' : '儲存變更'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Admin: Food Database Management Modal */}
+      {showDatabaseFoodModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white rounded-3xl max-w-5xl w-full h-[85vh] overflow-hidden shadow-2xl flex flex-col border border-slate-100 animate-in zoom-in-95">
+            {/* Modal Header */}
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/80">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-sky-100 text-sky-700 flex items-center justify-center">
+                  <Database className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-900 text-sm flex items-center gap-1.5">
+                    <span>全站食品資料庫管理後台</span>
+                    <span className="px-1.5 py-0.2 bg-sky-100 text-sky-800 rounded text-[9px] font-extrabold uppercase">
+                      Database Editor
+                    </span>
+                  </h3>
+                  <p className="text-[11px] text-slate-500 font-medium">系統管理員可直接在線上對以下三個獨立的食品快取/公共集合進行編輯與刪除</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowDatabaseFoodModal(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-200 rounded-xl transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Collection Tab bar & Controls */}
+            <div className="px-4 sm:px-6 py-3 border-b border-slate-100 bg-slate-50/30 flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between">
+              {/* Collection Selector Tabs - Horizontal Segmented Control */}
+              <div className="grid grid-cols-3 bg-slate-100 p-1 gap-1 rounded-2xl border border-slate-200/60 w-full lg:w-auto">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedCollection('cloud_foods');
+                    setAdminFoodSearch('');
+                    fetchAdminDatabaseFoods('cloud_foods');
+                  }}
+                  className={`px-2 sm:px-4 py-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1 sm:gap-1.5 cursor-pointer whitespace-nowrap ${
+                    selectedCollection === 'cloud_foods'
+                      ? 'bg-white text-sky-700 shadow-2xs font-extrabold'
+                      : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  <Cloud className="w-3.5 h-3.5 shrink-0" />
+                  <span>網路食品</span>
+                  <span className="hidden sm:inline text-[10px] opacity-70 font-normal ml-0.5">(cloud_foods)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedCollection('family_foods');
+                    setAdminFoodSearch('');
+                    fetchAdminDatabaseFoods('family_foods');
+                  }}
+                  className={`px-2 sm:px-4 py-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1 sm:gap-1.5 cursor-pointer whitespace-nowrap ${
+                    selectedCollection === 'family_foods'
+                      ? 'bg-white text-sky-700 shadow-2xs font-extrabold'
+                      : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  <Utensils className="w-3.5 h-3.5 shrink-0" />
+                  <span>全家快取</span>
+                  <span className="hidden sm:inline text-[10px] opacity-70 font-normal ml-0.5">(family_foods)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedCollection('open_foods');
+                    setAdminFoodSearch('');
+                    fetchAdminDatabaseFoods('open_foods');
+                  }}
+                  className={`px-2 sm:px-4 py-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1 sm:gap-1.5 cursor-pointer whitespace-nowrap ${
+                    selectedCollection === 'open_foods'
+                      ? 'bg-white text-sky-700 shadow-2xs font-extrabold'
+                      : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  <SlidersHorizontal className="w-3.5 h-3.5 shrink-0" />
+                  <span>Open Foods</span>
+                  <span className="hidden sm:inline text-[10px] opacity-70 font-normal ml-0.5">(open_foods)</span>
+                </button>
+              </div>
+
+              {/* Search & Add Controls */}
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <div className="relative flex-1 sm:w-56">
+                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={adminFoodSearch}
+                    onChange={(e) => setAdminFoodSearch(e.target.value)}
+                    placeholder="搜尋食品名稱、品牌或條碼..."
+                    className="w-full pl-8.5 pr-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-sky-500/30"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingAdminFood(null);
+                    setEditFoodName('');
+                    setEditFoodBrand(selectedCollection === 'family_foods' ? '全家' : selectedCollection === 'open_foods' ? 'Open Food Facts' : '');
+                    setEditFoodCalories(100);
+                    setEditFoodCarbs(10);
+                    setEditFoodProtein(5);
+                    setEditFoodFat(3);
+                    setEditFoodSugars(2);
+                    setEditFoodFiber(0);
+                    setEditFoodSodium(0);
+                    setEditFoodPotassium(0);
+                    setEditFoodServingAmount(100);
+                    setEditFoodServingUnit('g');
+                    setEditFoodImageUrl('');
+                    setEditFoodBarcode('');
+                    setShowEditAdminFoodModal(true);
+                  }}
+                  className="px-3.5 py-1.5 bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold rounded-xl transition flex items-center gap-1.5 shadow-xs cursor-pointer whitespace-nowrap"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>新增食品</span>
+                </button>
+              </div>
+            </div>
+
+            {/* List Table Area */}
+            <div className="flex-1 overflow-y-auto p-4 bg-slate-50/50">
+              {loadingDatabaseFoods ? (
+                <div className="h-full flex flex-col items-center justify-center space-y-2">
+                  <RefreshCw className="w-8 h-8 text-sky-600 animate-spin" />
+                  <span className="text-xs text-slate-500 font-bold">正在從 Firestore 載入食品資料...</span>
+                </div>
+              ) : adminDatabaseFoods.filter((food) => {
+                const s = adminFoodSearch.trim().toLowerCase();
+                if (!s) return true;
+                return (
+                  (food.name || '').toLowerCase().includes(s) ||
+                  (food.brand || '').toLowerCase().includes(s) ||
+                  (food.barcode || '').includes(s) ||
+                  (food.id || '').toLowerCase().includes(s)
+                );
+              }).length === 0 ? (
+                <div className="h-full flex flex-col items-center justify-center text-slate-400 space-y-1">
+                  <Database className="w-10 h-10 stroke-1" />
+                  <span className="text-xs font-bold">查無符合搜尋條件的食品項目</span>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+                  {adminDatabaseFoods.filter((food) => {
+                    const s = adminFoodSearch.trim().toLowerCase();
+                    if (!s) return true;
+                    return (
+                      (food.name || '').toLowerCase().includes(s) ||
+                      (food.brand || '').toLowerCase().includes(s) ||
+                      (food.barcode || '').includes(s) ||
+                      (food.id || '').toLowerCase().includes(s)
+                    );
+                  }).map((food: any) => (
+                    <div
+                      key={food.id}
+                      className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-2xs hover:shadow-md transition-all duration-200 flex flex-col justify-between space-y-3"
+                    >
+                      {/* Top row: Image + Name/Brand + Action buttons */}
+                      <div className="flex items-start justify-between gap-2.5">
+                        <div className="flex items-center gap-3 min-w-0">
+                          {food.imageUrl ? (
+                            <img
+                              src={food.imageUrl}
+                              alt={food.name}
+                              className="w-11 h-11 object-cover rounded-xl border border-slate-100 shrink-0"
+                              referrerPolicy="no-referrer"
+                              onError={(e) => {
+                                (e.target as HTMLImageElement).src = 'https://placehold.co/100x100?text=Food';
+                              }}
+                            />
+                          ) : (
+                            <div className="w-11 h-11 rounded-xl bg-slate-100 flex items-center justify-center text-slate-400 shrink-0">
+                              <Utensils className="w-5 h-5" />
+                            </div>
+                          )}
+                          <div className="min-w-0">
+                            <h4 className="font-bold text-slate-800 text-sm truncate" title={food.name}>
+                              {food.name}
+                            </h4>
+                            <div className="flex items-center gap-1.5 mt-0.5">
+                              <span className="px-1.5 py-0.2 bg-slate-100 border border-slate-200/60 rounded text-[10px] font-semibold text-slate-600 truncate max-w-[120px]">
+                                {food.brand || '未提供'}
+                              </span>
+                              <span className="text-[10px] text-slate-400 font-semibold">
+                                {food.servingAmount} {food.servingUnit}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Edit & Delete actions */}
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingAdminFood(food);
+                              setEditFoodName(food.name || '');
+                              setEditFoodBrand(food.brand || '');
+                              setEditFoodCalories(food.calories || 0);
+                              setEditFoodCarbs(food.carbs || 0);
+                              setEditFoodProtein(food.protein || 0);
+                              setEditFoodFat(food.fat || 0);
+                              setEditFoodSugars(food.sugars || 0);
+                              setEditFoodFiber(food.fiber || 0);
+                              setEditFoodSodium(food.sodium || 0);
+                              setEditFoodPotassium(food.potassium || 0);
+                              setEditFoodServingAmount(food.servingAmount || 100);
+                              setEditFoodServingUnit(food.servingUnit || 'g');
+                              setEditFoodImageUrl(food.imageUrl || '');
+                              setEditFoodBarcode(food.barcode || '');
+                              setShowEditAdminFoodModal(true);
+                            }}
+                            className="p-1.5 text-slate-400 hover:text-sky-600 hover:bg-sky-50 rounded-lg transition cursor-pointer"
+                            title="編輯"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteAdminFood(food.id)}
+                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
+                            title="刪除"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Middle row: Macro breakdown pill badges */}
+                      <div className="grid grid-cols-4 gap-1.5 bg-slate-50 p-2 rounded-xl border border-slate-100 text-center">
+                        <div>
+                          <div className="text-[9px] font-bold text-slate-400 uppercase">熱量</div>
+                          <div className="text-xs font-black text-amber-600">{food.calories}<span className="text-[9px] font-normal text-amber-600/70 ml-0.5">kcal</span></div>
+                        </div>
+                        <div>
+                          <div className="text-[9px] font-bold text-slate-400 uppercase">碳水</div>
+                          <div className="text-xs font-bold text-slate-700">{food.carbs}<span className="text-[9px] font-normal text-slate-400 ml-0.5">g</span></div>
+                        </div>
+                        <div>
+                          <div className="text-[9px] font-bold text-slate-400 uppercase">蛋白質</div>
+                          <div className="text-xs font-bold text-emerald-600">{food.protein}<span className="text-[9px] font-normal text-emerald-600/70 ml-0.5">g</span></div>
+                        </div>
+                        <div>
+                          <div className="text-[9px] font-bold text-slate-400 uppercase">脂肪</div>
+                          <div className="text-xs font-bold text-blue-600">{food.fat}<span className="text-[9px] font-normal text-blue-600/70 ml-0.5">g</span></div>
+                        </div>
+                      </div>
+
+                      {/* Bottom row: Barcode / Document ID tag */}
+                      <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1 border-t border-slate-100">
+                        <span className="font-mono truncate max-w-[200px]" title={food.barcode || food.id}>
+                          {food.barcode ? `🏷️ 條碼: ${food.barcode}` : `🆔 ID: ${food.id}`}
+                        </span>
+                        {food.sugars > 0 && (
+                          <span className="text-amber-500 font-medium">糖 {food.sugars}g</span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex items-center justify-between">
+              <span className="text-[11px] text-slate-400 font-bold">
+                目前載入: {adminDatabaseFoods.filter((food) => {
+                  const s = adminFoodSearch.trim().toLowerCase();
+                  if (!s) return true;
+                  return (
+                    (food.name || '').toLowerCase().includes(s) ||
+                    (food.brand || '').toLowerCase().includes(s) ||
+                    (food.barcode || '').includes(s) ||
+                    (food.id || '').toLowerCase().includes(s)
+                  );
+                }).length} 項食品 (上限 300 項)
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowDatabaseFoodModal(false)}
+                className="py-1.5 px-4 bg-slate-200/80 hover:bg-slate-300 text-slate-700 font-bold rounded-xl text-xs transition cursor-pointer"
+              >
+                關閉
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Admin: Edit / Add Food Modal */}
+      {showEditAdminFoodModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white rounded-3xl max-w-lg w-full overflow-hidden shadow-2xl flex flex-col border border-slate-100 animate-in zoom-in-95">
+            {/* Header */}
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/80">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-sky-100 text-sky-700 flex items-center justify-center">
+                  {editingAdminFood ? <Edit2 className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-900 text-sm">
+                    {editingAdminFood ? `編輯食品：${editingAdminFood.name}` : '手動新增食品'}
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    目標資料庫: <span className="font-bold text-sky-600 uppercase font-mono">{selectedCollection}</span>
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowEditAdminFoodModal(false);
+                  setEditingAdminFood(null);
+                }}
+                className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-200 rounded-xl transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Scrollable Form */}
+            <form onSubmit={handleSaveAdminFood} className="flex-1 overflow-y-auto p-6 space-y-4 max-h-[70vh]">
+              {/* Basic Fields */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5 col-span-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-slate-700">食品名稱 *</label>
+                    <button
+                      type="button"
+                      onClick={() => setShowAiCameraModalForAdmin(true)}
+                      disabled={isAiAnalyzingAdminFood}
+                      className="text-[11px] font-bold text-indigo-700 hover:text-indigo-800 flex items-center gap-1.5 bg-indigo-50 hover:bg-indigo-100 px-3 py-1 rounded-lg transition cursor-pointer disabled:opacity-50 shadow-2xs"
+                      title="拍攝食品包裝或營養標示照片，由 AI 自動辨識並填入"
+                    >
+                      {isAiAnalyzingAdminFood ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
+                      )}
+                      <span>{isAiAnalyzingAdminFood ? (aiAnalysisAdminStatus || 'AI辨識中...') : '✨ AI 智慧拍照辨識'}</span>
+                    </button>
+                  </div>
+                  {isAiAnalyzingAdminFood && aiAnalysisAdminProgress > 0 && (
+                    <div className="w-full bg-indigo-50 border border-indigo-100 p-2 rounded-xl flex items-center gap-2">
+                      <Loader2 className="w-4 h-4 animate-spin text-indigo-600 shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex justify-between text-[10px] font-bold text-indigo-900 mb-1">
+                          <span>{aiAnalysisAdminStatus}</span>
+                          <span>{aiAnalysisAdminProgress}%</span>
+                        </div>
+                        <div className="w-full bg-indigo-200/60 rounded-full h-1.5 overflow-hidden">
+                          <div
+                            className="bg-indigo-600 h-full transition-all duration-300 rounded-full"
+                            style={{ width: `${aiAnalysisAdminProgress}%` }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  <input
+                    type="text"
+                    required
+                    value={editFoodName}
+                    onChange={(e) => setEditFoodName(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-500/30"
+                    placeholder="請輸入食品或食品包裝上的名稱"
+                  />
+                </div>
+
+                <div className="space-y-1.5 col-span-2">
+                  <label className="text-xs font-bold text-slate-700">品牌 / 來源</label>
+                  <input
+                    type="text"
+                    value={editFoodBrand}
+                    onChange={(e) => setEditFoodBrand(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-500/30"
+                    placeholder="例如: 統一超商, 全家, 麥當勞"
+                  />
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {[
+                      { key: '7-11', label: '7-11' },
+                      { key: '全家', label: '全家' },
+                      { key: '萊爾富', label: '萊爾富' },
+                      { key: 'OK', label: 'OK' },
+                      { key: '自煮', label: '自煮' },
+                      { key: '自訂', label: '自訂' },
+                    ].map((b) => (
+                      <button
+                        key={b.key}
+                        type="button"
+                        onClick={() => setEditFoodBrand(b.key)}
+                        className={`text-[11px] px-2.5 py-1 rounded-lg font-medium border transition cursor-pointer ${
+                          editFoodBrand === b.key
+                            ? 'bg-sky-600 text-white border-sky-600 shadow-2xs'
+                            : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                        }`}
+                      >
+                        {b.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-1.5 col-span-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-slate-700">國際條碼 (選填)</label>
+                    <button
+                      type="button"
+                      onClick={() => setShowBarcodeScannerForAdmin(true)}
+                      className="text-[11px] font-bold text-sky-600 hover:text-sky-700 flex items-center gap-1 bg-sky-50 hover:bg-sky-100 px-2.5 py-1 rounded-lg transition cursor-pointer"
+                      title="使用相機掃描條碼"
+                    >
+                      <Camera className="w-3.5 h-3.5" />
+                      <span>掃描條碼</span>
+                    </button>
+                  </div>
+                  <div className="relative flex items-center">
+                    <input
+                      type="text"
+                      value={editFoodBarcode}
+                      onChange={(e) => setEditFoodBarcode(e.target.value)}
+                      className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-500/30 pr-10"
+                      placeholder="輸入商品 EAN 條碼"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowBarcodeScannerForAdmin(true)}
+                      className="absolute right-2.5 p-1 text-slate-400 hover:text-sky-600 rounded-lg transition cursor-pointer"
+                      title="開啟條碼掃描"
+                    >
+                      <Barcode className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Serving specifications */}
+              <div className="grid grid-cols-2 gap-4 p-3 bg-slate-50 rounded-2xl border border-slate-200/50">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-700">基準份量數值</label>
+                  <input
+                    type="number"
+                    min="0.1"
+                    step="any"
+                    value={editFoodServingAmount}
+                    onChange={(e) => setEditFoodServingAmount(Number(e.target.value) || 100)}
+                    className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-sky-500/30"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-700">基準份量單位</label>
+                  <input
+                    type="text"
+                    value={editFoodServingUnit}
+                    onChange={(e) => setEditFoodServingUnit(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-sky-500/30"
+                    placeholder="g, ml, 顆, 包"
+                  />
+                </div>
+              </div>
+
+              {/* Macros (Grams & energy) */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-1">
+                  <h4 className="text-xs font-bold text-slate-500">核心營養成分 (每一基準份量)</h4>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const calc = Math.round((Number(editFoodCarbs) * 4 + Number(editFoodProtein) * 4 + Number(editFoodFat) * 9) * 10) / 10;
+                      setEditFoodCalories(calc);
+                      flashMessage('✨ 已依三大營養素自動換算熱量');
+                    }}
+                    className="text-xs font-semibold text-sky-700 hover:text-sky-800 flex items-center gap-1 cursor-pointer bg-white px-2 py-1 rounded-lg border border-slate-200 shadow-2xs"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    依三大營養素自動換算熱量
+                  </button>
+                </div>
+                
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-600">熱量 (kcal)</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="any"
+                      value={editFoodCalories}
+                      onChange={(e) => setEditFoodCalories(Number(e.target.value) || 0)}
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-amber-600 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/30"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-600">碳水 (g)</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="any"
+                      value={editFoodCarbs}
+                      onChange={(e) => setEditFoodCarbs(Number(e.target.value) || 0)}
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-500/30"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-600">蛋白質 (g)</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="any"
+                      value={editFoodProtein}
+                      onChange={(e) => setEditFoodProtein(Number(e.target.value) || 0)}
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-emerald-600 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-600">脂肪 (g)</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="any"
+                      value={editFoodFat}
+                      onChange={(e) => setEditFoodFat(Number(e.target.value) || 0)}
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-blue-600 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+                    />
+                  </div>
+                </div>
+
+                <MacroCalorieVerifier
+                  calories={Number(editFoodCalories) || 0}
+                  carbs={Number(editFoodCarbs) || 0}
+                  protein={Number(editFoodProtein) || 0}
+                  fat={Number(editFoodFat) || 0}
+                  onApplyCalculated={(val) => setEditFoodCalories(val)}
+                />
+              </div>
+
+              {/* Sub-nutrition (Sugar, Fiber, Sodium, Potassium) */}
+              <div className="space-y-2">
+                <h4 className="text-xs font-bold text-slate-500 border-b border-slate-100 pb-1">微量元素 / 其他成分 (每一基準份量)</h4>
+                
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-600">糖 (g)</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="any"
+                      value={editFoodSugars}
+                      onChange={(e) => setEditFoodSugars(Number(e.target.value) || 0)}
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-500/30"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-600">膳食纖維 (g)</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="any"
+                      value={editFoodFiber}
+                      onChange={(e) => setEditFoodFiber(Number(e.target.value) || 0)}
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-500/30"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-600">鈉 (mg)</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="any"
+                      value={editFoodSodium}
+                      onChange={(e) => setEditFoodSodium(Number(e.target.value) || 0)}
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-500/30"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-600">鉀 (mg)</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="any"
+                      value={editFoodPotassium}
+                      onChange={(e) => setEditFoodPotassium(Number(e.target.value) || 0)}
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-500/30"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Image URL */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-700">食品圖片 URL</label>
+                <input
+                  type="url"
+                  value={editFoodImageUrl}
+                  onChange={(e) => setEditFoodImageUrl(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-500/30"
+                  placeholder="請輸入食品網路圖片連結 (https://...)"
+                />
+              </div>
+            </form>
+
+            {/* Footer */}
+            <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowEditAdminFoodModal(false);
+                  setEditingAdminFood(null);
+                }}
+                className="py-2.5 px-4 bg-slate-200/80 hover:bg-slate-300 text-slate-700 font-bold rounded-xl text-xs transition cursor-pointer"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveAdminFood}
+                className="py-2.5 px-5 bg-sky-600 hover:bg-sky-700 text-white font-bold rounded-xl text-xs transition cursor-pointer shadow-xs flex items-center gap-1.5"
+              >
+                <Check className="w-3.5 h-3.5" />
+                <span>確認儲存</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showBarcodeScannerForAdmin && (
+        <BarcodeScannerModal
+          isOpen={showBarcodeScannerForAdmin}
+          onClose={() => setShowBarcodeScannerForAdmin(false)}
+          onDetected={(code) => {
+            setEditFoodBarcode(code);
+            setShowBarcodeScannerForAdmin(false);
+            flashMessage(`成功掃描條碼：${code}`);
+          }}
+        />
+      )}
+
+      {showAiCameraModalForAdmin && (
+        <AiCameraModal
+          isOpen={showAiCameraModalForAdmin}
+          onClose={() => setShowAiCameraModalForAdmin(false)}
+          onCaptured={(base64, mimeType) => {
+            setShowAiCameraModalForAdmin(false);
+            handleAdminAiImageCaptured(base64, mimeType);
+          }}
+        />
       )}
     </div>
   );

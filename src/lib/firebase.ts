@@ -1,7 +1,24 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { initializeFirestore, getFirestore } from 'firebase/firestore';
-import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signOut, onAuthStateChanged, User, GoogleAuthProvider as GAuthProvider } from 'firebase/auth';
+import {
+  getAuth,
+  GoogleAuthProvider,
+  signInWithPopup,
+  signInWithRedirect,
+  signInWithCredential,
+  getRedirectResult,
+  signOut,
+  onAuthStateChanged,
+  User,
+  GoogleAuthProvider as GAuthProvider,
+} from 'firebase/auth';
 import rawFirebaseConfig from '../../firebase-applet-config.json';
+
+declare global {
+  interface Window {
+    google?: any;
+  }
+}
 
 const configAny = rawFirebaseConfig as any;
 
@@ -36,6 +53,65 @@ export const googleProvider = new GoogleAuthProvider();
 
 // Add Drive scope
 googleProvider.addScope('https://www.googleapis.com/auth/drive.file');
+
+// Helper to load Google Identity Services dynamically
+export const loadGsiScript = (): Promise<void> => {
+  return new Promise((resolve) => {
+    if (typeof window === 'undefined') return resolve();
+    if (window.google?.accounts?.oauth2) return resolve();
+    const existing = document.getElementById('google-gsi-script');
+    if (existing) {
+      existing.addEventListener('load', () => resolve());
+      return;
+    }
+    const script = document.createElement('script');
+    script.id = 'google-gsi-script';
+    script.src = 'https://accounts.google.com/gsi/client';
+    script.async = true;
+    script.defer = true;
+    script.onload = () => resolve();
+    script.onerror = () => resolve();
+    document.head.appendChild(script);
+  });
+};
+
+// Request OAuth Token directly using Google Identity Services
+export const requestTokenViaGsi = async (forceSelectAccount = false): Promise<string | null> => {
+  await loadGsiScript();
+  if (!window.google?.accounts?.oauth2) {
+    return null;
+  }
+  const clientId =
+    firebaseConfig.oAuthClientId ||
+    '870931923285-98213jfk7pp6nsrfuvdd52stodij2mqb.apps.googleusercontent.com';
+
+  return new Promise((resolve, reject) => {
+    try {
+      const client = window.google.accounts.oauth2.initTokenClient({
+        client_id: clientId,
+        scope: 'https://www.googleapis.com/auth/drive.file email profile openid',
+        prompt: forceSelectAccount ? 'select_account' : '',
+        callback: (resp: any) => {
+          if (resp.error) {
+            console.warn('GSI Auth notice:', resp);
+            reject(new Error(resp.error_description || resp.error));
+          } else if (resp.access_token) {
+            resolve(resp.access_token);
+          } else {
+            resolve(null);
+          }
+        },
+        error_callback: (err: any) => {
+          console.warn('GSI token client notice:', err);
+          reject(err);
+        },
+      });
+      client.requestAccessToken();
+    } catch (e) {
+      reject(e);
+    }
+  });
+};
 
 // Helper to test Firebase Firestore connection via standard REST & SDK
 export const testFirebaseConnection = async (): Promise<{ 
@@ -155,7 +231,7 @@ export const loginWithGoogle = async (forceSelectAccount = false, forceMethod?: 
     if (useRedirect) {
       if (isInIframe) {
         console.warn("Cannot perform redirect auth inside an iframe. Requesting popup login.");
-        throw new Error('In-frame redirect is not supported. Please open the site in a new tab to complete login.');
+        throw new Error('預覽環境不支援重新導向登入，請使用彈跳視窗或點擊右上角「在新分頁中開啟」。');
       }
       console.log("Launching Google Sign-In with Redirect...");
       await signInWithRedirect(auth, googleProvider);
@@ -172,26 +248,49 @@ export const loginWithGoogle = async (forceSelectAccount = false, forceMethod?: 
         }
         return { user: result.user, accessToken: cachedAccessToken, isRedirecting: false };
       } catch (popupErr: any) {
-        console.warn("Popup login failed, evaluating fallback:", popupErr);
+        console.warn("Firebase popup login encountered error, evaluating fallback:", popupErr);
         const errCode = popupErr?.code || '';
         
-        // If user manually closed the popup, do not force a redirect
+        // If user manually closed the popup, do not proceed with fallback
         if (errCode === 'auth/popup-closed-by-user' || errCode === 'auth/cancelled-popup-request') {
           console.log("User closed or cancelled the login popup. Staying on current view.");
           throw popupErr;
         }
 
-        // If in iframe and popup blocked or network error, do NOT redirect iframe
-        if (isInIframe) {
-          console.warn("Popup blocked or failed in iframe mode. Prompting user.");
-          throw popupErr;
+        // Attempt fallback via modern Google Identity Services (GIS) Token Client
+        try {
+          console.log("Attempting fallback via Google Identity Services Token Client...");
+          const gsiToken = await requestTokenViaGsi(forceSelectAccount);
+          if (gsiToken) {
+            cachedAccessToken = gsiToken;
+            localStorage.setItem('fitpocket_google_access_token', gsiToken);
+            localStorage.setItem('fitpocket_google_token_time', Date.now().toString());
+
+            // Link with Firebase Auth credential if possible
+            try {
+              const cred = GAuthProvider.credential(null, gsiToken);
+              const userCred = await signInWithCredential(auth, cred);
+              return { user: userCred.user, accessToken: gsiToken, isRedirecting: false };
+            } catch (credErr) {
+              console.warn("Firebase Auth credential link notice (Drive token is active):", credErr);
+              return { user: auth.currentUser, accessToken: gsiToken, isRedirecting: false };
+            }
+          }
+        } catch (gsiErr: any) {
+          console.warn("GSI fallback also encountered error:", gsiErr);
         }
 
-        // Only auto-fallback to redirect if NOT in iframe and it's a popup-blocked or network error
+        // If in iframe and network request failed, throw descriptive error
         if (errCode === 'auth/network-request-failed' || errCode === 'auth/popup-blocked') {
-          console.log("Automatically switching to signInWithRedirect due to:", errCode);
-          await signInWithRedirect(auth, googleProvider);
-          return { user: null, accessToken: null, isRedirecting: true };
+          if (isInIframe) {
+            throw new Error('預覽視窗安全性限制阻擋了 Google 登入視窗通訊。請點擊右上角「在新分頁中開啟」後進行登入，或確認瀏覽器未封鎖彈跳視窗。');
+          }
+          // If not in iframe, try redirect as fallback
+          if (!isInIframe) {
+            console.log("Automatically switching to signInWithRedirect due to:", errCode);
+            await signInWithRedirect(auth, googleProvider);
+            return { user: null, accessToken: null, isRedirecting: true };
+          }
         }
         throw popupErr;
       }

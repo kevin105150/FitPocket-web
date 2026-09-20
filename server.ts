@@ -17,13 +17,10 @@ app.use('/__/auth', createProxyMiddleware({
 
 app.use(express.json({ limit: '15mb' }));
 
-// Helper to get GoogleGenAI client (Prefers custom key, falls back to server env key)
-function getGenAI(customKey?: string): GoogleGenAI | null {
-  const apiKey = (customKey && typeof customKey === 'string' && customKey.trim().length > 10)
-    ? customKey.trim()
-    : process.env.GEMINI_API_KEY;
+const ADMIN_EMAIL = 'kevin10611@gmail.com';
 
-  if (!apiKey) return null;
+// Helper to get GoogleGenAI client
+function getGenAIClient(apiKey: string): GoogleGenAI {
   return new GoogleGenAI({
     apiKey,
     httpOptions: {
@@ -34,13 +31,401 @@ function getGenAI(customKey?: string): GoogleGenAI | null {
   });
 }
 
+function getFirestoreConfig() {
+  try {
+    const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
+    if (fs.existsSync(configPath)) {
+      const fsConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+      return {
+        projectId: fsConfig.projectId || 'quirky-gear-l0w9t',
+        databaseId: fsConfig.firestoreDatabaseId || 'ai-studio-aidiettrackerapp-767063f9-4fee-46bc-9161-8aaabc23bda9',
+        apiKey: fsConfig.apiKey || '',
+      };
+    }
+  } catch (e) {
+    console.error('Error reading firebase config:', e);
+  }
+  return {
+    projectId: 'quirky-gear-l0w9t',
+    databaseId: 'ai-studio-aidiettrackerapp-767063f9-4fee-46bc-9161-8aaabc23bda9',
+    apiKey: '',
+  };
+}
+
+// Google Gemini daily quota resets at 00:00:00 Pacific Time
+function getServerGoogleApiQuotaCycleDate(date: Date = new Date()): string {
+  try {
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Los_Angeles',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
+    return formatter.format(date); // "YYYY-MM-DD"
+  } catch {
+    const ptDate = new Date(date.getTime() - 7 * 60 * 60 * 1000);
+    return ptDate.toISOString().slice(0, 10);
+  }
+}
+
+function parseFirestoreDoc(doc: any) {
+  if (!doc || !doc.fields) return null;
+  const res: any = {};
+  const nameParts = (doc.name || '').split('/');
+  res.id = nameParts[nameParts.length - 1];
+  for (const [key, val] of Object.entries<any>(doc.fields)) {
+    if ('stringValue' in val) res[key] = val.stringValue;
+    else if ('integerValue' in val) res[key] = parseInt(val.integerValue, 10);
+    else if ('doubleValue' in val) res[key] = parseFloat(val.doubleValue);
+    else if ('booleanValue' in val) res[key] = val.booleanValue;
+    else if ('nullValue' in val) res[key] = null;
+    else if ('arrayValue' in val) {
+      res[key] = (val.arrayValue?.values || []).map((v: any) => {
+        if ('stringValue' in v) return v.stringValue;
+        if ('integerValue' in v) return parseInt(v.integerValue, 10);
+        return v;
+      });
+    }
+  }
+  return res;
+}
+
+function toFirestoreFields(obj: any) {
+  const fields: any = {};
+  for (const [key, val] of Object.entries(obj)) {
+    if (key === 'id') continue;
+    if (val === null || val === undefined) {
+      fields[key] = { nullValue: null };
+    } else if (typeof val === 'string') {
+      fields[key] = { stringValue: val };
+    } else if (typeof val === 'number') {
+      if (Number.isInteger(val)) {
+        fields[key] = { integerValue: String(val) };
+      } else {
+        fields[key] = { doubleValue: val };
+      }
+    } else if (typeof val === 'boolean') {
+      fields[key] = { booleanValue: val };
+    } else if (Array.isArray(val)) {
+      fields[key] = {
+        arrayValue: {
+          values: val.map((v) => ({ stringValue: String(v) })),
+        },
+      };
+    }
+  }
+  return fields;
+}
+
+function normalizeEmail(email: string): string {
+  return (email || '').trim().toLowerCase();
+}
+
+function getDocIdForEmail(email: string): string {
+  return encodeURIComponent(normalizeEmail(email));
+}
+
+async function getWhitelistUserFromFirestore(email: string): Promise<any | null> {
+  const normalized = normalizeEmail(email);
+  if (!normalized) return null;
+  const cfg = getFirestoreConfig();
+  const docId = getDocIdForEmail(normalized);
+  const url = `https://firestore.googleapis.com/v1/projects/${cfg.projectId}/databases/${cfg.databaseId}/documents/ai_whitelist/${docId}?key=${cfg.apiKey}`;
+
+  try {
+    const resp = await fetch(url);
+    if (resp.status === 404) return null;
+    if (!resp.ok) {
+      const err = await resp.text();
+      console.warn('Error fetching whitelist user:', err);
+      return null;
+    }
+    const data = await resp.json();
+    return parseFirestoreDoc(data);
+  } catch (err) {
+    console.error('Fetch whitelist error:', err);
+    return null;
+  }
+}
+
+async function saveWhitelistUserToFirestore(userData: any): Promise<any> {
+  const normalized = normalizeEmail(userData.email);
+  const cfg = getFirestoreConfig();
+  const docId = getDocIdForEmail(normalized);
+  const url = `https://firestore.googleapis.com/v1/projects/${cfg.projectId}/databases/${cfg.databaseId}/documents/ai_whitelist/${docId}?key=${cfg.apiKey}`;
+
+  const fields = toFirestoreFields(userData);
+  const resp = await fetch(url, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fields }),
+  });
+
+  if (!resp.ok) {
+    const errText = await resp.text();
+    throw new Error(`Failed to save whitelist entry: ${errText}`);
+  }
+  const data = await resp.json();
+  return parseFirestoreDoc(data);
+}
+
+async function getAllWhitelistUsers(): Promise<any[]> {
+  const cfg = getFirestoreConfig();
+  const url = `https://firestore.googleapis.com/v1/projects/${cfg.projectId}/databases/${cfg.databaseId}/documents:runQuery?key=${cfg.apiKey}`;
+
+  try {
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        structuredQuery: {
+          from: [{ collectionId: 'ai_whitelist' }]
+        }
+      })
+    });
+
+    if (!resp.ok) {
+      const errText = await resp.text();
+      console.warn('Error querying whitelist:', errText);
+      return [];
+    }
+    const data = await resp.json();
+    const docs = (data || [])
+      .map((item: any) => item.document)
+      .filter(Boolean);
+    return docs.map(parseFirestoreDoc).filter(Boolean);
+  } catch (err) {
+    console.error('List whitelist query error:', err);
+    return [];
+  }
+}
+
+async function deleteWhitelistUser(email: string): Promise<boolean> {
+  const normalized = normalizeEmail(email);
+  const cfg = getFirestoreConfig();
+  const docId = getDocIdForEmail(normalized);
+  const url = `https://firestore.googleapis.com/v1/projects/${cfg.projectId}/databases/${cfg.databaseId}/documents/ai_whitelist/${docId}?key=${cfg.apiKey}`;
+
+  try {
+    const resp = await fetch(url, { method: 'DELETE' });
+    return resp.ok;
+  } catch (err) {
+    console.error('Delete whitelist error:', err);
+    return false;
+  }
+}
+
+interface AuthAIResult {
+  allowed: boolean;
+  statusCode?: number;
+  errorMessage?: string;
+  isQuotaExceeded?: boolean;
+  apiKeyToUse: string | null;
+  whitelistUser?: any;
+  developerQuota?: {
+    dailyLimit: number;
+    todayUsage: number;
+    remaining: number;
+    quotaCycleDate: string;
+    status: string;
+    isAdmin?: boolean;
+  };
+}
+
+// Core authorization and quota-enforcement engine
+async function validateAndAuthoriseAiRequest(
+  customApiKey?: string,
+  userEmail?: string,
+  apiKeySource?: string,
+  uid?: string
+): Promise<AuthAIResult> {
+  const cleanCustomKey = (customApiKey && typeof customApiKey === 'string') ? customApiKey.trim() : '';
+  const isDeveloperMode = apiKeySource === 'developer' || !cleanCustomKey;
+
+  // 1. Custom User Key Mode
+  if (!isDeveloperMode && cleanCustomKey.length > 10) {
+    return {
+      allowed: true,
+      apiKeyToUse: cleanCustomKey,
+    };
+  }
+
+  // 2. Developer Key Mode (Backend-managed)
+  const devKey = process.env.GEMINI_API_KEY;
+  if (!devKey) {
+    return {
+      allowed: false,
+      statusCode: 500,
+      errorMessage: '伺服器後端尚未設定 GEMINI_API_KEY 環境變數，請確認環境設定或改用個人 API Key。',
+    };
+  }
+
+  const normalizedEmail = normalizeEmail(userEmail || '');
+  if (!normalizedEmail) {
+    return {
+      allowed: false,
+      statusCode: 401,
+      errorMessage: '使用「開發者共享 AI 金鑰」需先登入 Google 帳號。請先登入後提出使用申請。',
+    };
+  }
+
+  const isAdmin = normalizedEmail === ADMIN_EMAIL;
+  const currentCycleDate = getServerGoogleApiQuotaCycleDate();
+
+  let userRecord = await getWhitelistUserFromFirestore(normalizedEmail);
+
+  // Auto-provision admin if record does not exist
+  if (isAdmin && !userRecord) {
+    userRecord = {
+      email: normalizedEmail,
+      uid: uid || '',
+      displayName: '開發者 (Admin)',
+      status: 'approved',
+      dailyLimit: 1000,
+      todayUsage: 0,
+      totalUsage: 0,
+      quotaCycleDate: currentCycleDate,
+      requestedAt: Date.now(),
+      approvedAt: Date.now(),
+      notes: '系統管理員 (無限制/高額度)',
+    };
+    await saveWhitelistUserToFirestore(userRecord);
+  }
+
+  if (!userRecord) {
+    return {
+      allowed: false,
+      statusCode: 403,
+      errorMessage: '尚未加入開發者 AI 共享白名單。請至「設定」頁面送出使用申請。',
+      whitelistUser: { email: normalizedEmail, status: 'not_requested' },
+      developerQuota: {
+        dailyLimit: 20,
+        todayUsage: 0,
+        remaining: 0,
+        quotaCycleDate: currentCycleDate,
+        status: 'not_requested',
+        isAdmin,
+      },
+    };
+  }
+
+  if (userRecord.status === 'pending') {
+    return {
+      allowed: false,
+      statusCode: 403,
+      errorMessage: '您的開發者 AI 共享金鑰申請正在審核中，請稍候開發者審核。',
+      whitelistUser: userRecord,
+      developerQuota: {
+        dailyLimit: Number(userRecord.dailyLimit) || 20,
+        todayUsage: Number(userRecord.todayUsage) || 0,
+        remaining: 0,
+        quotaCycleDate: currentCycleDate,
+        status: 'pending',
+        isAdmin,
+      },
+    };
+  }
+
+  if (userRecord.status === 'rejected') {
+    return {
+      allowed: false,
+      statusCode: 403,
+      errorMessage: '暫未開放此帳號使用開發者共享金鑰，請至設定改用個人 API Key。',
+      whitelistUser: userRecord,
+      developerQuota: {
+        dailyLimit: Number(userRecord.dailyLimit) || 20,
+        todayUsage: Number(userRecord.todayUsage) || 0,
+        remaining: 0,
+        quotaCycleDate: currentCycleDate,
+        status: 'rejected',
+        isAdmin,
+      },
+    };
+  }
+
+  if (userRecord.status !== 'approved') {
+    return {
+      allowed: false,
+      statusCode: 403,
+      errorMessage: '您的開發者 AI 共享權限狀態異常，請聯繫開發者。',
+      whitelistUser: userRecord,
+    };
+  }
+
+  // Quota Cycle Rollover (PT midnight reset)
+  let todayUsage = Number(userRecord.todayUsage) || 0;
+  if (userRecord.quotaCycleDate !== currentCycleDate) {
+    todayUsage = 0;
+    userRecord.todayUsage = 0;
+    userRecord.quotaCycleDate = currentCycleDate;
+  }
+
+  const dailyLimit = Number(userRecord.dailyLimit) || (isAdmin ? 1000 : 20);
+
+  // Check 20-call daily quota limit
+  if (!isAdmin && todayUsage >= dailyLimit) {
+    return {
+      allowed: false,
+      statusCode: 429,
+      isQuotaExceeded: true,
+      errorMessage: `今日開發者 AI 共享額度已用完（已達每日 ${dailyLimit} 次上限）。將於 00:00 PT 自動重設，或請至「設定」改用個人 API Key。`,
+      whitelistUser: userRecord,
+      developerQuota: {
+        dailyLimit,
+        todayUsage,
+        remaining: 0,
+        quotaCycleDate: currentCycleDate,
+        status: 'approved',
+        isAdmin,
+      },
+    };
+  }
+
+  // Increment usage
+  const nextTodayUsage = todayUsage + 1;
+  const nextTotalUsage = (Number(userRecord.totalUsage) || 0) + 1;
+
+  userRecord.todayUsage = nextTodayUsage;
+  userRecord.totalUsage = nextTotalUsage;
+  userRecord.quotaCycleDate = currentCycleDate;
+  userRecord.lastUsedAt = Date.now();
+  if (uid && !userRecord.uid) userRecord.uid = uid;
+
+  // Background update firestore
+  saveWhitelistUserToFirestore(userRecord).catch((err) => {
+    console.error('Failed to update whitelist usage in background:', err);
+  });
+
+  return {
+    allowed: true,
+    apiKeyToUse: devKey,
+    whitelistUser: userRecord,
+    developerQuota: {
+      dailyLimit,
+      todayUsage: nextTodayUsage,
+      remaining: Math.max(0, dailyLimit - nextTodayUsage),
+      quotaCycleDate: currentCycleDate,
+      status: 'approved',
+      isAdmin,
+    },
+  };
+}
+
 // Multi-model fallback runner to guarantee uptime within the Gemini 3.x family
 async function generateWithFallback(
   ai: GoogleGenAI,
   preferredModel: string,
   contents: any,
   useSearch = false
-): Promise<{ text: string; modelUsed: string }> {
+): Promise<{
+  text: string;
+  modelUsed: string;
+  usageMetadata?: {
+    promptTokenCount: number;
+    candidatesTokenCount: number;
+    totalTokenCount: number;
+  };
+}> {
   // STRICTLY Gemini 3.x models only as per AGENTS.md
   const candidateModels = Array.from(
     new Set([
@@ -72,7 +457,19 @@ async function generateWithFallback(
       const text = response.text;
       if (text && text.trim().length > 0) {
         console.log(`[Gemini Success] Successfully generated with ${modelName}`);
-        return { text: text.trim(), modelUsed: modelName };
+        const promptTokens = Number(response.usageMetadata?.promptTokenCount) || 0;
+        const candidatesTokens = Number(response.usageMetadata?.candidatesTokenCount) || 0;
+        const totalTokens = Number(response.usageMetadata?.totalTokenCount) || (promptTokens + candidatesTokens);
+
+        return {
+          text: text.trim(),
+          modelUsed: modelName,
+          usageMetadata: {
+            promptTokenCount: promptTokens,
+            candidatesTokenCount: candidatesTokens,
+            totalTokenCount: totalTokens,
+          },
+        };
       }
     } catch (err: any) {
       lastError = err;
@@ -103,6 +500,10 @@ async function generateWithFallback(
       // Continue to next 3.x model for any error to maximize success rate within the family
       continue;
     }
+  }
+
+  if (lastError && (lastError.message?.includes('RESOURCE_EXHAUSTED') || lastError.message?.includes('exceeded your current quota') || lastError.status === 429)) {
+    throw new Error('Gemini API 額度已達上限 (Quota Exceeded)，請檢查您的 API 方案與額度，或稍後再試。');
   }
 
   throw new Error('AI 伺服器目前忙碌中或需求過大，請稍後重試。');
@@ -207,21 +608,296 @@ app.all('/api/firebase/test-connection', async (req, res) => {
   }
 });
 
+// Whitelist & Developer Quota Management Endpoints
+app.get('/api/ai/developer-quota', async (req, res) => {
+  try {
+    const userEmail = (req.query.userEmail as string) || (req.headers['x-user-email'] as string) || '';
+    const normalizedEmail = normalizeEmail(userEmail);
+    const isAdmin = normalizedEmail === ADMIN_EMAIL;
+    const currentCycleDate = getServerGoogleApiQuotaCycleDate();
+
+    if (!normalizedEmail) {
+      return res.json({
+        status: 'not_requested',
+        dailyLimit: 20,
+        todayUsage: 0,
+        remaining: 20,
+        quotaCycleDate: currentCycleDate,
+        isAdmin: false,
+      });
+    }
+
+    let userRecord = await getWhitelistUserFromFirestore(normalizedEmail);
+    if (isAdmin && !userRecord) {
+      userRecord = {
+        email: normalizedEmail,
+        displayName: '開發者 (Admin)',
+        status: 'approved',
+        dailyLimit: 1000,
+        todayUsage: 0,
+        totalUsage: 0,
+        quotaCycleDate: currentCycleDate,
+        requestedAt: Date.now(),
+        approvedAt: Date.now(),
+        notes: '系統管理員',
+      };
+      await saveWhitelistUserToFirestore(userRecord);
+    }
+
+    if (!userRecord) {
+      return res.json({
+        status: 'not_requested',
+        email: normalizedEmail,
+        dailyLimit: 20,
+        todayUsage: 0,
+        remaining: 20,
+        quotaCycleDate: currentCycleDate,
+        isAdmin,
+      });
+    }
+
+    let todayUsage = Number(userRecord.todayUsage) || 0;
+    if (userRecord.quotaCycleDate !== currentCycleDate) {
+      todayUsage = 0;
+      userRecord.todayUsage = 0;
+      userRecord.quotaCycleDate = currentCycleDate;
+    }
+
+    const dailyLimit = Number(userRecord.dailyLimit) || (isAdmin ? 1000 : 20);
+    const remaining = Math.max(0, dailyLimit - todayUsage);
+
+    res.json({
+      status: userRecord.status,
+      email: userRecord.email,
+      displayName: userRecord.displayName,
+      dailyLimit,
+      todayUsage,
+      remaining,
+      totalUsage: Number(userRecord.totalUsage) || 0,
+      quotaCycleDate: currentCycleDate,
+      requestedAt: userRecord.requestedAt,
+      approvedAt: userRecord.approvedAt,
+      lastUsedAt: userRecord.lastUsedAt,
+      isAdmin,
+    });
+  } catch (error: any) {
+    console.error('Get developer quota error:', error);
+    res.status(500).json({ error: error.message || '查詢額度失敗' });
+  }
+});
+
+app.post('/api/ai/request-access', async (req, res) => {
+  try {
+    const { email, uid, displayName, photoURL, notes } = req.body;
+    const normalizedEmail = normalizeEmail(email);
+    if (!normalizedEmail) {
+      return res.status(400).json({ error: '請提供有效的 Email 地址' });
+    }
+
+    const isAdmin = normalizedEmail === ADMIN_EMAIL;
+    const currentCycleDate = getServerGoogleApiQuotaCycleDate();
+    let existing = await getWhitelistUserFromFirestore(normalizedEmail);
+
+    if (existing) {
+      if (existing.status === 'rejected') {
+        existing.status = 'pending';
+        existing.requestedAt = Date.now();
+        existing.notes = notes || existing.notes;
+        if (displayName) existing.displayName = displayName;
+        if (photoURL) existing.photoURL = photoURL;
+        if (uid) existing.uid = uid;
+        await saveWhitelistUserToFirestore(existing);
+        return res.json({
+          success: true,
+          message: '已重新送出申請，等待開發者審核',
+          user: existing,
+        });
+      }
+      return res.json({
+        success: true,
+        message: existing.status === 'approved' ? '此帳號已獲授權' : '申請正在審核中',
+        user: existing,
+      });
+    }
+
+    const newRecord = {
+      email: normalizedEmail,
+      uid: uid || '',
+      displayName: displayName || normalizedEmail.split('@')[0],
+      photoURL: photoURL || '',
+      status: isAdmin ? 'approved' : 'pending',
+      dailyLimit: isAdmin ? 1000 : 20,
+      todayUsage: 0,
+      totalUsage: 0,
+      quotaCycleDate: currentCycleDate,
+      requestedAt: Date.now(),
+      approvedAt: isAdmin ? Date.now() : null,
+      notes: notes || '',
+    };
+
+    await saveWhitelistUserToFirestore(newRecord);
+    res.json({
+      success: true,
+      message: isAdmin ? '管理員已自動核准' : '申請已成功送出！開發者 Kevin 將會盡快為您審核。',
+      user: newRecord,
+    });
+  } catch (error: any) {
+    console.error('Request whitelist access error:', error);
+    res.status(500).json({ error: error.message || '送出申請失敗' });
+  }
+});
+
+// Admin Whitelist Management
+app.get('/api/admin/whitelist', async (req, res) => {
+  try {
+    const adminEmail = normalizeEmail((req.query.adminEmail as string) || (req.headers['x-admin-email'] as string) || '');
+    if (adminEmail !== ADMIN_EMAIL) {
+      return res.status(403).json({ error: '權限不足：僅限系統管理員 (Kevin) 存取' });
+    }
+
+    let users = await getAllWhitelistUsers();
+
+    // Auto provision admin if missing
+    const hasAdmin = users.some((u) => normalizeEmail(u.email) === ADMIN_EMAIL);
+    if (!hasAdmin) {
+      const currentCycleDate = getServerGoogleApiQuotaCycleDate();
+      const adminRecord = {
+        email: ADMIN_EMAIL,
+        displayName: '開發者 (Admin)',
+        status: 'approved',
+        dailyLimit: 1000,
+        todayUsage: 0,
+        totalUsage: 0,
+        quotaCycleDate: currentCycleDate,
+        requestedAt: Date.now(),
+        approvedAt: Date.now(),
+        notes: '系統管理員 (無限制/高額度)',
+      };
+      await saveWhitelistUserToFirestore(adminRecord).catch((e) => {
+        console.warn('Failed to auto-save admin to whitelist:', e);
+      });
+      users = await getAllWhitelistUsers();
+      if (!users.some((u) => normalizeEmail(u.email) === ADMIN_EMAIL)) {
+        users.unshift(adminRecord);
+      }
+    }
+
+    users.sort((a, b) => {
+      if (a.status === 'pending' && b.status !== 'pending') return -1;
+      if (a.status !== 'pending' && b.status === 'pending') return 1;
+      return (b.requestedAt || 0) - (a.requestedAt || 0);
+    });
+
+    res.json({ users });
+  } catch (error: any) {
+    console.error('Admin list whitelist error:', error);
+    res.status(500).json({ error: error.message || '無法取得白名單列表' });
+  }
+});
+
+app.post('/api/admin/whitelist/update', async (req, res) => {
+  try {
+    const { adminEmail, targetEmail, status, dailyLimit, resetTodayUsage, notes, displayName } = req.body;
+    const normalizedAdmin = normalizeEmail(adminEmail || (req.headers['x-admin-email'] as string) || '');
+    if (normalizedAdmin !== ADMIN_EMAIL) {
+      return res.status(403).json({ error: '權限不足：僅限系統管理員存取' });
+    }
+
+    const normalizedTarget = normalizeEmail(targetEmail);
+    if (!normalizedTarget) {
+      return res.status(400).json({ error: '請提供目標 Email' });
+    }
+
+    let existing = await getWhitelistUserFromFirestore(normalizedTarget);
+    const currentCycleDate = getServerGoogleApiQuotaCycleDate();
+
+    if (!existing) {
+      existing = {
+        email: normalizedTarget,
+        displayName: displayName || normalizedTarget.split('@')[0],
+        status: status || 'approved',
+        dailyLimit: dailyLimit !== undefined ? Number(dailyLimit) : 20,
+        todayUsage: 0,
+        totalUsage: 0,
+        quotaCycleDate: currentCycleDate,
+        requestedAt: Date.now(),
+        approvedAt: status === 'approved' ? Date.now() : null,
+        notes: notes || '',
+      };
+    } else {
+      if (status) {
+        existing.status = status;
+        if (status === 'approved' && !existing.approvedAt) {
+          existing.approvedAt = Date.now();
+        }
+      }
+      if (dailyLimit !== undefined && dailyLimit !== null) {
+        existing.dailyLimit = Number(dailyLimit);
+      }
+      if (resetTodayUsage === true) {
+        existing.todayUsage = 0;
+        existing.quotaCycleDate = currentCycleDate;
+      }
+      if (notes !== undefined) {
+        existing.notes = notes;
+      }
+      if (displayName) {
+        existing.displayName = displayName;
+      }
+    }
+
+    const saved = await saveWhitelistUserToFirestore(existing);
+    res.json({ success: true, user: saved });
+  } catch (error: any) {
+    console.error('Admin update whitelist error:', error);
+    res.status(500).json({ error: error.message || '更新白名單失敗' });
+  }
+});
+
+app.post('/api/admin/whitelist/delete', async (req, res) => {
+  try {
+    const { adminEmail, targetEmail } = req.body;
+    const normalizedAdmin = normalizeEmail(adminEmail || (req.headers['x-admin-email'] as string) || '');
+    if (normalizedAdmin !== ADMIN_EMAIL) {
+      return res.status(403).json({ error: '權限不足：僅限系統管理員存取' });
+    }
+
+    const normalizedTarget = normalizeEmail(targetEmail);
+    if (!normalizedTarget) {
+      return res.status(400).json({ error: '請提供目標 Email' });
+    }
+
+    const ok = await deleteWhitelistUser(normalizedTarget);
+    res.json({ success: ok });
+  } catch (error: any) {
+    console.error('Admin delete whitelist error:', error);
+    res.status(500).json({ error: error.message || '刪除白名單失敗' });
+  }
+});
+
+// AI Endpoints
 app.all('/api/ai/test-connection', async (req, res) => {
   const startTime = Date.now();
   try {
     const customKey = req.body?.customApiKey || (req.query?.customApiKey as string);
     const model = req.body?.model || (req.query?.model as string) || 'gemini-3.8-flash';
+    const userEmail = req.body?.userEmail || (req.query?.userEmail as string);
+    const apiKeySource = req.body?.apiKeySource || (req.query?.apiKeySource as string);
+    const userUid = req.body?.userUid || (req.query?.userUid as string);
 
-    const ai = getGenAI(customKey);
-    if (!ai) {
-      return res.status(401).json({ 
-        ok: false, 
-        error: '未偵測到 Gemini API 金鑰。請於設定頁面輸入金鑰，或確認伺服器環境變數。' 
+    const authResult = await validateAndAuthoriseAiRequest(customKey, userEmail, apiKeySource, userUid);
+    if (!authResult.allowed) {
+      return res.status(authResult.statusCode || 403).json({
+        ok: false,
+        error: authResult.errorMessage,
+        isQuotaExceeded: authResult.isQuotaExceeded,
+        _developerQuota: authResult.developerQuota,
       });
     }
 
-    const { text, modelUsed } = await generateWithFallback(
+    const ai = getGenAIClient(authResult.apiKeyToUse!);
+
+    const { text, modelUsed, usageMetadata } = await generateWithFallback(
       ai,
       model,
       '請回覆：「連線成功」'
@@ -235,6 +911,14 @@ app.all('/api/ai/test-connection', async (req, res) => {
       requestedModel: model,
       sampleResponse: text,
       latencyMs,
+      _developerQuota: authResult.developerQuota,
+      _usage: {
+        promptTokens: usageMetadata?.promptTokenCount || 0,
+        candidatesTokens: usageMetadata?.candidatesTokenCount || 0,
+        totalTokens: usageMetadata?.totalTokenCount || 0,
+        model: modelUsed,
+        feature: 'connection_test',
+      },
     });
   } catch (error: any) {
     console.error('Test connection error:', error);
@@ -249,15 +933,21 @@ app.all('/api/ai/test-connection', async (req, res) => {
 // 2. Gemini Text Nutrition Estimation
 app.post('/api/ai/estimate-nutrition', async (req, res) => {
   try {
-    const { query, customApiKey, model } = req.body;
+    const { query, customApiKey, model, userEmail, apiKeySource, userUid } = req.body;
     if (!query) {
       return res.status(400).json({ error: '請輸入飲食名稱' });
     }
 
-    const ai = getGenAI(customApiKey);
-    if (!ai) {
-      return res.status(401).json({ error: '尚未設定 Gemini API Key。請至「設定」頁面輸入您的 API 金鑰以使用 AI 智慧估算。' });
+    const authResult = await validateAndAuthoriseAiRequest(customApiKey, userEmail, apiKeySource, userUid);
+    if (!authResult.allowed) {
+      return res.status(authResult.statusCode || 403).json({
+        error: authResult.errorMessage,
+        isQuotaExceeded: authResult.isQuotaExceeded,
+        _developerQuota: authResult.developerQuota,
+      });
     }
+
+    const ai = getGenAIClient(authResult.apiKeyToUse!);
 
     const prompt = `你是一位專業的台灣飲食營養師。使用者輸入了一道食物：「${query}」。
 請使用 Google 搜尋工具查找該食物（特別是連鎖品牌如 7-11、全家、麥當勞、摩斯等）的官方營養資訊。
@@ -290,7 +980,7 @@ app.post('/api/ai/estimate-nutrition', async (req, res) => {
   "explanation": "營養師簡評與健康建議 (50字以內)"
 }`;
 
-    const { text, modelUsed } = await generateWithFallback(
+    const { text, modelUsed, usageMetadata } = await generateWithFallback(
       ai,
       model || 'gemini-3.8-flash',
       prompt,
@@ -305,6 +995,14 @@ app.post('/api/ai/estimate-nutrition', async (req, res) => {
       parsed.brand = 'AI辨識';
     }
     parsed._modelUsed = modelUsed;
+    parsed._developerQuota = authResult.developerQuota;
+    parsed._usage = {
+      promptTokens: usageMetadata?.promptTokenCount || 0,
+      candidatesTokens: usageMetadata?.candidatesTokenCount || 0,
+      totalTokens: usageMetadata?.totalTokenCount || 0,
+      model: modelUsed,
+      feature: 'nutrition_estimate',
+    };
     res.json(parsed);
   } catch (error: any) {
     console.error('Gemini estimate error:', error);
@@ -319,15 +1017,21 @@ app.post('/api/ai/estimate-nutrition', async (req, res) => {
 // 3. Gemini Image Food Recognition
 app.post('/api/ai/estimate-image', async (req, res) => {
   try {
-    const { imageBase64, mimeType = 'image/jpeg', customApiKey, model } = req.body;
+    const { imageBase64, mimeType = 'image/jpeg', customApiKey, model, userEmail, apiKeySource, userUid } = req.body;
     if (!imageBase64) {
       return res.status(400).json({ error: '未提供圖片資料' });
     }
 
-    const ai = getGenAI(customApiKey);
-    if (!ai) {
-      return res.status(401).json({ error: '尚未設定 Gemini API Key。請至「設定」頁面輸入您的 API 金鑰以使用 AI 視覺辨識功能。' });
+    const authResult = await validateAndAuthoriseAiRequest(customApiKey, userEmail, apiKeySource, userUid);
+    if (!authResult.allowed) {
+      return res.status(authResult.statusCode || 403).json({
+        error: authResult.errorMessage,
+        isQuotaExceeded: authResult.isQuotaExceeded,
+        _developerQuota: authResult.developerQuota,
+      });
     }
+
+    const ai = getGenAIClient(authResult.apiKeyToUse!);
 
     const prompt = `請仔細辨識這張照片中的食物、商品包裝或料理。
 特別注意：
@@ -368,7 +1072,6 @@ app.post('/api/ai/estimate-image', async (req, res) => {
   "explanation": "食材分析、品牌與建議"
 }`;
 
-    // Strip prefix if user passed full data URI
     const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, '');
 
     const contents = [
@@ -381,11 +1084,11 @@ app.post('/api/ai/estimate-image', async (req, res) => {
       },
     ];
 
-    const { text, modelUsed } = await generateWithFallback(
+    const { text, modelUsed, usageMetadata } = await generateWithFallback(
       ai,
       model || 'gemini-3.8-flash',
       contents,
-      false // Bypassing Google Search Grounding for visual recognition to maximize speed (OCR/Vision is fully native)
+      false
     );
 
     const parsed = extractJsonFromText(text);
@@ -399,6 +1102,14 @@ app.post('/api/ai/estimate-image', async (req, res) => {
       parsed.barcode = String(parsed.barcode).trim();
     }
     parsed._modelUsed = modelUsed;
+    parsed._developerQuota = authResult.developerQuota;
+    parsed._usage = {
+      promptTokens: usageMetadata?.promptTokenCount || 0,
+      candidatesTokens: usageMetadata?.candidatesTokenCount || 0,
+      totalTokens: usageMetadata?.totalTokenCount || 0,
+      model: modelUsed,
+      feature: 'image_recognition',
+    };
     res.json(parsed);
   } catch (error: any) {
     console.error('Gemini image analyze error:', error);
@@ -413,15 +1124,22 @@ app.post('/api/ai/estimate-image', async (req, res) => {
 // 3.1. AI Barcode OCR reader from photo
 app.post('/api/ai/read-barcode', async (req, res) => {
   try {
-    const { imageBase64, mimeType = 'image/jpeg', customApiKey, model } = req.body;
+    const { imageBase64, mimeType = 'image/jpeg', customApiKey, model, userEmail, apiKeySource, userUid } = req.body;
     if (!imageBase64) {
       return res.status(400).json({ error: '未提供圖片資料' });
     }
 
-    const ai = getGenAI(customApiKey);
-    if (!ai) {
-      return res.status(401).json({ error: '未設定 Gemini API Key' });
+    const authResult = await validateAndAuthoriseAiRequest(customApiKey, userEmail, apiKeySource, userUid);
+    if (!authResult.allowed) {
+      return res.status(authResult.statusCode || 403).json({
+        error: authResult.errorMessage,
+        barcode: null,
+        isQuotaExceeded: authResult.isQuotaExceeded,
+        _developerQuota: authResult.developerQuota,
+      });
     }
+
+    const ai = getGenAIClient(authResult.apiKeyToUse!);
 
     const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, '');
     const prompt = `Please examine this photo closely and locate any product barcode (such as EAN-13, EAN-8, UPC-A, UPC-E, Code 128, or QR Code digits).
@@ -439,7 +1157,7 @@ If no readable barcode numbers are visible in the image, reply ONLY with 'NONE'.
       },
     ];
 
-    const { text } = await generateWithFallback(
+    const { text, modelUsed, usageMetadata } = await generateWithFallback(
       ai,
       model || 'gemini-3.1-flash-lite',
       contents,
@@ -447,10 +1165,18 @@ If no readable barcode numbers are visible in the image, reply ONLY with 'NONE'.
     );
 
     const cleaned = text.replace(/[^0-9a-zA-Z]/g, '').trim();
-    if (cleaned && cleaned !== 'NONE' && cleaned.length >= 6) {
-      return res.json({ barcode: cleaned });
-    }
-    res.json({ barcode: null });
+    const barcodeResult = (cleaned && cleaned !== 'NONE' && cleaned.length >= 6) ? cleaned : null;
+    res.json({
+      barcode: barcodeResult,
+      _developerQuota: authResult.developerQuota,
+      _usage: {
+        promptTokens: usageMetadata?.promptTokenCount || 0,
+        candidatesTokens: usageMetadata?.candidatesTokenCount || 0,
+        totalTokens: usageMetadata?.totalTokenCount || 0,
+        model: modelUsed,
+        feature: 'barcode_ocr',
+      },
+    });
   } catch (error: any) {
     console.error('AI Read Barcode error:', error);
     res.status(500).json({ error: error.message || '條碼辨識失敗', barcode: null });
@@ -579,31 +1305,48 @@ app.post('/api/family/search', async (req, res) => {
 // 4. Gemini Workout Recommendations
 app.post('/api/ai/workout-suggest', async (req, res) => {
   try {
-    const { bodyPart, customApiKey, model } = req.body;
-    const ai = getGenAI(customApiKey);
+    const { bodyPart, customApiKey, model, userEmail, apiKeySource, userUid } = req.body;
+    const authResult = await validateAndAuthoriseAiRequest(customApiKey, userEmail, apiKeySource, userUid);
 
-    if (!ai) {
+    if (!authResult.allowed) {
       return res.json({
         exercises: ['標準俯臥撐', '啞鈴推舉', '彈力帶夾胸', '棒式支撐'],
+        _developerQuota: authResult.developerQuota,
+        _authError: authResult.errorMessage,
       });
     }
+
+    const ai = getGenAIClient(authResult.apiKeyToUse!);
 
     const prompt = `使用者想針對「${bodyPart || '全身'}」肌群進行健身訓練。
 請推薦 4 到 6 個最有效、循序漸進的經典健身動作名稱。
 請嚴格輸出 JSON 陣列，例如 ["動作1", "動作2", "動作3", "動作4"]，不要輸出其他文字或 markdown。`;
 
-    const { text } = await generateWithFallback(
+    const { text, modelUsed, usageMetadata } = await generateWithFallback(
       ai,
       model || 'gemini-3.8-flash',
       prompt
     );
 
+    let exercises = ['標準俯臥撐', '啞鈴推舉', '彈力帶夾胸', '棒式支撐'];
     try {
       const parsed = extractJsonFromText(text);
-      res.json({ exercises: Array.isArray(parsed) ? parsed : ['慢跑', '棒式', '深蹲', '伏地挺身'] });
+      if (Array.isArray(parsed)) exercises = parsed;
     } catch {
-      res.json({ exercises: ['慢跑', '棒式', '深蹲', '伏地挺身'] });
+      exercises = ['慢跑', '棒式', '深蹲', '伏地挺身'];
     }
+
+    res.json({
+      exercises,
+      _developerQuota: authResult.developerQuota,
+      _usage: {
+        promptTokens: usageMetadata?.promptTokenCount || 0,
+        candidatesTokens: usageMetadata?.candidatesTokenCount || 0,
+        totalTokens: usageMetadata?.totalTokenCount || 0,
+        model: modelUsed,
+        feature: 'workout_suggest',
+      },
+    });
   } catch (error: any) {
     console.error('Workout suggest error:', error);
     res.json({ exercises: ['慢跑', '棒式', '深蹲', '伏地挺身'] });

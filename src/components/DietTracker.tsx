@@ -480,6 +480,9 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
 
         // Download and parse JSON stream first (blisteringly fast now without Google Search Grounding)
         const result = await res.json();
+        if (result._usage) {
+          StorageService.recordApiUsage(result._usage);
+        }
 
         const usedModel = result._modelUsed || model;
         const isFallback = usedModel !== model;

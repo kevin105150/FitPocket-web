@@ -29,7 +29,7 @@ import { BatchCrawlModal } from './BatchCrawlModal';
 import { BarcodeScannerModal } from './BarcodeScannerModal';
 import { AiCameraModal } from './AiCameraModal';
 import { optimizeImageForAi } from '../utils/imageOptimizer';
-import { checkAiKeyOrWarn } from '../utils/aiHelper';
+import { checkAiKeyOrWarn, getAiRequestParams } from '../utils/aiHelper';
 import { getTodayString } from '../utils/dateUtils';
 
 interface AddFoodModalProps {
@@ -616,7 +616,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
       // 核心優化：在前端先壓縮圖片，大幅縮減上傳時間 (最佳化為 768x768，Gemini 視覺識別最速甜點尺寸)
       const optimizedBase64 = await optimizeImageForAi(base64, 768, 768, 0.7);
 
-      const userKey = StorageService.getGeminiApiKey();
+      const aiParams = getAiRequestParams();
       const model = StorageService.getSelectedAiModel();
       
       setAiProgress(40);
@@ -646,7 +646,10 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
           body: JSON.stringify({
             imageBase64: optimizedBase64, // 使用優化後的 base64
             mimeType: 'image/jpeg', // 壓縮後已統一格式為 jpeg
-            customApiKey: userKey,
+            customApiKey: aiParams.customApiKey,
+            apiKeySource: aiParams.apiKeySource,
+            userEmail: aiParams.userEmail,
+            userUid: aiParams.userUid,
             model,
           }),
         });
@@ -668,6 +671,9 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
 
       // Download and parse JSON stream first (blisteringly fast now without Google Search Grounding)
       const result = await res.json();
+      if (result._usage) {
+        StorageService.recordApiUsage(result._usage);
+      }
 
       const usedModel = result._modelUsed || model;
       const isFallback = usedModel !== model;
@@ -740,7 +746,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
     setAiStatus('正在解析您的文字描述...');
     setRetryAction(() => handleAiTextAnalyze);
     try {
-      const userKey = StorageService.getGeminiApiKey();
+      const aiParams = getAiRequestParams();
       const model = StorageService.getSelectedAiModel();
       
       setAiProgress(50);
@@ -751,7 +757,10 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           query: aiPrompt.trim(), 
-          customApiKey: userKey,
+          customApiKey: aiParams.customApiKey,
+          apiKeySource: aiParams.apiKeySource,
+          userEmail: aiParams.userEmail,
+          userUid: aiParams.userUid,
           model 
         }),
       });
@@ -766,6 +775,9 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
       }
 
       const result = await res.json();
+      if (result._usage) {
+        StorageService.recordApiUsage(result._usage);
+      }
       const usedModel = result._modelUsed || model;
       const isFallback = usedModel !== model;
 
