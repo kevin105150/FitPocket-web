@@ -2,12 +2,17 @@ import { getAccessToken, clearGoogleAccessToken } from '../lib/firebase';
 
 const DRIVE_FILE_NAME = 'fitpocket_data.json';
 
+let cachedFileId: string | null = null;
+
 const clearExpiredToken = () => {
+  cachedFileId = null;
   clearGoogleAccessToken();
 };
 
 export const DriveStorageService = {
   async findFile(): Promise<string | null> {
+    if (cachedFileId) return cachedFileId;
+
     const token = await getAccessToken();
     if (!token) {
       console.warn('Drive findFile: No access token found');
@@ -35,7 +40,11 @@ export const DriveStorageService = {
       }
       
       const data = await res.json();
-      return data.files && data.files.length > 0 ? data.files[0].id : null;
+      if (data.files && data.files.length > 0) {
+        cachedFileId = data.files[0].id;
+        return cachedFileId;
+      }
+      return null;
     } catch (e: any) {
       if (e.message === 'AUTH_ERROR') throw e;
       console.warn('Google Drive findFile network notice:', e);
@@ -70,7 +79,11 @@ export const DriveStorageService = {
 
       if (!res.ok) return null;
       const data = await res.json();
-      return data.id || null;
+      if (data.id) {
+        cachedFileId = data.id;
+        return data.id;
+      }
+      return null;
     } catch (e) {
       console.warn('Google Drive createFile network notice:', e);
       return null;
@@ -94,6 +107,11 @@ export const DriveStorageService = {
 
       if (res.status === 401 || res.status === 403) {
         clearExpiredToken();
+        return false;
+      }
+
+      if (res.status === 404) {
+        cachedFileId = null;
         return false;
       }
 

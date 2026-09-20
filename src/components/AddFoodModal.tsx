@@ -721,28 +721,6 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
         aiSource: 'vision',
       };
 
-      // Automatically save to Custom Foods store & Cloud
-      const customToSave: CustomFood = {
-        id: `custom_${foodItem.id}`,
-        name: foodItem.name,
-        brand: foodItem.brand || 'AI辨識',
-        servingAmount: foodItem.servingAmount || 100,
-        servingUnit: foodItem.servingUnit || 'g',
-        calories: foodItem.calories,
-        carbs: foodItem.carbs,
-        protein: foodItem.protein,
-        fat: foodItem.fat,
-        sugars: foodItem.sugars,
-        fiber: foodItem.fiber,
-        sodium: foodItem.sodium,
-        potassium: foodItem.potassium,
-        barcode: foodItem.barcode,
-        updatedAt: Date.now(),
-        isSharedToCloud: true,
-      };
-      StorageService.saveCustomFood(customToSave);
-      CloudFoodService.uploadInBackground(customToSave);
-
       onSelectFood(foodItem);
     } catch (e: any) {
       setAiError(e.message || 'AI 辨識發生錯誤');
@@ -836,27 +814,6 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
         isUserCustom: true,
         aiSource: 'estimation',
       };
-
-      // Automatically save to Custom Foods store & Cloud
-      const customToSave: CustomFood = {
-        id: `custom_${foodItem.id}`,
-        name: foodItem.name,
-        brand: foodItem.brand || 'AI辨識',
-        servingAmount: foodItem.servingAmount || 100,
-        servingUnit: foodItem.servingUnit || 'g',
-        calories: foodItem.calories,
-        carbs: foodItem.carbs,
-        protein: foodItem.protein,
-        fat: foodItem.fat,
-        sugars: foodItem.sugars,
-        fiber: foodItem.fiber,
-        sodium: foodItem.sodium,
-        potassium: foodItem.potassium,
-        updatedAt: Date.now(),
-        isSharedToCloud: true,
-      };
-      StorageService.saveCustomFood(customToSave);
-      CloudFoodService.uploadInBackground(customToSave);
 
       onSelectFood(foodItem);
     } catch (e: any) {

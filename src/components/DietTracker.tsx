@@ -1258,6 +1258,7 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
              potassium: foodForPortion.potassium,
              servingAmount: foodForPortion.servingAmount || 100,
              servingUnit: foodForPortion.servingUnit || 'g',
+             aiSource: foodForPortion.aiSource,
           }}
           initialConsumedAmount={(() => {
              if (foodForPortion.lastLoggedAmount !== undefined && foodForPortion.lastLoggedAmount !== null && foodForPortion.lastLoggedAmount > 0) {
@@ -1288,10 +1289,34 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
             setShowAddFood(true);
           }}
           onSave={(food, consumedAmount) => {
+             // AI 辨識或自訂食品時，只有按下儲存確認，才會存入自訂食品資料庫與雲端
+             const isAiOrCustom = food.aiSource || food.id?.startsWith('ai_') || food.id?.startsWith('custom_') || foodForPortion?.isUserCustom || foodForPortion?.aiSource;
+             let targetSourceId = food.id;
+
+             if (isAiOrCustom) {
+                targetSourceId = food.id?.startsWith('custom_') 
+                   ? food.id 
+                   : `custom_${food.id.replace(/^(ai_photo_|ai_est_|ai_estimation_|ai_)/, '')}`;
+                
+                const customToSave: CustomFood = {
+                   ...food,
+                   id: targetSourceId,
+                   updatedAt: Date.now(),
+                };
+                
+                // 1. 儲存至自訂食品（會自動觸發同步備份至個人 Google Drive）
+                StorageService.saveCustomFood(customToSave);
+
+                // 2. 只有開啟公共雲端 (isSharedToCloud 有勾選) 時，才同步進公共網路資料庫
+                if (food.isSharedToCloud) {
+                   CloudFoodService.uploadInBackground(customToSave);
+                }
+             }
+
              const ratio = consumedAmount / (food.servingAmount || 1);
              const record: FoodRecord = {
                 id: 'record_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
-                sourceFoodId: food.id,
+                sourceFoodId: targetSourceId,
                 name: food.name,
                 brand: food.brand,
                 barcode: food.barcode,

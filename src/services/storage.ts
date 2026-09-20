@@ -54,6 +54,8 @@ export type SyncStatus = 'synced' | 'pending' | 'syncing' | 'error' | 'offline';
 // Simple pub/sub for sync status
 const syncListeners: ((status: SyncStatus) => void)[] = [];
 let currentSyncStatus: SyncStatus = localStorage.getItem('fitpocket_sync_pending') === 'true' ? 'pending' : 'synced';
+let isSavingToDrive = false;
+let hasPendingDriveSave = false;
 
 function notifySyncStatus(status: SyncStatus) {
   currentSyncStatus = status;
@@ -187,36 +189,47 @@ export const StorageService = {
     localStorage.setItem('fitpocket_sync_pending', 'true');
     notifySyncStatus('syncing');
 
-    try {
-      // Check for valid token from cache. 
-      // CRITICAL: We MUST NOT call loginWithGoogle() automatically here because 
-      // background saves (e.g. while typing/editing) are not triggered by direct user clicks.
-      // On iOS/Safari, calling signInWithPopup without a direct click triggers the 
-      // "FitPocket wants to use google.com to sign in" system prompt repeatedly.
-      const token = await getAccessToken();
-      
-      if (!token) {
-        console.log("No valid Drive token for background sync. Keeping data in local buffer (pending).");
-        // Status remains 'pending', and the App.tsx modal or header will inform user to fix auth manually.
-        notifySyncStatus('pending');
-        return false;
-      }
+    if (isSavingToDrive) {
+      hasPendingDriveSave = true;
+      return true;
+    }
 
-      const json = this.exportData();
-      
-      // Before saving, verify cloud file timestamp to prevent race conditions
-      const success = await DriveStorageService.saveAllData(json);
-      if (success) {
-        localStorage.removeItem('fitpocket_sync_pending');
-        notifySyncStatus('synced');
-      } else {
-        notifySyncStatus('error');
-      }
-      return success;
+    isSavingToDrive = true;
+    try {
+      let finalSuccess = false;
+      do {
+        hasPendingDriveSave = false;
+
+        // Check for valid token from cache. 
+        // CRITICAL: We MUST NOT call loginWithGoogle() automatically here because 
+        // background saves (e.g. while typing/editing) are not triggered by direct user clicks.
+        const token = await getAccessToken();
+        
+        if (!token) {
+          console.log("No valid Drive token for background sync. Keeping data in local buffer (pending).");
+          notifySyncStatus('pending');
+          return false;
+        }
+
+        const json = this.exportData();
+        const success = await DriveStorageService.saveAllData(json);
+        if (success) {
+          localStorage.removeItem('fitpocket_sync_pending');
+          notifySyncStatus('synced');
+          finalSuccess = true;
+        } else {
+          notifySyncStatus('error');
+          finalSuccess = false;
+        }
+      } while (hasPendingDriveSave);
+
+      return finalSuccess;
     } catch (e) {
       console.warn('Failed to save to Drive:', e);
       notifySyncStatus('error');
       return false;
+    } finally {
+      isSavingToDrive = false;
     }
   },
 

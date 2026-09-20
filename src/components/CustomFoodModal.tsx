@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Save, Sparkles, AlertCircle, ChevronDown, CloudUpload, AlertTriangle, CheckCircle2, Plus, Minus, Camera } from 'lucide-react';
+import { X, Save, Sparkles, AlertCircle, ChevronDown, CloudUpload, AlertTriangle, CheckCircle2, Plus, Minus, Camera, HardDrive } from 'lucide-react';
 import { CloudFood, CustomFood } from '../types';
 import { MacroCalorieVerifier } from './MacroCalorieVerifier';
 import { CloudFoodService, isTfdaFood, normalizeBrandName, isFoodInfoModified } from '../services/cloudFoodService';
@@ -172,7 +172,8 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
 
   const executeSave = (foodToSave: CustomFood, consumed: number, doUpload: boolean) => {
     // 1. If user chose to share to cloud and it's not TFDA, run upload in the background (fire-and-forget)
-    if (doUpload && !isTfdaFood(foodToSave)) {
+    // Only upload here for CUSTOM or other modes. For ADD_RECORD, we delegate to the parent to normalize the ID.
+    if (doUpload && !isTfdaFood(foodToSave) && mode !== "ADD_RECORD") {
       CloudFoodService.uploadInBackground(foodToSave);
     }
 
@@ -255,6 +256,7 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
       potassium: Number(potassium) || 0,
       barcode: barcode.trim() || undefined,
       updatedAt: Date.now(),
+      aiSource: initialFood?.aiSource,
       isSharedToCloud: shareToCloud && !isTfdaFood({ id: initialFood?.id, brand: normalizedBrand }),
     };
 
@@ -872,6 +874,22 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
                 </label>
               </div>
             )}
+
+            {/* Google Drive Personal Backup Notice */}
+            <div className="mt-3 p-3 bg-emerald-50/80 border border-emerald-100/90 rounded-2xl flex items-center gap-2.5">
+              <div className="p-2 bg-emerald-600 text-white rounded-xl shadow-xs shrink-0">
+                <HardDrive className="w-4 h-4" />
+              </div>
+              <div className="min-w-0">
+                <div className="text-xs font-bold text-emerald-950 flex items-center gap-1.5">
+                  <span>Google Drive 私人雲端自動備份</span>
+                  <span className="text-[10px] px-1.5 py-0.25 bg-emerald-200/80 text-emerald-900 font-extrabold rounded-md">即時同步</span>
+                </div>
+                <div className="text-[11px] text-emerald-700 font-medium mt-0.5">
+                  無論是否共享至公共資料庫，點擊儲存後皆會自動同步備份至您個人的 Google Drive。
+                </div>
+              </div>
+            </div>
           </div>
 
           {/* Action buttons */}
