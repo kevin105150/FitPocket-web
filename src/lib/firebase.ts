@@ -141,6 +141,8 @@ export const handleRedirectResult = async (): Promise<string | null> => {
 };
 
 export const loginWithGoogle = async (forceSelectAccount = false, forceMethod?: 'popup' | 'redirect') => {
+  const isInIframe = typeof window !== 'undefined' && window.self !== window.top;
+
   try {
     if (forceSelectAccount) {
       googleProvider.setCustomParameters({ prompt: 'select_account' });
@@ -148,10 +150,13 @@ export const loginWithGoogle = async (forceSelectAccount = false, forceMethod?: 
       googleProvider.setCustomParameters({});
     }
     
-    // Default to popup, but allow redirect fallback
     const useRedirect = forceMethod === 'redirect';
     
     if (useRedirect) {
+      if (isInIframe) {
+        console.warn("Cannot perform redirect auth inside an iframe. Requesting popup login.");
+        throw new Error('In-frame redirect is not supported. Please open the site in a new tab to complete login.');
+      }
       console.log("Launching Google Sign-In with Redirect...");
       await signInWithRedirect(auth, googleProvider);
       return { user: null, accessToken: null, isRedirecting: true };
@@ -167,15 +172,23 @@ export const loginWithGoogle = async (forceSelectAccount = false, forceMethod?: 
         }
         return { user: result.user, accessToken: cachedAccessToken, isRedirecting: false };
       } catch (popupErr: any) {
-        console.warn("Popup login failed, evaluating redirect fallback:", popupErr);
+        console.warn("Popup login failed, evaluating fallback:", popupErr);
         const errCode = popupErr?.code || '';
         
-        if (
-          errCode === 'auth/network-request-failed' ||
-          errCode === 'auth/popup-blocked' ||
-          errCode === 'auth/popup-closed-by-user' ||
-          errCode === 'auth/cancelled-popup-request'
-        ) {
+        // If user manually closed the popup, do not force a redirect
+        if (errCode === 'auth/popup-closed-by-user' || errCode === 'auth/cancelled-popup-request') {
+          console.log("User closed or cancelled the login popup. Staying on current view.");
+          throw popupErr;
+        }
+
+        // If in iframe and popup blocked or network error, do NOT redirect iframe
+        if (isInIframe) {
+          console.warn("Popup blocked or failed in iframe mode. Prompting user.");
+          throw popupErr;
+        }
+
+        // Only auto-fallback to redirect if NOT in iframe and it's a popup-blocked or network error
+        if (errCode === 'auth/network-request-failed' || errCode === 'auth/popup-blocked') {
           console.log("Automatically switching to signInWithRedirect due to:", errCode);
           await signInWithRedirect(auth, googleProvider);
           return { user: null, accessToken: null, isRedirecting: true };

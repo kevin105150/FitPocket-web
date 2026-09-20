@@ -47,6 +47,7 @@ export interface FoodRecord {
   note?: string;
   createdAt: number;
   aiSource?: 'vision' | 'estimation';
+  isOpenFood?: boolean;
 }
 
 export interface CustomFood {
@@ -112,6 +113,7 @@ export interface FoodSearchResult {
   barcode?: string;
   aiSource?: 'vision' | 'estimation';
   lastLoggedAmount?: number;
+  isOpenFood?: boolean;
 }
 
 export type CarbCycleType = 'HIGH' | 'MEDIUM' | 'LOW' | 'CUSTOM';

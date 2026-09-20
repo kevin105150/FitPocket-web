@@ -32,8 +32,7 @@ export const FamilyCacheService = {
     // 2. Check Firestore (方案二：雲端共用快取)
     try {
       if (db) {
-        console.log(`[FamilyCache] Checking Firestore for: ${cleanQuery}`);
-        // Generate a safe deterministic ID to avoid issues with special/Unicode characters
+        console.log(`[FamilyCache] Checking Firestore keyword index for: ${cleanQuery}`);
         const docId = `kw_${safeStringHash(cleanQuery)}`;
         const docRef = doc(db, 'family_food_cache', docId);
         
@@ -42,15 +41,33 @@ export const FamilyCacheService = {
           snap = await getDoc(docRef);
         } catch (err) {
           handleFirestoreError(err, OperationType.GET, `family_food_cache/${docId}`);
-          return null; // unreachable due to throw
+          return null;
         }
 
         if (snap.exists()) {
           const data = snap.data();
-          if (data && Array.isArray(data.products)) {
-            console.log(`[FamilyCache] Cloud cache HIT for: ${cleanQuery}`);
-            localStorage.setItem(`fitpocket_fam_cache_${cleanQuery}`, JSON.stringify(data.products));
-            return data.products;
+          if (data && Array.isArray(data.productIds)) {
+            console.log(`[FamilyCache] Keyword index HIT for: ${cleanQuery}, resolving products...`);
+            const productIds: string[] = data.productIds;
+            if (productIds.length === 0) {
+              localStorage.setItem(`fitpocket_fam_cache_${cleanQuery}`, JSON.stringify([]));
+              return [];
+            }
+
+            // Fetch products in parallel from family_foods collection
+            const productRefs = productIds.map(id => doc(db, 'family_foods', id));
+            const productSnaps = await Promise.all(productRefs.map(ref => getDoc(ref)));
+            const products: FoodSearchResult[] = [];
+            
+            productSnaps.forEach(pSnap => {
+              if (pSnap.exists()) {
+                products.push(pSnap.data() as FoodSearchResult);
+              }
+            });
+
+            console.log(`[FamilyCache] Resolved ${products.length}/${productIds.length} products from family_foods`);
+            localStorage.setItem(`fitpocket_fam_cache_${cleanQuery}`, JSON.stringify(products));
+            return products;
           }
         }
         console.log(`[FamilyCache] Cloud cache MISS for: ${cleanQuery}`);
@@ -74,17 +91,50 @@ export const FamilyCacheService = {
     // 2. Set Firestore (方案二：雲端共用快取)
     try {
       if (db) {
+        // Write each product to family_foods first
+        console.log(`[FamilyCache] Writing ${products.length} products to family_foods...`);
+        const productPromises = products.map(async (product) => {
+          const cleanId = product.id.startsWith('family_') ? product.id : `family_${product.id}`;
+          const prodRef = doc(db, 'family_foods', cleanId);
+          const cleanProduct: FoodSearchResult = {
+            id: cleanId,
+            name: product.name.trim(),
+            brand: product.brand || '全家',
+            calories: product.calories || 0,
+            carbs: product.carbs || 0,
+            sugars: product.sugars || 0,
+            fiber: product.fiber || 0,
+            protein: product.protein || 0,
+            fat: product.fat || 0,
+            sodium: product.sodium || 0,
+            potassium: product.potassium || 0,
+            servingAmount: product.servingAmount || 100,
+            servingUnit: product.servingUnit || 'g',
+            servingSizeText: product.servingSizeText || '',
+            imageUrl: product.imageUrl || '',
+            isLocalPreset: product.isLocalPreset || false
+          };
+          try {
+            await setDoc(prodRef, cleanProduct, { merge: true });
+          } catch (err) {
+            handleFirestoreError(err, OperationType.WRITE, `family_foods/${cleanId}`);
+          }
+        });
+        await Promise.all(productPromises);
+
+        // Write the keyword to productIds mapping
         const docId = `kw_${safeStringHash(cleanQuery)}`;
         const docRef = doc(db, 'family_food_cache', docId);
+        const productIds = products.map(p => p.id.startsWith('family_') ? p.id : `family_${p.id}`);
         
-        console.log(`[FamilyCache] Writing to Firestore: ${cleanQuery}`);
+        console.log(`[FamilyCache] Writing keyword mapping to Firestore: ${cleanQuery}`);
         try {
           await setDoc(docRef, {
             keyword: cleanQuery,
-            products,
+            productIds,
             updatedAt: Date.now()
           }, { merge: true });
-          console.log(`[FamilyCache] Firestore write SUCCESS: ${cleanQuery}`);
+          console.log(`[FamilyCache] Firestore keyword mapping SUCCESS: ${cleanQuery}`);
         } catch (err) {
           handleFirestoreError(err, OperationType.WRITE, `family_food_cache/${docId}`);
         }

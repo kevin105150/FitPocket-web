@@ -23,8 +23,11 @@ import {
 import { CustomFood, FoodSearchResult, MealType, FoodRecord } from '../types';
 import { StorageService } from '../services/storage';
 import { CloudFoodService } from '../services/cloudFoodService';
+import { OpenFoodService } from '../services/openFoodService';
 import { FamilyCacheService } from '../services/familyCacheService';
 import { BatchCrawlModal } from './BatchCrawlModal';
+import { BarcodeScannerModal } from './BarcodeScannerModal';
+import { AiCameraModal } from './AiCameraModal';
 import { optimizeImageForAi } from '../utils/imageOptimizer';
 import { checkAiKeyOrWarn } from '../utils/aiHelper';
 import { getTodayString } from '../utils/dateUtils';
@@ -37,10 +40,10 @@ interface AddFoodModalProps {
   onClose: () => void;
   onSelectFood: (food: FoodSearchResult, mealType?: MealType) => void;
   onFastAddFood?: (food: FoodSearchResult, mealType?: MealType) => void;
-  onOpenCustomFoodModal: () => void;
+  onOpenCustomFoodModal: (prefilledBarcode?: string) => void;
 }
 
-export type FoodTab = 'ALL' | 'OFFICIAL' | 'CUSTOM' | 'CLOUD' | 'AI_SCAN' | 'BARCODE' | 'FAMILY';
+export type FoodTab = 'ALL' | 'OPEN_FOOD' | 'OFFICIAL' | 'CUSTOM' | 'CLOUD' | 'AI_SCAN' | 'BARCODE' | 'FAMILY';
 
 export const AddFoodModal: React.FC<AddFoodModalProps> = ({
   initialMealType,
@@ -289,6 +292,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
   const [selectedImageBase64, setSelectedImageBase64] = useState<string | null>(null);
   const [lastImageMimeType, setLastImageMimeType] = useState<string>('image/jpeg');
   const [retryAction, setRetryAction] = useState<(() => void) | null>(null);
+  const [isAiCameraModalOpen, setIsAiCameraModalOpen] = useState(false);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
 
@@ -296,6 +300,9 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
   const [barcodeInput, setBarcodeInput] = useState('');
   const [barcodeLoading, setBarcodeLoading] = useState(false);
   const [barcodeError, setBarcodeError] = useState('');
+  const [isScannerModalOpen, setIsScannerModalOpen] = useState(false);
+  const [showBarcodeNotFoundModal, setShowBarcodeNotFoundModal] = useState(false);
+  const [notFoundBarcode, setNotFoundBarcode] = useState('');
 
   // Online Open Food Facts search state
   const [isOnlineSearching, setIsOnlineSearching] = useState(false);
@@ -363,6 +370,9 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
   const [cloudFoods, setCloudFoods] = useState<FoodSearchResult[]>([]);
   const [isCloudLoading, setIsCloudLoading] = useState(false);
 
+  // Saved open foods state
+  const [openFoods, setOpenFoods] = useState<FoodSearchResult[]>([]);
+
   // Fetch cloud foods from Firestore
   const loadCloudFoods = async (queryStr: string = '') => {
     setIsCloudLoading(true);
@@ -376,24 +386,77 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
     }
   };
 
+  // Fetch saved open foods from Firestore
+  const loadOpenFoods = async (queryStr: string = '') => {
+    try {
+      const results = await OpenFoodService.fetchSavedOpenFoods(queryStr);
+      setOpenFoods(results);
+    } catch (e) {
+      console.warn('Error loading open foods:', e);
+    }
+  };
+
   useEffect(() => {
-    if (activeTab === 'CLOUD') {
+    if (activeTab === 'ALL' || activeTab === 'CLOUD') {
       loadCloudFoods(searchQuery);
+    }
+    if (activeTab === 'OPEN_FOOD') {
+      loadOpenFoods(searchQuery);
     }
   }, [activeTab, searchQuery]);
 
-  // Get local presets + custom foods
-  const allLocalFoods = useMemo(() => {
-    return StorageService.searchFoods('');
-  }, []);
+  // FamilyMart eaten history
+  const familyHistoryRecords = useMemo(() => {
+    const all = StorageService.getAllFoodRecords();
+    const familyRecs = all.filter((r) => {
+      const isBrandMatch = r.brand && (r.brand.includes('全家') || r.brand.toLowerCase().includes('family'));
+      const isSourceMatch = r.sourceFoodId && r.sourceFoodId.startsWith('family_');
+      return isBrandMatch || isSourceMatch;
+    });
 
-  // Filter foods by tab and query
+    familyRecs.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+    const map = new Map<string, FoodRecord>();
+    for (const rec of familyRecs) {
+      const key = rec.sourceFoodId || rec.name.trim();
+      map.set(key, rec);
+    }
+    return Array.from(map.values()).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  }, [historyRecords]);
+
+  // Filter foods by tab and query (merging local + cloud on ALL tab)
   const filteredFoods = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    let list = allLocalFoods;
+    const local = StorageService.searchFoods('');
+    let list: FoodSearchResult[] = [];
 
-    if (activeTab === 'OFFICIAL') {
-      list = list.filter(
+    if (activeTab === 'ALL') {
+      const map = new Map<string, FoodSearchResult>();
+      
+      // 1. Local foods (presets + custom)
+      local.forEach((f) => {
+        const key = f.barcode ? `bc_${f.barcode}` : `${f.name.trim().toLowerCase()}_${(f.brand || '').trim().toLowerCase()}`;
+        map.set(key, f);
+      });
+
+      // 2. Cloud foods (cloud_foods)
+      cloudFoods.forEach((cf) => {
+        const key = cf.barcode ? `bc_${cf.barcode}` : `${cf.name.trim().toLowerCase()}_${(cf.brand || '').trim().toLowerCase()}`;
+        if (!map.has(key)) {
+          map.set(key, cf);
+        }
+      });
+
+      // 3. FamilyMart scraper results if available
+      familyResults.forEach((fr) => {
+        const key = `${fr.name.trim().toLowerCase()}_${(fr.brand || '').trim().toLowerCase()}`;
+        if (!map.has(key)) {
+          map.set(key, fr);
+        }
+      });
+
+      list = Array.from(map.values());
+    } else if (activeTab === 'OFFICIAL') {
+      list = local.filter(
         (f) =>
           f.brand?.includes('衛福部') ||
           f.brand?.includes('官方') ||
@@ -401,7 +464,13 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
           f.id.startsWith('tfda_')
       );
     } else if (activeTab === 'CUSTOM') {
-      list = list.filter((f) => f.isUserCustom);
+      list = local.filter((f) => f.isUserCustom);
+    } else if (activeTab === 'FAMILY') {
+      list = familyResults;
+    } else if (activeTab === 'OPEN_FOOD') {
+      list = openFoods;
+    } else {
+      list = local;
     }
 
     if (!q) return list;
@@ -412,25 +481,27 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
       const matchBarcode = item.barcode && item.barcode.includes(q);
       return matchName || matchBrand || matchBarcode;
     });
-  }, [allLocalFoods, activeTab, searchQuery]);
+  }, [cloudFoods, familyResults, activeTab, searchQuery]);
 
   // Handle Online OpenFoodFacts Search
-  const handleSearchOnline = async () => {
-    if (!searchQuery.trim()) return;
+  const handleSearchOnline = async (overrideQuery?: string) => {
+    const q = (overrideQuery !== undefined ? overrideQuery : searchQuery).trim();
+    if (!q) return;
     setIsOnlineSearching(true);
     try {
       const res = await fetch(
-        `/api/openfoodfacts/search?q=${encodeURIComponent(searchQuery.trim())}`
+        `/api/openfoodfacts/search?q=${encodeURIComponent(q)}`
       );
       if (res.ok) {
         const data = await res.json();
         const mapped = (data.products || []).map((p: any) => {
           const defaultAmount = p.defaultServingAmount || 100;
           const ratio = defaultAmount / 100;
+          const foodId = p.id ? (p.id.startsWith('off_') ? p.id : `off_${p.id}`) : `off_${Date.now()}_${Math.random()}`;
           return {
-            id: p.id,
+            id: foodId,
             name: p.name,
-            brand: p.brand || '一般食材',
+            brand: p.brand || 'Open Food Facts',
             calories: Math.round(p.caloriesPer100g * ratio * 10) / 10,
             carbs: Math.round(p.carbsPer100g * ratio * 10) / 10,
             sugars: Math.round((p.sugarsPer100g || 0) * ratio * 10) / 10,
@@ -444,6 +515,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
             servingSizeText: p.servingSizeText,
             imageUrl: p.imageUrl,
             barcode: p.barcode,
+            isOpenFood: true,
           };
         });
         setOnlineResults(mapped);
@@ -455,6 +527,27 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
     }
   };
 
+  useEffect(() => {
+    if (activeTab === 'OPEN_FOOD' && searchQuery.trim().length >= 1) {
+      const timer = setTimeout(() => {
+        handleSearchOnline(searchQuery);
+      }, 400);
+      return () => clearTimeout(timer);
+    }
+  }, [activeTab, searchQuery]);
+
+  const handleSelectOpenFood = (food: FoodSearchResult) => {
+    const item = { ...food, isOpenFood: true };
+    OpenFoodService.uploadInBackground(item);
+    handleSelectFoodWithHistory(item);
+  };
+
+  const handleFastAddOpenFood = (food: FoodSearchResult) => {
+    const item = { ...food, isOpenFood: true };
+    OpenFoodService.uploadInBackground(item);
+    handleFastAdd(item);
+  };
+
   // Handle Barcode lookup
   const handleBarcodeLookup = async (code: string) => {
     const trimmed = code.trim();
@@ -463,7 +556,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
     setBarcodeError('');
     try {
       // First check in local database
-      const localMatch = allLocalFoods.find((f) => f.barcode === trimmed);
+      const localMatch = StorageService.searchFoods('').find((f: FoodSearchResult) => f.barcode === trimmed);
       if (localMatch) {
         onSelectFood(localMatch);
         return;
@@ -500,6 +593,8 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
         }
       }
       setBarcodeError(`查無此商品條碼 (${trimmed})，請嘗試手動搜尋或以 AI 分析。`);
+      setNotFoundBarcode(trimmed);
+      setShowBarcodeNotFoundModal(true);
     } catch (e: any) {
       setBarcodeError('條碼查詢異常，請檢查網路連線。');
     } finally {
@@ -518,28 +613,49 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
       setAiProgress(25);
       setAiStatus('正在優化圖片以加快辨識速度...');
 
-      // 核心優化：在前端先壓縮圖片，大幅縮減上傳時間
-      const optimizedBase64 = await optimizeImageForAi(base64);
+      // 核心優化：在前端先壓縮圖片，大幅縮減上傳時間 (最佳化為 768x768，Gemini 視覺識別最速甜點尺寸)
+      const optimizedBase64 = await optimizeImageForAi(base64, 768, 768, 0.7);
 
       const userKey = StorageService.getGeminiApiKey();
       const model = StorageService.getSelectedAiModel();
       
       setAiProgress(40);
-      setAiStatus('正在將資料傳送至 Gemini AI 雲端分析...');
+      setAiStatus(`[${model}] 資料上傳中...`);
 
-      const res = await fetch('/api/ai/estimate-image', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          imageBase64: optimizedBase64, // 使用優化後的 base64
-          mimeType: 'image/jpeg', // 壓縮後已統一格式為 jpeg
-          customApiKey: userKey,
-          model,
-        }),
-      });
+      // Smooth progression timer during active network fetch
+      let currentProgress = 40;
+      const progressInterval = setInterval(() => {
+        if (currentProgress < 85) {
+          currentProgress += 3; // Slightly faster incremental animation
+          const roundedProgress = Math.min(Math.round(currentProgress), 85);
+          setAiProgress(roundedProgress);
+          
+          if (roundedProgress >= 40 && roundedProgress < 58) {
+            setAiStatus(`[${model}] 資料上傳中...`);
+          } else {
+            setAiStatus(`[${model}] AI分析中...`);
+          }
+        }
+      }, 200);
 
-      setAiProgress(75);
-      setAiStatus('AI 營養師正在辨識食材並計算營養素...');
+      let res;
+      try {
+        res = await fetch('/api/ai/estimate-image', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            imageBase64: optimizedBase64, // 使用優化後的 base64
+            mimeType: 'image/jpeg', // 壓縮後已統一格式為 jpeg
+            customApiKey: userKey,
+            model,
+          }),
+        });
+      } finally {
+        clearInterval(progressInterval);
+      }
+
+      setAiProgress(88);
+      setAiStatus('分析完成！');
 
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
@@ -550,10 +666,19 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
         throw new Error(msg);
       }
 
-      setAiProgress(90);
-      setAiStatus('正在整理辨識結果...');
-
+      // Download and parse JSON stream first (blisteringly fast now without Google Search Grounding)
       const result = await res.json();
+
+      const usedModel = result._modelUsed || model;
+      const isFallback = usedModel !== model;
+
+      setAiProgress(96);
+      if (isFallback) {
+        setAiStatus(`[${usedModel}] 資料擷取中... (由 ${model} 自動切換後援)`);
+      } else {
+        setAiStatus(`[${usedModel}] 資料擷取中...`);
+      }
+
       const parseNum = (val: any, fallback: number) => {
         const n = Number(val);
         return isNaN(n) ? fallback : n;
@@ -596,6 +721,28 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
         aiSource: 'vision',
       };
 
+      // Automatically save to Custom Foods store & Cloud
+      const customToSave: CustomFood = {
+        id: `custom_${foodItem.id}`,
+        name: foodItem.name,
+        brand: foodItem.brand || 'AI辨識',
+        servingAmount: foodItem.servingAmount || 100,
+        servingUnit: foodItem.servingUnit || 'g',
+        calories: foodItem.calories,
+        carbs: foodItem.carbs,
+        protein: foodItem.protein,
+        fat: foodItem.fat,
+        sugars: foodItem.sugars,
+        fiber: foodItem.fiber,
+        sodium: foodItem.sodium,
+        potassium: foodItem.potassium,
+        barcode: foodItem.barcode,
+        updatedAt: Date.now(),
+        isSharedToCloud: true,
+      };
+      StorageService.saveCustomFood(customToSave);
+      CloudFoodService.uploadInBackground(customToSave);
+
       onSelectFood(foodItem);
     } catch (e: any) {
       setAiError(e.message || 'AI 辨識發生錯誤');
@@ -619,7 +766,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
       const model = StorageService.getSelectedAiModel();
       
       setAiProgress(50);
-      setAiStatus('正在由 AI 營養師估算熱量與三大營養素...');
+      setAiStatus(`[${model}] 正在由 AI 營養師估算熱量與三大營養素...`);
       
       const res = await fetch('/api/ai/estimate-nutrition', {
         method: 'POST',
@@ -631,9 +778,6 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
         }),
       });
 
-      setAiProgress(85);
-      setAiStatus('正在生成營養成分清單...');
-
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
         const isBusy = res.status === 503 || res.status === 429;
@@ -644,6 +788,16 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
       }
 
       const result = await res.json();
+      const usedModel = result._modelUsed || model;
+      const isFallback = usedModel !== model;
+
+      setAiProgress(85);
+      if (isFallback) {
+        setAiStatus(`[${usedModel}] 正在生成營養成分清單... (由 ${model} 自動切換後援)`);
+      } else {
+        setAiStatus(`[${usedModel}] 正在生成營養成分清單...`);
+      }
+
       const parseNum = (val: any, fallback: number) => {
         const n = Number(val);
         return isNaN(n) ? fallback : n;
@@ -682,6 +836,27 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
         isUserCustom: true,
         aiSource: 'estimation',
       };
+
+      // Automatically save to Custom Foods store & Cloud
+      const customToSave: CustomFood = {
+        id: `custom_${foodItem.id}`,
+        name: foodItem.name,
+        brand: foodItem.brand || 'AI辨識',
+        servingAmount: foodItem.servingAmount || 100,
+        servingUnit: foodItem.servingUnit || 'g',
+        calories: foodItem.calories,
+        carbs: foodItem.carbs,
+        protein: foodItem.protein,
+        fat: foodItem.fat,
+        sugars: foodItem.sugars,
+        fiber: foodItem.fiber,
+        sodium: foodItem.sodium,
+        potassium: foodItem.potassium,
+        updatedAt: Date.now(),
+        isSharedToCloud: true,
+      };
+      StorageService.saveCustomFood(customToSave);
+      CloudFoodService.uploadInBackground(customToSave);
 
       onSelectFood(foodItem);
     } catch (e: any) {
@@ -760,7 +935,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
           <button
             onClick={() => setActiveTab('ALL')}
             className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition cursor-pointer flex items-center justify-center gap-1.5 ${
-              activeTab === 'ALL' || activeTab === 'OFFICIAL' || activeTab === 'CUSTOM' || activeTab === 'CLOUD'
+              activeTab === 'ALL' || activeTab === 'OPEN_FOOD' || activeTab === 'OFFICIAL' || activeTab === 'CUSTOM' || activeTab === 'CLOUD'
                 ? 'bg-sky-600 text-white'
                 : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
             }`}
@@ -796,15 +971,22 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
         </div>
 
         {/* Conditional Search/Tool Bar */}
-        {(activeTab === 'ALL' || activeTab === 'OFFICIAL' || activeTab === 'CUSTOM' || activeTab === 'CLOUD') && (
+        {(activeTab === 'ALL' || activeTab === 'OPEN_FOOD' || activeTab === 'OFFICIAL' || activeTab === 'CUSTOM' || activeTab === 'CLOUD') && (
           <div className="px-4 pt-3 pb-2">
             <div className="relative flex items-center">
               <Search className="w-4 h-4 text-slate-400 absolute left-3.5 pointer-events-none" />
               <input
                 type="text"
-                placeholder={activeTab === 'CLOUD' ? '搜尋公共網路食品資料庫...' : '搜尋衛福部官方資料庫或自訂飲食...'}
+                placeholder={
+                  activeTab === 'OPEN_FOOD'
+                    ? '搜尋 Open Food Facts 全球食品資料庫...'
+                    : activeTab === 'CLOUD'
+                    ? '搜尋公共網路食品資料庫...'
+                    : '搜尋衛福部官方資料庫或自訂飲食...'
+                }
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && activeTab === 'OPEN_FOOD' && handleSearchOnline()}
                 className="w-full pl-10 pr-10 py-2.5 bg-slate-100/80 rounded-2xl text-sm font-medium text-slate-800 placeholder-slate-400 focus:outline-sky-600 focus:bg-white border border-transparent focus:border-sky-200 transition"
               />
               {searchQuery && (
@@ -820,6 +1002,10 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
             {/* Categories Bar (Only in general search) */}
             <div className="flex gap-1.5 overflow-x-auto scrollbar-none pt-2">
               <button onClick={() => setActiveTab('ALL')} className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition cursor-pointer ${activeTab === 'ALL' ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600'}`}>全部</button>
+              <button onClick={() => setActiveTab('OPEN_FOOD')} className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition cursor-pointer flex items-center gap-1 ${activeTab === 'OPEN_FOOD' ? 'bg-amber-600 text-white shadow-xs' : 'bg-amber-50 text-amber-800 hover:bg-amber-100'}`}>
+                <Globe className="w-3.5 h-3.5" />
+                Open Food
+              </button>
               <button onClick={() => setActiveTab('OFFICIAL')} className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition cursor-pointer ${activeTab === 'OFFICIAL' ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600'}`}>衛福部資料庫</button>
               <button onClick={() => setActiveTab('CUSTOM')} className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition cursor-pointer ${activeTab === 'CUSTOM' ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600'}`}>自訂</button>
               <button onClick={() => setActiveTab('CLOUD')} className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition cursor-pointer flex items-center gap-1.5 ${activeTab === 'CLOUD' ? 'bg-sky-600 text-white shadow-xs' : 'bg-sky-50 text-sky-700 hover:bg-sky-100'}`}>
@@ -863,6 +1049,24 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                 </p>
               </div>
 
+              {/* 智慧批次爬蟲按鈕 (移至關鍵字搜尋上方) */}
+              <button
+                type="button"
+                onClick={() => setShowBatchModal(true)}
+                className="w-full py-3 px-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white text-xs font-black rounded-2xl shadow-md transition flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <Sparkles className="w-4 h-4" />
+                <span>🎯 開啟全家智慧批次爬蟲 (20+ 預設與自訂選擇)</span>
+              </button>
+
+              {showBatchModal && (
+                <BatchCrawlModal
+                  onClose={() => setShowBatchModal(false)}
+                  onFinished={() => setShowBatchModal(false)}
+                />
+              )}
+
+              {/* 關鍵字搜尋框 */}
               <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-3">
                 <label className="block text-xs font-bold text-slate-700">搜尋全家食品關鍵字</label>
                 <div className="flex gap-2">
@@ -886,23 +1090,6 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                 </div>
               </div>
 
-              {/* 智慧批次爬蟲按鈕 (彈出對話框) */}
-              <button
-                type="button"
-                onClick={() => setShowBatchModal(true)}
-                className="w-full py-3 px-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white text-xs font-black rounded-2xl shadow-md transition flex items-center justify-center gap-2 cursor-pointer"
-              >
-                <Sparkles className="w-4 h-4" />
-                <span>🎯 開啟全家智慧批次爬蟲 (20+ 預設與自訂選擇)</span>
-              </button>
-
-              {showBatchModal && (
-                <BatchCrawlModal
-                  onClose={() => setShowBatchModal(false)}
-                  onFinished={() => setShowBatchModal(false)}
-                />
-              )}
-
               {familyError && (
                 <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 flex items-center gap-2">
                   <AlertCircle className="w-4 h-4 shrink-0" />
@@ -910,8 +1097,89 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                 </div>
               )}
 
+              {/* 過往食用過的全家食品區塊 */}
+              {familyHistoryRecords.length > 0 && (
+                <div className="space-y-2 pt-2 border-t border-slate-200/60">
+                  <div className="flex items-center justify-between px-1">
+                    <div className="flex items-center gap-1.5">
+                      <History className="w-3.5 h-3.5 text-emerald-600" />
+                      <h5 className="text-[11px] font-black text-slate-700 tracking-wider">過往食用過的全家食品</h5>
+                    </div>
+                    <span className="text-[10px] font-bold text-slate-400">共 {familyHistoryRecords.length} 項</span>
+                  </div>
+                  {familyHistoryRecords.map((record) => {
+                    const searchItem = mapRecordToSearchResult(record);
+                    const isAnimating = animatingHistoryId === record.id;
+                    const isAdded = addedIds[record.id] || addedIds[searchItem.id];
+                    return (
+                      <div
+                        key={`fam_hist_${record.id}`}
+                        onClick={() => handleSelectFoodWithHistory(searchItem)}
+                        className="p-3 bg-white border border-emerald-100 hover:border-emerald-400 rounded-2xl hover:shadow-xs transition cursor-pointer flex items-start justify-between gap-3 group"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5 min-w-0 h-8">
+                            <h4 className="font-bold text-sm text-slate-900 group-hover:text-emerald-800 truncate min-w-0 shrink">
+                              {record.name}
+                            </h4>
+                            <span className="text-[10px] font-bold px-1.5 py-0.25 bg-emerald-100 text-emerald-800 rounded-md whitespace-nowrap shrink-0">
+                              全家
+                            </span>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleSelectFoodWithHistory(searchItem);
+                              }}
+                              className="p-1 text-slate-400 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition cursor-pointer"
+                              title="設定份量並新增"
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                          <div className="text-[11px] font-semibold text-slate-400 -mt-0.5 mb-1">
+                            {record.brand || '全家'}
+                          </div>
+                          <div className="flex flex-wrap items-center gap-1.5 mt-1.5 pb-0.5">
+                            <span className="text-[11px] font-bold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                              {record.loggedAmount}{record.loggedUnit}
+                            </span>
+                            <span className="text-[11px] font-bold text-sky-800 bg-sky-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                              {record.calories} kcal
+                            </span>
+                            <span className="text-[10px] font-bold text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">C:{record.carbs}</span>
+                            <span className="text-[10px] font-bold text-blue-800 bg-blue-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">P:{record.protein}</span>
+                            <span className="text-[10px] font-bold text-rose-800 bg-rose-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">F:{record.fat}</span>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleQuickAddHistory(record);
+                          }}
+                          disabled={isAnimating}
+                          className={`p-2.5 rounded-xl transition-all duration-300 shrink-0 cursor-pointer flex items-center justify-center ${
+                            isAnimating || isAdded
+                              ? 'bg-emerald-500 text-white scale-110 shadow-md ring-2 ring-emerald-300'
+                              : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-600 hover:text-white'
+                          }`}
+                          title="快速新增至當前餐點"
+                        >
+                          {isAnimating || isAdded ? (
+                            <Check className="w-5 h-5 animate-in zoom-in-75 duration-200" />
+                          ) : (
+                            <Plus className="w-5 h-5" />
+                          )}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
               {familyResults.length > 0 && (
-                <div className="space-y-2">
+                <div className="space-y-2 pt-2 border-t border-slate-200/60">
                   <div className="flex items-center justify-between px-1">
                     <h5 className="text-[11px] font-black text-slate-400 uppercase tracking-wider">全家查詢結果 ({familyResults.length})</h5>
                     <button 
@@ -925,11 +1193,11 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                     <div
                       key={food.id}
                       onClick={() => onSelectFood(food)}
-                      className="p-3 bg-white border border-slate-100 hover:border-sky-300 rounded-2xl hover:shadow-sm transition cursor-pointer flex items-start justify-between gap-3 group"
+                      className="p-3 bg-white border border-slate-100 hover:border-emerald-300 rounded-2xl hover:shadow-sm transition cursor-pointer flex items-start justify-between gap-3 group"
                     >
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-1.5 min-w-0 h-8">
-                          <h4 className="font-bold text-sm text-slate-900 group-hover:text-sky-800 truncate min-w-0 shrink">
+                          <h4 className="font-bold text-sm text-slate-900 group-hover:text-emerald-800 truncate min-w-0 shrink">
                             {food.name}
                           </h4>
                           <div className="inline-flex items-center gap-1 shrink-0">
@@ -942,7 +1210,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                                 e.stopPropagation();
                                 onSelectFood(food);
                               }}
-                              className="p-1 text-slate-400 hover:text-sky-700 hover:bg-sky-50 rounded-lg transition cursor-pointer"
+                              className="p-1 text-slate-400 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition cursor-pointer"
                               title="點擊修改/設定份量"
                             >
                               <Pencil className="w-3.5 h-3.5" />
@@ -970,16 +1238,12 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          if (onFastAddFood) {
-                            onFastAddFood(food);
-                          } else {
-                            onSelectFood(food);
-                          }
+                          handleFastAdd(food);
                         }}
                         className={`p-2 rounded-xl transition-all duration-200 shrink-0 cursor-pointer flex items-center justify-center ${
                           addedIds[food.id]
                             ? 'bg-emerald-500 text-white scale-105 shadow-xs'
-                            : 'text-slate-400 group-hover:text-sky-700 group-hover:bg-sky-50'
+                            : 'text-slate-400 group-hover:text-emerald-700 group-hover:bg-emerald-50'
                         }`}
                         title="快速新增至餐點"
                       >
@@ -1010,8 +1274,8 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                 </p>
               </div>
 
-              {/* Photo upload section */}
-              <div className="bg-white border-2 border-dashed border-purple-200 rounded-2xl p-5 text-center hover:border-purple-400 transition">
+              {/* Photo upload section & Camera trigger */}
+              <div className="bg-white border-2 border-dashed border-purple-200 rounded-3xl p-5 text-center hover:border-purple-400 transition shadow-xs space-y-3">
                 <input
                   type="file"
                   ref={cameraInputRef}
@@ -1029,41 +1293,46 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                 />
                 
                 {selectedImageBase64 ? (
-                  <div className="mb-3 relative inline-block">
+                  <div className="relative inline-block group">
                     <img
                       src={selectedImageBase64}
                       alt="辨識照片預覽"
-                      className="w-32 h-32 object-cover rounded-2xl border border-purple-200 shadow-sm mx-auto"
+                      className="w-36 h-36 object-cover rounded-2xl border-2 border-purple-300 shadow-sm mx-auto"
                     />
+                    <button
+                      type="button"
+                      onClick={() => setIsAiCameraModalOpen(true)}
+                      className="absolute bottom-2 right-2 p-1.5 bg-purple-700 text-white rounded-xl shadow-md text-xs font-bold hover:bg-purple-800 transition cursor-pointer flex items-center gap-1"
+                    >
+                      <Camera className="w-3.5 h-3.5" />
+                      重拍
+                    </button>
                   </div>
                 ) : (
-                  <Camera className="w-10 h-10 mx-auto text-purple-500 mb-2" />
+                  <div className="w-14 h-14 rounded-2xl bg-purple-100 text-purple-600 flex items-center justify-center mx-auto shadow-xs">
+                    <Camera className="w-7 h-7" />
+                  </div>
                 )}
 
-                <h4 className="font-bold text-sm text-slate-800">
-                  {selectedImageBase64 ? '已選擇照片，準備進行 AI 辨識' : '拍照或上傳餐點照片'}
-                </h4>
-                <p className="text-xs text-slate-500 mt-1 mb-4">支援相機即時拍攝、相簿照片 (JPG, PNG)</p>
+                <div>
+                  <h4 className="font-bold text-sm text-slate-800">
+                    {selectedImageBase64 ? '已備妥餐點照片，準備辨識' : '開啟 AI 相機拍照或選取照片'}
+                  </h4>
+                  <p className="text-xs text-slate-500 mt-1">支援相機即時取景拍照、實體菜單與相簿照片</p>
+                </div>
                 
-                <div className="flex flex-wrap items-center justify-center gap-2">
+                <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
                   <button
                     type="button"
-                    onClick={() => cameraInputRef.current?.click()}
+                    onClick={() => {
+                      if (!checkAiKeyOrWarn()) return;
+                      setIsAiCameraModalOpen(true);
+                    }}
                     disabled={aiLoading}
-                    className="px-4 py-2.5 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-xl shadow-xs transition inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                    className="w-full py-3 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-2xl shadow-sm transition inline-flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 active:scale-98"
                   >
                     <Camera className="w-4 h-4" />
-                    手機相機拍照
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => galleryInputRef.current?.click()}
-                    disabled={aiLoading}
-                    className="px-4 py-2.5 bg-purple-50 hover:bg-purple-100 border border-purple-200 text-purple-900 text-xs font-bold rounded-xl transition inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                  >
-                    <Upload className="w-4 h-4 text-purple-600" />
-                    從相簿選擇
+                    開啟 AI 拍照對話框 (相機鏡頭 / 相簿)
                   </button>
                 </div>
               </div>
@@ -1145,27 +1414,48 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
           {/* TAB: BARCODE */}
           {activeTab === 'BARCODE' && (
             <div className="space-y-4 max-w-md mx-auto py-2">
-              <div className="bg-blue-50 border border-blue-200/80 rounded-2xl p-4 text-blue-900">
-                <div className="flex items-center gap-2 font-bold text-sm mb-1">
-                  <Barcode className="w-4 h-4 text-blue-600" />
-                  條碼即時查詢 (EAN-13 / UPC)
+              {/* Camera scanner callout card */}
+              <div className="bg-gradient-to-r from-blue-600 to-indigo-700 rounded-3xl p-5 text-white shadow-md relative overflow-hidden">
+                <div className="relative z-10 space-y-3">
+                  <div className="flex items-center gap-2 font-bold text-base">
+                    <Camera className="w-5 h-5 text-blue-200 animate-pulse" />
+                    相機即時條碼掃描
+                  </div>
+                  <p className="text-xs text-blue-100 leading-relaxed">
+                    對準包裝上的商品條碼 (EAN-13 / UPC)，或上傳條碼照片，將自動解碼並查詢食品庫！
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setIsScannerModalOpen(true)}
+                    className="w-full py-3 bg-white hover:bg-blue-50 text-blue-900 font-extrabold text-xs rounded-2xl shadow-sm transition flex items-center justify-center gap-2 cursor-pointer active:scale-98"
+                  >
+                    <Camera className="w-4 h-4 text-blue-600" />
+                    開啟相機 / 相片掃描條碼
+                  </button>
                 </div>
-                <p className="text-xs text-blue-700 leading-relaxed">
-                  輸入包裝上的 13 碼商品條碼，自動檢索在地超商與 Open Food Facts 全球食品資料庫。
-                </p>
               </div>
 
               <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4">
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">商品條碼號碼</label>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">或手動輸入商品條碼號碼</label>
                 <div className="flex gap-2">
-                  <input
-                    type="text"
-                    placeholder="例如: 4710088195001"
-                    value={barcodeInput}
-                    onChange={(e) => setBarcodeInput(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && handleBarcodeLookup(barcodeInput)}
-                    className="flex-1 px-3 py-2 bg-white rounded-xl border border-slate-200 text-sm font-mono focus:outline-blue-600"
-                  />
+                  <div className="relative flex-1">
+                    <input
+                      type="text"
+                      placeholder="例如: 4710088195001"
+                      value={barcodeInput}
+                      onChange={(e) => setBarcodeInput(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleBarcodeLookup(barcodeInput)}
+                      className="w-full pl-3 pr-9 py-2 bg-white rounded-xl border border-slate-200 text-sm font-mono focus:outline-blue-600"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setIsScannerModalOpen(true)}
+                      title="開啟相機鏡頭掃描"
+                      className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-blue-600 transition cursor-pointer"
+                    >
+                      <Camera className="w-4 h-4" />
+                    </button>
+                  </div>
                   <button
                     type="button"
                     onClick={() => handleBarcodeLookup(barcodeInput)}
@@ -1207,7 +1497,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                   </p>
                 </div>
                 <button
-                  onClick={onOpenCustomFoodModal}
+                  onClick={() => onOpenCustomFoodModal()}
                   className="px-3 py-1.5 bg-white text-sky-800 hover:bg-sky-50 font-bold text-xs rounded-xl shadow-xs shrink-0 transition cursor-pointer flex items-center gap-1"
                 >
                   <Plus className="w-3.5 h-3.5" />
@@ -1295,7 +1585,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                   <p className="text-xs text-slate-400">您可以手動新增並同步上傳擴充資料庫！</p>
                   <button
                     type="button"
-                    onClick={onOpenCustomFoodModal}
+                    onClick={() => onOpenCustomFoodModal()}
                     className="px-4 py-2 bg-sky-600 text-white rounded-xl text-xs font-bold hover:bg-sky-700 transition inline-flex items-center gap-1 cursor-pointer"
                   >
                     <Plus className="w-4 h-4" />
@@ -1306,11 +1596,116 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
             </div>
           )}
 
+          {/* TAB: OPEN_FOOD */}
+          {activeTab === 'OPEN_FOOD' && (
+            <div className="space-y-3">
+              <div className="p-3.5 bg-gradient-to-r from-amber-600 to-orange-600 rounded-2xl text-white shadow-sm flex items-center justify-between gap-3">
+                <div>
+                  <div className="flex items-center gap-1.5 font-bold text-sm">
+                    <Globe className="w-4 h-4 text-amber-200" />
+                    Open Food Facts 全球食品資料庫
+                  </div>
+                  <p className="text-xs text-amber-100 mt-0.5">
+                    線上即時檢索全球 Open Food API，新增時將自動同步存入 open_foods 集合
+                  </p>
+                </div>
+              </div>
+
+              {isOnlineSearching ? (
+                <div className="py-12 text-center space-y-2">
+                  <Loader2 className="w-8 h-8 animate-spin text-amber-600 mx-auto" />
+                  <p className="text-xs font-medium text-slate-500">正在搜尋 Open Food Facts 全球資料庫...</p>
+                </div>
+              ) : onlineResults.length > 0 ? (
+                <div className="space-y-2">
+                  <div className="text-[11px] font-bold text-slate-400 px-1">
+                    Open Food 搜尋結果 ({onlineResults.length})
+                  </div>
+                  {onlineResults.map((food) => (
+                    <div
+                      key={food.id}
+                      onClick={() => handleSelectOpenFood(food)}
+                      className="p-3 bg-white border border-amber-100 hover:border-amber-400 rounded-2xl hover:shadow-xs transition cursor-pointer flex items-start justify-between gap-3 group"
+                    >
+                      <div className="min-w-0 flex-1">
+                        {/* 1. 名稱 & 膠囊 & 編輯 */}
+                        <div className="flex items-center gap-1.5 min-w-0 h-8">
+                          <h4 className="font-bold text-sm text-slate-900 group-hover:text-amber-800 truncate min-w-0 shrink">
+                            {food.name}
+                          </h4>
+                          <div className="inline-flex items-center gap-1 shrink-0">
+                            <span className="text-[10px] font-bold px-1.5 py-0.25 bg-amber-100 text-amber-800 rounded-md whitespace-nowrap">
+                              Open Food
+                            </span>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleSelectOpenFood(food);
+                              }}
+                              className="p-1 text-slate-400 hover:text-amber-700 hover:bg-amber-50 rounded-lg transition cursor-pointer"
+                              title="點擊修改/設定份量"
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* 2. 品牌 */}
+                        <div className="text-[11px] font-semibold text-slate-400 -mt-0.5 mb-1">
+                          {food.brand || 'Open Food Facts'}
+                        </div>
+
+                        {/* 3. 重量 · 熱量 · CPF 一排 */}
+                        <div className="flex flex-wrap items-center gap-1.5 mt-1.5 pb-0.5">
+                          <span className="text-[11px] font-bold text-amber-900 bg-amber-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                            {food.servingAmount}{food.servingUnit} · {food.calories} kcal
+                          </span>
+                          <span className="text-[10px] font-bold text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">C:{food.carbs}</span>
+                          <span className="text-[10px] font-bold text-blue-800 bg-blue-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">P:{food.protein}</span>
+                          <span className="text-[10px] font-bold text-rose-800 bg-rose-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">F:{food.fat}</span>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleFastAddOpenFood(food);
+                        }}
+                        className={`p-2 rounded-xl transition-all duration-200 shrink-0 cursor-pointer flex items-center justify-center ${
+                          addedIds[food.id]
+                            ? 'bg-emerald-500 text-white scale-105 shadow-xs'
+                            : 'text-slate-400 group-hover:text-amber-700 group-hover:bg-amber-50'
+                        }`}
+                        title="快速新增至餐點並同步至 open_foods 集合"
+                      >
+                        {addedIds[food.id] ? (
+                          <Check className="w-5 h-5 animate-in zoom-in-50 duration-200" />
+                        ) : (
+                          <Plus className="w-5 h-5" />
+                        )}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="py-10 text-center space-y-3 bg-amber-50/50 rounded-2xl border border-dashed border-amber-200">
+                  <Globe className="w-10 h-10 text-amber-500/70 mx-auto" />
+                  <p className="text-sm font-bold text-amber-900">搜尋 Open Food Facts 全球資料庫</p>
+                  <p className="text-xs text-amber-700 max-w-sm mx-auto">
+                    請在上方的搜尋框輸入食物名稱或品牌，按下 Enter 或點擊搜尋以連線 Open Food API 檢索全球食品資料
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* TAB: ALL, OFFICIAL, CUSTOM */}
-          {activeTab !== 'AI_SCAN' && activeTab !== 'BARCODE' && activeTab !== 'CLOUD' && activeTab !== 'FAMILY' && (
+          {activeTab !== 'AI_SCAN' && activeTab !== 'BARCODE' && activeTab !== 'CLOUD' && activeTab !== 'FAMILY' && activeTab !== 'OPEN_FOOD' && (
             <div className="space-y-2">
-              {/* 歷史紀錄區塊 (僅在「全部」ALL 頁籤呈現) */}
-              {activeTab === 'ALL' && (
+              {/* 歷史紀錄區塊 (僅在「全部」ALL 頁籤，且有歷史紀錄時呈現) */}
+              {activeTab === 'ALL' && filteredHistoryRecords.length > 0 && (
                 <div className="mb-6 space-y-2.5">
                   {/* Section Header */}
                   <div className="flex items-center justify-between px-1">
@@ -1323,149 +1718,107 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                         近 7 天 · {selectedMealName}
                       </span>
                     </div>
-                    {historyRecords.length > 0 && (
-                      <span className="text-[11px] font-semibold text-slate-400">
-                        共 {filteredHistoryRecords.length} 項
-                      </span>
-                    )}
+                    <span className="text-[11px] font-semibold text-slate-400">
+                      共 {filteredHistoryRecords.length} 項
+                    </span>
                   </div>
 
-                  {/* Condition B: 已有紀錄 (History State) */}
-                  {filteredHistoryRecords.length > 0 ? (
-                    <div className="space-y-2">
-                      {filteredHistoryRecords.map((record) => {
-                        const isAnimating = animatingHistoryId === record.id;
-                        const isAdded = addedIds[record.id];
-                        return (
-                          <div
-                            key={`hist_${record.id}`}
-                            onClick={() => handleSelectFoodWithHistory(mapRecordToSearchResult(record))}
-                            className="p-3 bg-white border border-slate-100 hover:border-sky-300 rounded-2xl hover:shadow-xs transition cursor-pointer flex items-start justify-between gap-3 group"
-                          >
-                            <div className="min-w-0 flex-1">
-                              {/* 1. 名稱 & 膠囊 & 編輯 */}
-                              <div className="flex items-center gap-1.5 min-w-0 h-8">
-                                <h4 className="font-bold text-sm text-slate-900 group-hover:text-sky-800 truncate min-w-0 shrink">
-                                  {record.name}
-                                </h4>
-                                <div className="inline-flex items-center gap-1 shrink-0">
-                                  {record.sourceFoodId?.startsWith('custom_') && (
-                                    <span className="text-[10px] font-bold px-1.5 py-0.25 bg-amber-100 text-amber-800 rounded-md whitespace-nowrap">
-                                      我的自訂
-                                    </span>
-                                  )}
-                                  {(record.sourceFoodId?.startsWith('cloud_') || record.barcode) && (
-                                    <span className="text-[10px] font-bold px-1.5 py-0.25 bg-sky-100 text-sky-800 rounded-md whitespace-nowrap">
-                                      網路資料庫
-                                    </span>
-                                  )}
-                                  {record.aiSource === 'vision' && (
-                                    <span className="text-[10px] font-bold px-1.5 py-0.25 bg-purple-50 text-purple-700 border border-purple-100 rounded-md whitespace-nowrap">
-                                      AI 視覺辨識
-                                    </span>
-                                  )}
-                                  {record.aiSource === 'estimation' && (
-                                    <span className="text-[10px] font-bold px-1.5 py-0.25 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-md whitespace-nowrap">
-                                      AI 智慧估算
-                                    </span>
-                                  )}
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleSelectFoodWithHistory(mapRecordToSearchResult(record));
-                                    }}
-                                    className="p-1 text-slate-400 hover:text-sky-700 hover:bg-sky-50 rounded-lg transition cursor-pointer"
-                                    title="設定份量並新增"
-                                  >
-                                    <Pencil className="w-3.5 h-3.5" />
-                                  </button>
-                                </div>
-                              </div>
-
-                              {/* 2. 品牌 */}
-                              <div className="text-[11px] font-semibold text-slate-400 -mt-0.5 mb-1">
-                                {record.brand || '自訂'}
-                              </div>
-
-                              {/* 3. 重量(上次份量) · 熱量 · CPF 一排 (與主頁格式完全相同) */}
-                              <div className="flex flex-wrap items-center gap-1.5 mt-1.5 pb-0.5">
-                                <span className="text-[11px] font-bold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded-full whitespace-nowrap">
-                                  {record.loggedAmount}{record.loggedUnit}
-                                </span>
-                                <span className="text-[11px] font-bold text-sky-800 bg-sky-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">
-                                  {record.calories} kcal
-                                </span>
-                                <span className="text-[10px] font-bold text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">C:{record.carbs}</span>
-                                <span className="text-[10px] font-bold text-blue-800 bg-blue-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">P:{record.protein}</span>
-                                <span className="text-[10px] font-bold text-rose-800 bg-rose-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">F:{record.fat}</span>
+                  {/* 已有紀錄 */}
+                  <div className="space-y-2">
+                    {filteredHistoryRecords.map((record) => {
+                      const isAnimating = animatingHistoryId === record.id;
+                      const isAdded = addedIds[record.id];
+                      return (
+                        <div
+                          key={`hist_${record.id}`}
+                          onClick={() => handleSelectFoodWithHistory(mapRecordToSearchResult(record))}
+                          className="p-3 bg-white border border-slate-100 hover:border-sky-300 rounded-2xl hover:shadow-xs transition cursor-pointer flex items-start justify-between gap-3 group"
+                        >
+                          <div className="min-w-0 flex-1">
+                            {/* 1. 名稱 & 膠囊 & 編輯 */}
+                            <div className="flex items-center gap-1.5 min-w-0 h-8">
+                              <h4 className="font-bold text-sm text-slate-900 group-hover:text-sky-800 truncate min-w-0 shrink">
+                                {record.name}
+                              </h4>
+                              <div className="inline-flex items-center gap-1 shrink-0">
+                                {record.sourceFoodId?.startsWith('custom_') && (
+                                  <span className="text-[10px] font-bold px-1.5 py-0.25 bg-amber-100 text-amber-800 rounded-md whitespace-nowrap">
+                                    我的自訂
+                                  </span>
+                                )}
+                                {(record.sourceFoodId?.startsWith('cloud_') || record.barcode) && (
+                                  <span className="text-[10px] font-bold px-1.5 py-0.25 bg-sky-100 text-sky-800 rounded-md whitespace-nowrap">
+                                    網路資料庫
+                                  </span>
+                                )}
+                                {record.aiSource === 'vision' && (
+                                  <span className="text-[10px] font-bold px-1.5 py-0.25 bg-purple-50 text-purple-700 border border-purple-100 rounded-md whitespace-nowrap">
+                                    AI 視覺辨識
+                                  </span>
+                                )}
+                                {record.aiSource === 'estimation' && (
+                                  <span className="text-[10px] font-bold px-1.5 py-0.25 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-md whitespace-nowrap">
+                                    AI 智慧估算
+                                  </span>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleSelectFoodWithHistory(mapRecordToSearchResult(record));
+                                  }}
+                                  className="p-1 text-slate-400 hover:text-sky-700 hover:bg-sky-50 rounded-lg transition cursor-pointer"
+                                  title="設定份量並新增"
+                                >
+                                  <Pencil className="w-3.5 h-3.5" />
+                                </button>
                               </div>
                             </div>
 
-                            {/* 4. Quick Add Button with Animation */}
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleQuickAddHistory(record);
-                              }}
-                              disabled={isAnimating}
-                              className={`p-2.5 rounded-xl transition-all duration-300 shrink-0 cursor-pointer flex items-center justify-center ${
-                                isAnimating || isAdded
-                                  ? 'bg-emerald-500 text-white scale-110 shadow-md ring-2 ring-emerald-300'
-                                  : 'bg-sky-50 text-sky-700 hover:bg-sky-600 hover:text-white'
-                              }`}
-                              title="快速新增至當前餐點"
-                            >
-                              {isAnimating || isAdded ? (
-                                <Check className="w-5 h-5 animate-in zoom-in-75 duration-200" />
-                              ) : (
-                                <Plus className="w-5 h-5" />
-                              )}
-                            </button>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    /* Condition A: 無紀錄 / 首次使用 (Default State) - 顯示預設推薦基礎食品 */
-                    <div className="p-3.5 bg-slate-50/80 border border-slate-200/80 rounded-2xl space-y-2.5">
-                      <div className="flex items-center justify-between text-xs font-bold text-slate-500">
-                        <span>尚無近 7 天此餐別紀錄，為您預設推薦：</span>
-                        <span className="text-[10px] bg-slate-200/60 text-slate-600 px-2 py-0.5 rounded-md">熱門推薦</span>
-                      </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        {StorageService.getPresetFoods().slice(0, 4).map((preset) => (
-                          <div
-                            key={`preset_${preset.id}`}
-                            onClick={() => handleSelectFoodWithHistory(preset)}
-                            className="p-2.5 bg-white border border-slate-100 hover:border-sky-300 rounded-xl transition cursor-pointer flex items-center justify-between gap-2 group"
-                          >
-                            <div className="min-w-0 flex-1">
-                              <div className="font-bold text-xs text-slate-800 group-hover:text-sky-800 truncate">
-                                {preset.name}
-                              </div>
-                              <div className="text-[10px] font-medium text-slate-400 mt-0.5">
-                                {preset.servingAmount}{preset.servingUnit} · {preset.calories} kcal
-                              </div>
+                            {/* 2. 品牌 */}
+                            <div className="text-[11px] font-semibold text-slate-400 -mt-0.5 mb-1">
+                              {record.brand || '自訂'}
                             </div>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleFastAdd(preset);
-                              }}
-                              className={`p-1.5 rounded-lg transition ${
-                                addedIds[preset.id] ? 'bg-emerald-500 text-white' : 'text-slate-400 hover:text-sky-600 hover:bg-sky-50'
-                              }`}
-                            >
-                              {addedIds[preset.id] ? <Check className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
-                            </button>
+
+                            {/* 3. 重量(上次份量) · 熱量 · CPF 一排 */}
+                            <div className="flex flex-wrap items-center gap-1.5 mt-1.5 pb-0.5">
+                              <span className="text-[11px] font-bold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                                {record.loggedAmount}{record.loggedUnit}
+                              </span>
+                              <span className="text-[11px] font-bold text-sky-800 bg-sky-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                                {record.calories} kcal
+                              </span>
+                              <span className="text-[10px] font-bold text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">C:{record.carbs}</span>
+                              <span className="text-[10px] font-bold text-blue-800 bg-blue-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">P:{record.protein}</span>
+                              <span className="text-[10px] font-bold text-rose-800 bg-rose-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">F:{record.fat}</span>
+                            </div>
                           </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
+
+                          {/* 4. Quick Add Button with Animation */}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleQuickAddHistory(record);
+                            }}
+                            disabled={isAnimating}
+                            className={`p-2.5 rounded-xl transition-all duration-300 shrink-0 cursor-pointer flex items-center justify-center ${
+                              isAnimating || isAdded
+                                ? 'bg-emerald-500 text-white scale-110 shadow-md ring-2 ring-emerald-300'
+                                : 'bg-sky-50 text-sky-700 hover:bg-sky-600 hover:text-white'
+                            }`}
+                            title="快速新增至當前餐點"
+                          >
+                            {isAnimating || isAdded ? (
+                              <Check className="w-5 h-5 animate-in zoom-in-75 duration-200" />
+                            ) : (
+                              <Plus className="w-5 h-5" />
+                            )}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
 
                   {/* Section Divider */}
                   <div className="pt-2 pb-1 flex items-center gap-2">
@@ -1494,6 +1847,11 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                             {food.id.startsWith('cloud_') && (
                               <span className="text-[10px] font-bold px-1.5 py-0.25 bg-sky-100 text-sky-800 rounded-md whitespace-nowrap">
                                 網路資料庫
+                              </span>
+                            )}
+                            {(food.isOpenFood || food.id.startsWith('off_') || food.id.startsWith('open_')) && (
+                              <span className="text-[10px] font-bold px-1.5 py-0.25 bg-amber-100 text-amber-800 rounded-md whitespace-nowrap">
+                                Open Food
                               </span>
                             )}
                             {(food.aiSource === 'vision' || food.brand === 'AI 視覺辨識') && (
@@ -1576,12 +1934,15 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                   <div className="flex flex-wrap justify-center gap-2">
                     <button
                       type="button"
-                      onClick={handleSearchOnline}
+                      onClick={() => {
+                        setActiveTab('OPEN_FOOD');
+                        handleSearchOnline();
+                      }}
                       disabled={isOnlineSearching}
-                      className="px-4 py-2 bg-slate-800 text-white rounded-xl text-xs font-semibold hover:bg-slate-900 transition flex items-center gap-1.5 cursor-pointer"
+                      className="px-4 py-2 bg-amber-600 text-white rounded-xl text-xs font-semibold hover:bg-amber-700 transition flex items-center gap-1.5 cursor-pointer"
                     >
                       <Globe className="w-3.5 h-3.5" />
-                      {isOnlineSearching ? '正在雲端搜尋...' : '在 Open Food Facts 搜尋'}
+                      {isOnlineSearching ? '正在雲端搜尋...' : '開啟 Open Food 專區搜尋'}
                     </button>
                     <button
                       type="button"
@@ -1678,7 +2039,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
         <div className="p-3 border-t border-slate-100 bg-slate-50 flex items-center justify-between">
           <button
             type="button"
-            onClick={onOpenCustomFoodModal}
+            onClick={() => onOpenCustomFoodModal()}
             className="flex items-center gap-1.5 text-xs font-bold text-sky-800 hover:text-sky-950 px-3 py-2 rounded-xl hover:bg-sky-100 transition cursor-pointer"
           >
             <Plus className="w-4 h-4" />
@@ -1693,11 +2054,72 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
           </button>
         </div>
 
+        {/* Barcode Camera & Photo Scanner Modal */}
+        <BarcodeScannerModal
+          isOpen={isScannerModalOpen}
+          onClose={() => setIsScannerModalOpen(false)}
+          onDetected={(code) => {
+            setBarcodeInput(code);
+            handleBarcodeLookup(code);
+          }}
+        />
+
+        {/* AI Photo & Live Stream Camera Modal */}
+        <AiCameraModal
+          isOpen={isAiCameraModalOpen}
+          onClose={() => setIsAiCameraModalOpen(false)}
+          onCaptured={(base64, mime) => {
+            setSelectedImageBase64(base64);
+            setLastImageMimeType(mime);
+            performImageAnalysis(base64, mime);
+          }}
+        />
+
         {/* Floating Fast Add Notification Toast */}
         {fastAddNotice && (
           <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-slate-900/90 text-white px-4 py-2.5 rounded-2xl shadow-xl font-bold text-xs flex items-center gap-2 backdrop-blur-md animate-in fade-in slide-in-from-bottom-2 duration-200">
             <Check className="w-4 h-4 text-emerald-400 shrink-0" />
             <span>{fastAddNotice}</span>
+          </div>
+        )}
+
+        {/* Barcode Not Found Customized Alert Dialog */}
+        {showBarcodeNotFoundModal && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
+            <div className="bg-white rounded-3xl shadow-2xl max-w-sm w-full p-6 border border-slate-100 flex flex-col space-y-4 text-center animate-in zoom-in-95 duration-200">
+              <div className="w-12 h-12 rounded-full bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-500 mx-auto">
+                <AlertCircle className="w-6 h-6" />
+              </div>
+              <div>
+                <h4 className="font-extrabold text-slate-800 text-base">查無此商品</h4>
+                <p className="text-xs text-slate-500 mt-2 leading-relaxed">
+                  資料庫與雲端查無條碼為 <code className="bg-slate-100 px-1.5 py-0.5 rounded text-amber-600 font-bold font-mono">{notFoundBarcode}</code> 的食品。
+                </p>
+                <p className="text-xs text-slate-500 mt-1">
+                  是否要以此條碼直接建立自訂飲食？
+                </p>
+              </div>
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowBarcodeNotFoundModal(false);
+                    onOpenCustomFoodModal(notFoundBarcode);
+                    onClose();
+                  }}
+                  className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer"
+                >
+                  建立自訂飲食
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowBarcodeNotFoundModal(false)}
+                  className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-xs font-bold transition cursor-pointer"
+                >
+                  取消
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>

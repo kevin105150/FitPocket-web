@@ -49,12 +49,43 @@ export function normalizeBrandName(brandName: string): string {
  * TFDA data should NEVER be re-uploaded to the user-shared cloud database.
  */
 export function isTfdaFood(food: { id?: string; brand?: string; name?: string }): boolean {
-  if (food.id && food.id.startsWith('tfda_')) return true;
+  if (food.id && (food.id.startsWith('tfda_') || food.id.includes('tfda_'))) return true;
   const brand = (food.brand || '').trim();
   if (brand.includes('衛福部') || brand.includes('食藥署') || brand.includes('台灣衛福部基礎食材庫')) {
     return true;
   }
   return false;
+}
+
+/**
+ * Checks whether nutrition or food information has been modified compared to an existing record.
+ * Returns true if ANY field differs (modified), false if identical.
+ */
+export function isFoodInfoModified(foodA: CustomFood | CloudFood, foodB: CustomFood | CloudFood): boolean {
+  const normStr = (s?: string) => (s || '').trim().toLowerCase();
+  const numEq = (n1?: number, n2?: number) => {
+    const v1 = Number(n1 || 0);
+    const v2 = Number(n2 || 0);
+    return Math.abs(v1 - v2) < 0.01;
+  };
+
+  if (normStr(foodA.name) !== normStr(foodB.name)) return true;
+  if (normalizeBrandName(foodA.brand || '') !== normalizeBrandName(foodB.brand || '')) return true;
+  if (normStr(foodA.servingUnit) !== normStr(foodB.servingUnit)) return true;
+  if (normStr(foodA.barcode) !== normStr(foodB.barcode)) return true;
+  if (normStr(foodA.imageUrl) !== normStr(foodB.imageUrl)) return true;
+
+  if (!numEq(foodA.servingAmount, foodB.servingAmount)) return true;
+  if (!numEq(foodA.calories, foodB.calories)) return true;
+  if (!numEq(foodA.carbs, foodB.carbs)) return true;
+  if (!numEq(foodA.protein, foodB.protein)) return true;
+  if (!numEq(foodA.fat, foodB.fat)) return true;
+  if (!numEq(foodA.sugars, foodB.sugars)) return true;
+  if (!numEq(foodA.fiber, foodB.fiber)) return true;
+  if (!numEq(foodA.sodium, foodB.sodium)) return true;
+  if (!numEq(foodA.potassium, foodB.potassium)) return true;
+
+  return false; // All nutrition and food info are identical (not modified)
 }
 
 /**
@@ -72,7 +103,7 @@ function safeStringHash(str: string): string {
 /**
  * Generates a clean, deterministic Cloud Document ID based primarily on:
  * Brand + Food Name + Serving Unit
- * (e.g. "c_7-11_茶葉蛋_顆_a1b2c3")
+ * (e.g. "cf_7-11_茶葉蛋_顆_a1b2c3")
  */
 export function generateDeterministicCloudId(brand: string, name: string, servingUnit: string): string {
   const normBrand = normalizeBrandName(brand);
@@ -154,20 +185,50 @@ export const CloudFoodService = {
   },
 
   /**
-   * Upload custom food to the global online food database.
-   * - Enforces rejection of official TFDA records.
-   * - Standardizes convenience store brand names (7-11, 全家, 萊爾富, OK).
-   * - Uses deterministic ID to eliminate duplicates.
+   * Upload custom food to the global online food database (cloud_foods).
+   * Update rules:
+   * 1. 衛福部資料不進去: Block official TFDA records.
+   * 2. 打開 cloud_foods 開關: Food must have isSharedToCloud === true.
+   * 3. 營養素等資訊被修改過才更新: If item exists in cloud_foods, update ONLY if nutrition/info was modified.
    */
   async uploadToCloudDatabase(food: CustomFood): Promise<{ success: boolean; food?: CloudFood; reason?: string }> {
-    // 1. Block TFDA (衛福部) data from uploading
+    // 1. 衛福部資料不進去
     if (isTfdaFood(food)) {
-      console.warn('Official TFDA food data cannot be uploaded to user cloud database.');
+      console.warn('[CloudFoodService] 衛福部官方資料不發佈至雲端資料庫');
       return { success: false, reason: '衛福部官方資料不提供上傳服務' };
+    }
+
+    // 2. 打開 cloud_foods 開關
+    if (food.isSharedToCloud === false) {
+      console.log('[CloudFoodService] 未開啟 cloud_foods 同步開關，跳過雲端更新:', food.name);
+      return { success: false, reason: '未開啟同步至雲端資料庫開關' };
     }
 
     const normalizedBrand = normalizeBrandName(food.brand || '');
     const deterministicId = generateDeterministicCloudId(normalizedBrand, food.name, food.servingUnit || 'g');
+
+    // 3. 營養素等資訊被修改過才更新
+    try {
+      const preCheck = await this.preCheckCloudFood({
+        name: food.name,
+        brand: normalizedBrand,
+        servingUnit: food.servingUnit || 'g',
+      });
+
+      if (preCheck.exists && preCheck.existingFood) {
+        const modified = isFoodInfoModified(food, preCheck.existingFood);
+        if (!modified) {
+          console.log('[CloudFoodService] 營養素等資訊未經修改，跳過 cloud_foods 更新:', food.name);
+          return {
+            success: true,
+            food: preCheck.existingFood,
+            reason: '營養素等資訊未經過修改，無需更新雲端資料庫',
+          };
+        }
+      }
+    } catch (err) {
+      console.warn('[CloudFoodService] preCheck warning:', err);
+    }
 
     const cloudFood: CloudFood = {
       id: deterministicId,
@@ -192,6 +253,7 @@ export const CloudFoodService = {
     try {
       const docRef = doc(db, COLLECTION_NAME, deterministicId);
       await setDoc(docRef, cloudFood, { merge: true });
+      console.log('[CloudFoodService] 已更新 cloud_foods:', food.name);
       return { success: true, food: cloudFood };
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, `${COLLECTION_NAME}/${deterministicId}`);
@@ -205,12 +267,17 @@ export const CloudFoodService = {
    */
   uploadInBackground(food: CustomFood): void {
     if (isTfdaFood(food)) return;
+    if (food.isSharedToCloud === false) return;
 
     // Execute asynchronously in background
     Promise.resolve().then(async () => {
       try {
-        await CloudFoodService.uploadToCloudDatabase(food);
-        console.log('[CloudFoodService] Background upload complete:', food.name);
+        const res = await CloudFoodService.uploadToCloudDatabase(food);
+        if (res.success) {
+          console.log('[CloudFoodService] Background sync result:', food.name, res.reason || '已同步');
+        } else {
+          console.log('[CloudFoodService] Background sync skipped:', food.name, res.reason || '');
+        }
       } catch (err) {
         console.warn('[CloudFoodService] Background upload warning:', err);
       }

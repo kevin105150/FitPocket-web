@@ -364,7 +364,7 @@ export const StorageService = {
     const all = this.getCustomFoods();
     const finalBrand = (food.brand || '').trim() || '自訂';
     const updatedFood = { ...food, brand: finalBrand, updatedAt: Date.now() };
-    const index = all.findIndex((f) => f.id === food.id);
+    const index = all.findIndex((f) => f.id === food.id || (f.name.trim() === food.name.trim() && (f.brand || '').trim() === finalBrand));
     if (index >= 0) {
       all[index] = updatedFood;
     } else {

@@ -28,6 +28,7 @@ import {
 import { StorageService } from '../services/storage';
 import { optimizeImageForAi } from '../utils/imageOptimizer';
 import { CloudFoodService, isTfdaFood } from '../services/cloudFoodService';
+import { OpenFoodService } from '../services/openFoodService';
 import { CARB_CYCLE_INFO, getCarbCycleBadgeStyle } from '../data/defaults';
 import { DateNavigator } from './DateNavigator';
 import { AddFoodModal, FoodTab } from './AddFoodModal';
@@ -398,6 +399,7 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
   const [selectedMealForAdd, setSelectedMealForAdd] = useState<MealType>('BREAKFAST');
   const [foodForPortion, setFoodForPortion] = useState<FoodSearchResult | null>(null);
   const [showCustomFoodModal, setShowCustomFoodModal] = useState(false);
+  const [prefilledBarcodeForCustom, setPrefilledBarcodeForCustom] = useState<string>('');
   const [showGoalModal, setShowGoalModal] = useState(false);
   const [editingRecord, setEditingRecord] = useState<FoodRecord | null>(null);
   const [aiReviewFood, setAiReviewFood] = useState<FoodSearchResult | null>(null);
@@ -427,38 +429,68 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
         setAiPhotoProgress(25);
         setAiPhotoStatus('正在優化圖片以加快辨識速度...');
 
-        // 核心優化：壓縮圖片
-        const optimizedBase64 = await optimizeImageForAi(base64);
+        // 核心優化：壓縮圖片 (最佳化為 768x768，Gemini 視覺識別最速甜點尺寸)
+        const optimizedBase64 = await optimizeImageForAi(base64, 768, 768, 0.7);
 
         const userKey = StorageService.getGeminiApiKey();
         const model = StorageService.getSelectedAiModel();
         
-        setAiPhotoProgress(45);
-        setAiPhotoStatus('正在傳送至 Gemini AI 進行多模態分析...');
+        setAiPhotoProgress(40);
+        setAiPhotoStatus(`[${model}] 資料上傳中...`);
 
-        const res = await fetch('/api/ai/estimate-image', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            imageBase64: optimizedBase64,
-            mimeType: 'image/jpeg',
-            customApiKey: userKey,
-            model,
-          }),
-        });
+        // Smooth progression timer during active network fetch
+        let currentProgress = 40;
+        const progressInterval = setInterval(() => {
+          if (currentProgress < 85) {
+            currentProgress += 3; // Slightly faster incremental animation
+            const roundedProgress = Math.min(Math.round(currentProgress), 85);
+            setAiPhotoProgress(roundedProgress);
+            
+            if (roundedProgress >= 40 && roundedProgress < 58) {
+              setAiPhotoStatus(`[${model}] 資料上傳中...`);
+            } else {
+              setAiPhotoStatus(`[${model}] AI分析中...`);
+            }
+          }
+        }, 200);
 
-        setAiPhotoProgress(80);
-        setAiPhotoStatus('AI 正在計算熱量與營養比例...');
+        let res;
+        try {
+          res = await fetch('/api/ai/estimate-image', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              imageBase64: optimizedBase64,
+              mimeType: 'image/jpeg',
+              customApiKey: userKey,
+              model,
+            }),
+          });
+        } finally {
+          clearInterval(progressInterval);
+        }
+
+        setAiPhotoProgress(88);
+        setAiPhotoStatus('分析完成！');
 
         if (!res.ok) {
           const errData = await res.json().catch(() => ({}));
           throw new Error(errData.error || '照片辨識失敗');
         }
 
-        setAiPhotoProgress(95);
-        setAiPhotoStatus('即將完成辨識...');
-
+        // Download and parse JSON stream first (blisteringly fast now without Google Search Grounding)
         const result = await res.json();
+
+        const usedModel = result._modelUsed || model;
+        const isFallback = usedModel !== model;
+
+        setAiPhotoProgress(96);
+        if (isFallback) {
+          setAiPhotoStatus(`[${usedModel}] 資料擷取中... (由 ${model} 自動切換後援)`);
+        } else {
+          setAiPhotoStatus(`[${usedModel}] 資料擷取中...`);
+        }
+
         const parseNum = (val: any, fallback: number) => {
           const n = Number(val);
           return isNaN(n) ? fallback : n;
@@ -702,6 +734,49 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
     setFoodForPortion(food);
   };
 
+  // Helper to ensure user/AI added foods are saved to Custom Food list & Cloud DB
+  const ensureCustomAndCloudPersistence = (food: {
+    id?: string;
+    name: string;
+    brand?: string;
+    barcode?: string;
+    servingAmount?: number;
+    servingUnit?: string;
+    calories: number;
+    carbs: number;
+    protein: number;
+    fat: number;
+    sugars?: number;
+    fiber?: number;
+    sodium?: number;
+    potassium?: number;
+    imageUrl?: string;
+    isUserCustom?: boolean;
+    aiSource?: 'vision' | 'estimation';
+  }) => {
+    const customToSave: CustomFood = {
+      id: food.id && food.id.startsWith('custom_') ? food.id : `custom_${(food.id || Date.now()).toString().replace(/^(ai_photo_|ai_est_|ai_estimation_|ai_)/, '')}`,
+      name: food.name,
+      brand: food.brand || (food.aiSource ? 'AI辨識' : '自訂'),
+      servingAmount: food.servingAmount || 100,
+      servingUnit: food.servingUnit || 'g',
+      calories: food.calories,
+      carbs: food.carbs,
+      protein: food.protein,
+      fat: food.fat,
+      sugars: food.sugars || 0,
+      fiber: food.fiber || 0,
+      sodium: food.sodium || 0,
+      potassium: food.potassium || 0,
+      barcode: food.barcode,
+      imageUrl: food.imageUrl,
+      updatedAt: Date.now(),
+      isSharedToCloud: true,
+    };
+    StorageService.saveCustomFood(customToSave);
+    CloudFoodService.uploadInBackground(customToSave);
+  };
+
   // Handle fast add food directly from search modal
   const handleFastAddFood = (food: FoodSearchResult, mealType?: MealType) => {
     const targetMeal = mealType || selectedMealForAdd;
@@ -710,6 +785,16 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
       ? food.lastLoggedAmount
       : baseServing;
     const ratio = baseServing > 0 ? amountToLog / baseServing : 1;
+
+    // Ensure custom/AI food is saved to custom list and cloud DB
+    if (food.isUserCustom || food.aiSource || food.id.startsWith('ai_') || food.id.startsWith('custom_')) {
+      ensureCustomAndCloudPersistence(food);
+    }
+
+    // Ensure Open Food Facts item is saved to open_foods collection in Firebase
+    if (food.isOpenFood || food.id.startsWith('off_') || food.id.startsWith('open_')) {
+      OpenFoodService.uploadInBackground(food);
+    }
 
     const record: FoodRecord = {
       id: 'record_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
@@ -748,6 +833,47 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
 
   // Handle portion confirm
   const handleConfirmPortion = (record: FoodRecord) => {
+    // If food is AI or custom generated, save to custom list & cloud DB
+    if (record.aiSource || record.sourceFoodId?.startsWith('ai_') || record.sourceFoodId?.startsWith('custom_')) {
+      ensureCustomAndCloudPersistence({
+        id: record.sourceFoodId,
+        name: record.name,
+        brand: record.brand,
+        barcode: record.barcode,
+        servingAmount: record.baseServingAmount || record.loggedAmount,
+        servingUnit: record.baseServingUnit || record.loggedUnit,
+        calories: record.baseCalories || record.calories,
+        carbs: record.baseCarbs || record.carbs,
+        protein: record.baseProtein || record.protein,
+        fat: record.baseFat || record.fat,
+        sugars: record.baseSugars || record.sugars,
+        fiber: record.baseFiber || record.fiber,
+        sodium: record.baseSodium || record.sodium,
+        potassium: record.basePotassium || record.potassium,
+        aiSource: record.aiSource,
+      });
+    }
+
+    // If food is from Open Food Facts, save to open_foods collection in Firebase
+    if (record.isOpenFood || record.sourceFoodId?.startsWith('off_') || record.sourceFoodId?.startsWith('open_')) {
+      OpenFoodService.uploadInBackground({
+        id: record.sourceFoodId,
+        name: record.name,
+        brand: record.brand,
+        barcode: record.barcode,
+        servingAmount: record.baseServingAmount || record.loggedAmount,
+        servingUnit: record.baseServingUnit || record.loggedUnit,
+        calories: record.baseCalories || record.calories,
+        carbs: record.baseCarbs || record.carbs,
+        protein: record.baseProtein || record.protein,
+        fat: record.baseFat || record.fat,
+        sugars: record.baseSugars || record.sugars,
+        fiber: record.baseFiber || record.fiber,
+        sodium: record.baseSodium || record.sodium,
+        potassium: record.basePotassium || record.potassium,
+      });
+    }
+
     StorageService.saveFoodRecord(record);
     setFoodForPortion(null);
     refreshRecords();
@@ -756,10 +882,12 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
   // Handle save custom food
   const handleSaveCustomFood = (customFood: CustomFood, consumedAmount: number) => {
     StorageService.saveCustomFood(customFood);
+    CloudFoodService.uploadInBackground(customFood);
     
     const ratio = consumedAmount / (customFood.servingAmount || 1);
     const record: FoodRecord = {
       id: 'record_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
+      sourceFoodId: customFood.id,
       name: customFood.name,
       brand: customFood.brand,
       barcode: customFood.barcode,
@@ -1101,7 +1229,12 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
           onClose={() => setShowAddFood(false)}
           onSelectFood={(food, mealType) => handleSelectFood(food, mealType)}
           onFastAddFood={(food, mealType) => handleFastAddFood(food, mealType)}
-          onOpenCustomFoodModal={() => {
+          onOpenCustomFoodModal={(barcode) => {
+            if (barcode) {
+              setPrefilledBarcodeForCustom(barcode);
+            } else {
+              setPrefilledBarcodeForCustom('');
+            }
             setShowCustomFoodModal(true);
           }}
         />
@@ -1197,7 +1330,11 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
 
       {showCustomFoodModal && (
         <CustomFoodModal
-          onClose={() => setShowCustomFoodModal(false)}
+          initialFood={prefilledBarcodeForCustom ? { name: '', calories: 0, carbs: 0, protein: 0, fat: 0, barcode: prefilledBarcodeForCustom } as any : undefined}
+          onClose={() => {
+            setShowCustomFoodModal(false);
+            setPrefilledBarcodeForCustom('');
+          }}
           onSave={handleSaveCustomFood}
         />
       )}

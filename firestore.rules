@@ -37,6 +37,17 @@ service cloud.firestore {
       allow read: if true;
       allow write: if true;
     }
+
+    // FamilyMart single products database (no duplication)
+    match /family_foods/{foodId} {
+      allow read, write: if true;
+    }
+
+    // Open Food Facts saved foods collection
+    match /open_foods/{foodId} {
+      allow read: if true;
+      allow write: if true;
+    }
   }
 }
 

@@ -82,23 +82,16 @@ export default function App() {
   };
 
   const handleRestoreAuth = async () => {
-    // 防禦性檢查：防止重複觸發
-    if (localStorage.getItem('fitpocket_auth_locking') === 'true') {
-      console.log("[App] Auth is currently locking, skipping.");
-      return;
-    }
-
     try {
-      localStorage.setItem('fitpocket_auth_locking', 'true');
       setIsUpdatingCredentials(true);
       setNeedsDriveAuth(false);
       localStorage.setItem('fitpocket_redirect_pending', 'true');
 
       const result = await loginWithGoogle(false);
-      if (result.isRedirecting) {
+      if (result && result.isRedirecting) {
         return;
       }
-      if (result.accessToken) {
+      if (result && result.accessToken) {
         localStorage.removeItem('fitpocket_redirect_pending');
         localStorage.removeItem('fitpocket_auth_locking');
         sessionStorage.removeItem('fitpocket_auto_auth_attempted');
@@ -115,12 +108,14 @@ export default function App() {
       localStorage.removeItem('fitpocket_auth_locking');
       setIsUpdatingCredentials(false);
       setNeedsDriveAuth(true);
+    } finally {
+      localStorage.removeItem('fitpocket_auth_locking');
     }
   };
 
   // 防禦性監控：若自動更新卡住超過 10 秒，強制切換至手動更新介面
   useEffect(() => {
-    let timeoutId: NodeJS.Timeout;
+    let timeoutId: ReturnType<typeof setTimeout>;
     if (isUpdatingCredentials) {
       timeoutId = setTimeout(() => {
         console.warn("[App] Auth update took too long, forcing manual intervention.");
@@ -138,6 +133,7 @@ export default function App() {
     // Initialize storage (IndexedDB migration & loading)
     const initStorage = async () => {
       try {
+        localStorage.removeItem('fitpocket_auth_locking');
         await StorageService.init();
         if (!active) return;
 

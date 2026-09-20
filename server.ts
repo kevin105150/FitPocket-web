@@ -76,9 +76,17 @@ async function generateWithFallback(
       }
     } catch (err: any) {
       lastError = err;
-      const status = err.status || err.code || 0;
+      let status = err.status || err.code || 0;
       const message = err.message || '';
-      console.warn(`[Gemini Fallback] Model ${modelName} returned ${status}: ${message.slice(0, 120)}`);
+
+      if (!status && message) {
+        const match = message.match(/503|429|500/);
+        if (match) {
+          status = parseInt(match[0], 10);
+        }
+      }
+
+      console.log(`[Gemini Fallback] Model ${modelName} returned status ${status || 'busy'} (Will try next 3.x candidate in family)`);
 
       // If it's a transient server issue (503, 429, 500), try the next 3.x model
       if (
@@ -329,8 +337,10 @@ app.post('/api/ai/estimate-image', async (req, res) => {
    - 萊爾富 / Hi-Life -> "萊爾富"
    - OK超商 / OKmart -> "OK"
    若為其他品牌（例如：義美、光泉、好市多、麥當勞等）請填寫該品牌；若無品牌純自製料理請填 ""。
-2. 條碼 (barcode)：若照片中有商品國際條碼 (EAN-13, UPC 等數字)，請辨識並填寫其數字字串；若無或看不清楚請填 ""。
-3. 營養成分：請估算每 100g 的各項營養素。若畫面中有營養標示表格，請優先參考其數據。
+2. 條碼 (barcode)：若照片中有商品國際條碼 (EAN-13, UPC 等數字)，請辨識並填寫其數字字串；若無 or 看不清楚請填 ""。
+3. 營養成分：
+   - **營養標示優先性 (極其重要)**：如果包裝上有明確的「營養標示（Nutrition Facts）」表格，**必須 100% 完全以該營養標示表格上印刷的真實數值為最優先基準**。
+   - **嚴禁無根據瞎猜或亂估計**：對於並非強制標示、或者在包裝上**完全沒有列出**的特定非強制標示營養素（如：鉀 potassiumPer100g、膳食纖維 fiberPer100g、糖 sugarsPer100g、鈉等），**請不要自行評估或憑空捏造估計出一個大於 0 的正數，必須一律填入 0**！(例如：如果該營養標示表格上沒有印出鉀或膳食纖維，請不要猜測，直接填 0)。
 4. 份量判定：若為商品包裝，請優先以營養標示上的「一份 (serving)」為基準回傳 defaultServingAmount，絕對不可回傳整包裝的總重，也不可乘以包裝總份數。
    - 核心原則：使用者希望紀錄「單純一份」的營養，而非整個包裝袋的總合。
    - 例如：若包裝標示「本包裝含 6 份，每份 180g」，你的 defaultServingAmount 必須回傳 180，絕對不可回傳 180 * 6 = 1080！
@@ -348,10 +358,10 @@ app.post('/api/ai/estimate-image', async (req, res) => {
   "carbsPer100g": 數字(公克),
   "proteinPer100g": 數字(公克),
   "fatPer100g": 數字(公克),
-  "sugarsPer100g": 數字(公克),
-  "fiberPer100g": 數字(公克),
+  "sugarsPer100g": 數字(公克，若包裝標示未列出糖或非天然高糖食品，請直接填 0),
+  "fiberPer100g": 數字(公克，若包裝標示未列出纖維或非高纖食品，請直接填 0),
   "sodiumPer100g": 數字(毫克),
-  "potassiumPer100g": 數字(毫克),
+  "potassiumPer100g": 數字(毫克，若包裝標示未列出鉀，請直接填 0),
   "defaultServingAmount": 數字(單份基準數值，例如 180，如果是液體則是毫升數如 300，絕對不要回傳整包總重或乘以份數的總重),
   "servingUnit": "食品或飲料的基準單位：如果是液體、湯品、飲料、牛奶、咖啡、優酪乳等，請務必填寫 'ml'；固體食品填寫 'g'；亦可依合適度填寫 '個'、'瓶'、'杯'、'包'、'份' 等（例如液體應精準判斷為 'ml' 而非 'g'）",
   "servingSizeText": "單份份量說明 (例如: 1份 約180g，或 1瓶 約350ml)",
@@ -375,7 +385,7 @@ app.post('/api/ai/estimate-image', async (req, res) => {
       ai,
       model || 'gemini-3.8-flash',
       contents,
-      true // Enable Search Grounding for product data enrichment
+      false // Bypassing Google Search Grounding for visual recognition to maximize speed (OCR/Vision is fully native)
     );
 
     const parsed = extractJsonFromText(text);
@@ -397,6 +407,53 @@ app.post('/api/ai/estimate-image', async (req, res) => {
       error: error.message || '圖片辨識失敗',
       status: status
     });
+  }
+});
+
+// 3.1. AI Barcode OCR reader from photo
+app.post('/api/ai/read-barcode', async (req, res) => {
+  try {
+    const { imageBase64, mimeType = 'image/jpeg', customApiKey, model } = req.body;
+    if (!imageBase64) {
+      return res.status(400).json({ error: '未提供圖片資料' });
+    }
+
+    const ai = getGenAI(customApiKey);
+    if (!ai) {
+      return res.status(401).json({ error: '未設定 Gemini API Key' });
+    }
+
+    const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, '');
+    const prompt = `Please examine this photo closely and locate any product barcode (such as EAN-13, EAN-8, UPC-A, UPC-E, Code 128, or QR Code digits).
+Identify the numbers/digits printed directly under or on the barcode lines.
+Output ONLY the clean numerical digits (0-9). Do NOT include spaces, dashes, or letters unless it's a valid alphanumeric code.
+If no readable barcode numbers are visible in the image, reply ONLY with 'NONE'.`;
+
+    const contents = [
+      prompt,
+      {
+        inlineData: {
+          mimeType,
+          data: base64Data,
+        },
+      },
+    ];
+
+    const { text } = await generateWithFallback(
+      ai,
+      model || 'gemini-3.1-flash-lite',
+      contents,
+      false
+    );
+
+    const cleaned = text.replace(/[^0-9a-zA-Z]/g, '').trim();
+    if (cleaned && cleaned !== 'NONE' && cleaned.length >= 6) {
+      return res.json({ barcode: cleaned });
+    }
+    res.json({ barcode: null });
+  } catch (error: any) {
+    console.error('AI Read Barcode error:', error);
+    res.status(500).json({ error: error.message || '條碼辨識失敗', barcode: null });
   }
 });
 
@@ -553,47 +610,197 @@ app.post('/api/ai/workout-suggest', async (req, res) => {
   }
 });
 
-// 5. Open Food Facts proxy
+// 5. Open Food Facts proxy with Chinese-to-English translation & dual search
 app.get('/api/openfoodfacts/search', async (req, res) => {
   try {
-    const query = req.query.q as string;
+    const query = ((req.query.q as string) || '').trim();
     if (!query) return res.json({ products: [] });
 
-    const url = `https://tw.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(
-      query
-    )}&search_simple=1&action=process&json=1&page_size=25`;
+    // Built-in dictionary for fast Chinese food term translation
+    const quickDict: Record<string, string> = {
+      '燕麥奶': 'oat milk',
+      '燕麥': 'oatmeal oats',
+      '地瓜': 'sweet potato',
+      '番薯': 'sweet potato',
+      '雞胸肉': 'chicken breast',
+      '雞胸': 'chicken breast',
+      '蛋白': 'protein',
+      '蛋白棒': 'protein bar',
+      '乳清': 'whey protein',
+      '乳清蛋白': 'whey protein',
+      '牛奶': 'milk',
+      '鮮奶': 'fresh milk',
+      '優格': 'yogurt',
+      '希臘優格': 'greek yogurt',
+      '黑咖啡': 'black coffee',
+      '拿鐵': 'latte',
+      '飯糰': 'rice ball',
+      '麵包': 'bread',
+      '吐司': 'toast',
+      '巧克力': 'chocolate',
+      '堅果': 'nuts',
+      '沙拉': 'salad',
+      '雞肉': 'chicken',
+      '牛肉': 'beef',
+      '豬肉': 'pork',
+      '鮭魚': 'salmon',
+      '鮪魚': 'tuna',
+      '雞蛋': 'egg',
+      '蛋': 'egg',
+      '茶葉蛋': 'boiled egg',
+      '豆漿': 'soy milk',
+      '豆腐': 'tofu',
+      '起司': 'cheese',
+      '芝士': 'cheese',
+      '花生醬': 'peanut butter',
+      '能量棒': 'energy bar',
+      '綠茶': 'green tea',
+      '紅茶': 'black tea',
+      '烏龍茶': 'oolong tea',
+      '可可': 'cocoa',
+      '蘋果': 'apple',
+      '香蕉': 'banana',
+      '酪梨': 'avocado',
+      '藍莓': 'blueberry',
+      '麥片': 'cereal',
+      '高麗菜': 'cabbage',
+      '花椰菜': 'broccoli',
+      '菠菜': 'spinach',
+      '水餃': 'dumpling',
+    };
 
-    const fetchRes = await fetch(url, {
-      headers: {
-        'User-Agent': 'FitPocketWeb - Version 1.0 - www.fitpocket.app',
-      },
-    });
+    let englishQuery = '';
+    const hasChinese = /[\u4e00-\u9fa5]/.test(query);
 
-    if (!fetchRes.ok) {
-      return res.json({ products: [] });
+    if (hasChinese) {
+      if (quickDict[query]) {
+        englishQuery = quickDict[query];
+      } else {
+        let translated = query;
+        for (const [zh, en] of Object.entries(quickDict)) {
+          if (translated.includes(zh)) {
+            translated = translated.replace(zh, ` ${en} `);
+          }
+        }
+        if (translated !== query) {
+          englishQuery = translated.trim().replace(/\s+/g, ' ');
+        }
+      }
+
+      // Fast Gemini AI Translation fallback (1.2s timeout to avoid slowing response)
+      const customApiKey = req.query.customApiKey as string;
+      const ai = getGenAI(customApiKey);
+      if (ai) {
+        try {
+          const aiPromise = generateWithFallback(
+            ai,
+            'gemini-3.1-flash-lite',
+            `Translate the Chinese food search term "${query}" to 1-3 English keywords for Open Food Facts search. Return ONLY the English keywords, no punctuation or markdown.`,
+            false
+          );
+          const timeoutPromise = new Promise<{ text: string; modelUsed: string }>((_, reject) =>
+            setTimeout(() => reject(new Error('Translation timeout')), 1200)
+          );
+          const aiRes = await Promise.race([aiPromise, timeoutPromise]);
+          if (aiRes && aiRes.text) {
+            const cleanText = aiRes.text.replace(/[^a-zA-Z0-9\s]/g, ' ').trim();
+            if (cleanText.length > 1) {
+              englishQuery = englishQuery ? `${englishQuery} ${cleanText}` : cleanText;
+            }
+          }
+        } catch {
+          // AI translation fallback ignored safely
+        }
+      }
     }
 
-    const data: any = await fetchRes.json();
-    const products = (data.products || []).map((p: any) => ({
-      id: `off_${p.code || Math.random()}`,
-      name: p.product_name || p.product_name_zh || '未知商品',
-      brand: p.brands || '',
-      caloriesPer100g: parseFloat(p.nutriments?.['energy-kcal_100g'] || 0),
-      carbsPer100g: parseFloat(p.nutriments?.carbohydrates_100g || 0),
-      sugarsPer100g: parseFloat(p.nutriments?.sugars_100g || 0),
-      fiberPer100g: parseFloat(p.nutriments?.fiber_100g || 0),
-      proteinPer100g: parseFloat(p.nutriments?.proteins_100g || 0),
-      fatPer100g: parseFloat(p.nutriments?.fat_100g || 0),
-      sodiumPer100g: parseFloat(p.nutriments?.sodium_100g || 0) * 1000,
-      potassiumPer100g: parseFloat(p.nutriments?.potassium_100g || 0) * 1000,
-      defaultServingAmount: parseFloat(p.serving_quantity || 100),
-      servingUnit: 'g',
-      servingSizeText: p.serving_size || '1份 (100g)',
-      imageUrl: p.image_front_small_url || p.image_url,
-      barcode: p.code,
-    }));
+    // Build distinct search term list
+    const searchTermsList = [query];
+    if (englishQuery && englishQuery.toLowerCase() !== query.toLowerCase()) {
+      searchTermsList.push(englishQuery);
+    }
 
-    res.json({ products });
+    // Query world.openfoodfacts.org and tw.openfoodfacts.org in parallel
+    const fetchPromises: Promise<any[]>[] = [];
+
+    for (const term of searchTermsList) {
+      const worldUrl = `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(
+        term
+      )}&search_simple=1&action=process&json=1&page_size=30`;
+
+      fetchPromises.push(
+        fetch(worldUrl, {
+          headers: { 'User-Agent': 'FitPocketWeb - Version 1.0 - www.fitpocket.app' },
+        })
+          .then((r) => (r.ok ? r.json() : { products: [] }))
+          .then((d) => d.products || [])
+          .catch(() => [])
+      );
+
+      const twUrl = `https://tw.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(
+        term
+      )}&search_simple=1&action=process&json=1&page_size=20`;
+
+      fetchPromises.push(
+        fetch(twUrl, {
+          headers: { 'User-Agent': 'FitPocketWeb - Version 1.0 - www.fitpocket.app' },
+        })
+          .then((r) => (r.ok ? r.json() : { products: [] }))
+          .then((d) => d.products || [])
+          .catch(() => [])
+      );
+    }
+
+    const batches = await Promise.all(fetchPromises);
+    const codeMap = new Map<string, any>();
+
+    for (const batch of batches) {
+      for (const p of batch) {
+        if (!p || !p.code) continue;
+        if (!codeMap.has(p.code)) {
+          codeMap.set(p.code, p);
+        } else {
+          const existing = codeMap.get(p.code);
+          if (!existing.image_url && p.image_url) {
+            existing.image_url = p.image_url;
+            existing.image_front_small_url = p.image_front_small_url;
+          }
+          if (!existing.product_name_zh && p.product_name_zh) {
+            existing.product_name_zh = p.product_name_zh;
+          }
+        }
+      }
+    }
+
+    const products = Array.from(codeMap.values())
+      .map((p: any) => ({
+        id: `off_${p.code}`,
+        name: p.product_name_zh || p.product_name || p.generic_name || '未知商品',
+        brand: p.brands || 'Open Food Facts',
+        caloriesPer100g: parseFloat(p.nutriments?.['energy-kcal_100g'] || p.nutriments?.['energy-kcal'] || 0),
+        carbsPer100g: parseFloat(p.nutriments?.carbohydrates_100g || 0),
+        sugarsPer100g: parseFloat(p.nutriments?.sugars_100g || 0),
+        fiberPer100g: parseFloat(p.nutriments?.fiber_100g || 0),
+        proteinPer100g: parseFloat(p.nutriments?.proteins_100g || 0),
+        fatPer100g: parseFloat(p.nutriments?.fat_100g || 0),
+        sodiumPer100g: parseFloat(p.nutriments?.sodium_100g || 0) * 1000,
+        potassiumPer100g: parseFloat(p.nutriments?.potassium_100g || 0) * 1000,
+        defaultServingAmount: parseFloat(p.serving_quantity || 100),
+        servingUnit: 'g',
+        servingSizeText: p.serving_size || '1份 (100g)',
+        imageUrl: p.image_front_small_url || p.image_url,
+        barcode: p.code,
+      }))
+      .filter((p) => p.name && p.name !== '未知商品');
+
+    // Prioritize products with images and calorie information
+    products.sort((a, b) => {
+      const scoreA = (a.imageUrl ? 2 : 0) + (a.caloriesPer100g > 0 ? 1 : 0);
+      const scoreB = (b.imageUrl ? 2 : 0) + (b.caloriesPer100g > 0 ? 1 : 0);
+      return scoreB - scoreA;
+    });
+
+    res.json({ products: products.slice(0, 45) });
   } catch (error: any) {
     console.error('OpenFoodFacts proxy error:', error);
     res.json({ products: [] });

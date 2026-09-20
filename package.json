@@ -15,6 +15,7 @@
     "clsx": "^2.1.1",
     "express": "^4.21.2",
     "firebase": "^12.19.0",
+    "html5-qrcode": "^2.3.8",
     "http-proxy-middleware": "^4.2.0",
     "idb": "^8.0.3",
     "lucide-react": "^1.16.0",
