@@ -522,12 +522,14 @@ export const SettingsScreen: React.FC = () => {
 
   // User Request Access
   const handleRequestAccess = async () => {
+    console.log('handleRequestAccess triggered', { user: user?.email, uid: user?.uid });
     if (!user?.email) {
       flashMessage('請先登入 Google 帳號後再送出申請！');
       return;
     }
     setRequestingAccess(true);
     try {
+      console.log('Sending POST to /api/ai/request-access');
       const res = await fetch('/api/ai/request-access', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -539,7 +541,8 @@ export const SettingsScreen: React.FC = () => {
         }),
       });
       const data = await res.json();
-      if (data.ok) {
+      console.log('Received response from /api/ai/request-access', data);
+      if (data.success || data.ok) {
         flashMessage(data.message || '申請已送出！請靜候開發者審核。');
         await fetchDevQuota();
         if (isAdmin) await fetchAdminWhitelist();
@@ -547,6 +550,7 @@ export const SettingsScreen: React.FC = () => {
         flashMessage(`申請失敗：${data.error || '未知原因'}`);
       }
     } catch (err: any) {
+      console.error('Error in handleRequestAccess:', err);
       flashMessage(`申請過程發生錯誤：${err.message}`);
     } finally {
       setRequestingAccess(false);
