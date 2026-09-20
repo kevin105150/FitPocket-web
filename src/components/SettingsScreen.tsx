@@ -23,6 +23,7 @@ import {
   RefreshCw,
   Search,
   X,
+  ChevronDown,
   Activity,
   Cpu,
   Zap,
@@ -154,6 +155,7 @@ export const SettingsScreen: React.FC = () => {
   const [adminFilter, setAdminFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
   const [showAddWhitelistModal, setShowAddWhitelistModal] = useState(false);
   const [showEditWhitelistModal, setShowEditWhitelistModal] = useState(false);
+  const [showStatusDropdown, setShowStatusDropdown] = useState(false);
   const [selectedWhitelistUser, setSelectedWhitelistUser] = useState<AiWhitelistUser | null>(null);
 
   // Form states for Add / Edit Whitelist User
@@ -498,7 +500,8 @@ export const SettingsScreen: React.FC = () => {
     try {
       const res = await fetch(`/api/admin/whitelist?adminEmail=${encodeURIComponent(user.email)}`);
       const data = await res.json();
-      if (data.ok && Array.isArray(data.users)) {
+      // Server returns { users: [...] } directly
+      if (data && Array.isArray(data.users)) {
         setAdminWhitelist(data.users);
       } else if (data.error) {
         flashMessage(`載入白名單失敗：${data.error}`);
@@ -543,7 +546,7 @@ export const SettingsScreen: React.FC = () => {
       });
       const data = await res.json();
       console.log('Received response from /api/ai/request-access', data);
-      if (data.success || data.ok) {
+      if (data.success || data.ok || (data.user && !data.error)) {
         flashMessage(data.message || '申請已送出！請靜候開發者審核。');
         await fetchDevQuota();
         if (isAdmin) await fetchAdminWhitelist();
@@ -1540,79 +1543,105 @@ export const SettingsScreen: React.FC = () => {
                 </button>
               </div>
             ) : (
-              <div className="p-4 bg-slate-50 border border-slate-200/80 rounded-2xl space-y-3">
-                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200/60 pb-3">
+              <div className="p-3.5 pt-3 pb-2 bg-slate-50 border border-slate-200/80 rounded-2xl space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200/60 pb-2">
                   <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center font-bold text-xs">
+                    <div className="w-8 h-8 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center font-bold text-xs shrink-0">
                       {user.displayName ? user.displayName.slice(0, 1) : user.email?.slice(0, 1).toUpperCase()}
                     </div>
-                    <div>
-                      <div className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
-                        <span>{user.displayName || 'Google 使用者'}</span>
+                    <div className="min-w-0">
+                      <div className="font-bold text-slate-800 text-xs flex items-center gap-1.5 flex-wrap">
+                        <span className="truncate max-w-[100px] sm:max-w-none">{user.displayName || 'Google 使用者'}</span>
                         {devQuota?.isAdmin && (
-                          <span className="px-1.5 py-0.2 bg-amber-100 text-amber-800 border border-amber-300 rounded text-[10px] font-extrabold flex items-center gap-0.5">
-                            <Crown className="w-3 h-3 text-amber-600" />
+                          <span className="px-1.5 py-0.2 bg-amber-100 text-amber-800 border border-amber-300 rounded text-[9px] font-extrabold flex items-center gap-0.5 whitespace-nowrap">
+                            <Crown className="w-2.5 h-2.5 text-amber-600" />
                             系統管理員
                           </span>
                         )}
                       </div>
-                      <div className="text-[11px] text-slate-400">{user.email}</div>
+                      <div className="text-[10px] text-slate-400 truncate max-w-[150px] sm:max-w-none">{user.email}</div>
                     </div>
                   </div>
 
-                  {/* Status Badge */}
-                  <div>
+                  <div className="flex items-center gap-1.5">
+                    {/* Status Badge */}
                     {loadingDevQuota ? (
-                      <span className="text-xs text-slate-400 flex items-center gap-1">
-                        <RefreshCw className="w-3 h-3 animate-spin" /> 查詢額度中...
+                      <span className="text-[10px] text-slate-400 flex items-center gap-1">
+                        <RefreshCw className="w-2.5 h-2.5 animate-spin" /> 查詢中...
                       </span>
                     ) : devQuota?.status === 'approved' ? (
-                      <span className="px-2.5 py-1 bg-sky-50 text-sky-700 border border-sky-200 rounded-full text-xs font-bold flex items-center gap-1">
-                        <CheckCircle2 className="w-3.5 h-3.5 text-sky-600" />
-                        已核准白名單
+                      <span className="px-2 py-0.5 bg-sky-50 text-sky-700 border border-sky-200 rounded-full text-[10px] font-bold flex items-center gap-1">
+                        <CheckCircle2 className="w-3 h-3 text-sky-600" />
+                        已核准
                       </span>
                     ) : devQuota?.status === 'pending' ? (
-                      <span className="px-2.5 py-1 bg-amber-50 text-amber-700 border border-amber-200 rounded-full text-xs font-bold flex items-center gap-1">
-                        <Clock className="w-3.5 h-3.5 text-amber-600" />
+                      <span className="px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 rounded-full text-[10px] font-bold flex items-center gap-1">
+                        <Clock className="w-3 h-3 text-amber-600" />
                         審核中
                       </span>
                     ) : devQuota?.status === 'rejected' ? (
-                      <span className="px-2.5 py-1 bg-rose-50 text-rose-700 border border-rose-200 rounded-full text-xs font-bold flex items-center gap-1">
-                        <UserX className="w-3.5 h-3.5 text-rose-600" />
-                        未通過 / 已停用
+                      <span className="px-2 py-0.5 bg-rose-50 text-rose-700 border border-rose-200 rounded-full text-[10px] font-bold flex items-center gap-1">
+                        <UserX className="w-3 h-3 text-rose-600" />
+                        已停用
                       </span>
                     ) : (
-                      <span className="px-2.5 py-1 bg-slate-200/80 text-slate-600 rounded-full text-xs font-bold">
+                      <span className="px-2 py-0.5 bg-slate-200/80 text-slate-600 rounded-full text-[10px] font-bold">
                         尚未申請
                       </span>
+                    )}
+
+                    {/* Quick Edit Pen for Admin/Approved users */}
+                    {devQuota && (devQuota.isAdmin || devQuota.status === 'approved') && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const me = adminWhitelist.find(u => u.email.toLowerCase() === user.email?.toLowerCase());
+                          if (me) {
+                            handleOpenEditUser(me);
+                          } else if (devQuota.isAdmin) {
+                            handleOpenEditUser({
+                              email: user.email || '',
+                              displayName: user.displayName || '',
+                              status: 'approved',
+                              dailyLimit: devQuota.dailyLimit,
+                              todayUsage: devQuota.todayUsage,
+                              lastUsed: new Date().toISOString()
+                            });
+                          }
+                        }}
+                        className="p-1.5 text-slate-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-all cursor-pointer group"
+                        title="編輯我的資料與配額"
+                      >
+                        <Edit2 className="w-3.5 h-3.5 group-hover:scale-110 transition-transform" />
+                      </button>
                     )}
                   </div>
                 </div>
 
                 {/* Quota Progress & Details */}
                 {devQuota?.status === 'approved' ? (
-                  <div className="space-y-2">
-                    <div className="flex justify-between items-center text-xs">
-                      <span className="text-slate-600 font-semibold flex items-center gap-1">
-                        <Activity className="w-3.5 h-3.5 text-purple-600" />
-                        今日開發者配額消耗
+                  <div className="space-y-1.5">
+                    <div className="flex justify-between items-center text-[11px]">
+                      <span className="text-slate-500 font-bold flex items-center gap-1">
+                        <Activity className="w-3 h-3 text-purple-600" />
+                        今日配額消耗
                       </span>
-                      <span className="font-bold text-purple-700">
-                        {devQuota.todayUsage} / {devQuota.dailyLimit} 次
-                        <span className="text-slate-400 font-normal ml-1">
-                          (剩餘 {devQuota.remaining} 次)
+                      <span className="font-black text-purple-700 text-xs">
+                        {devQuota.todayUsage} / {devQuota.dailyLimit} 
+                        <span className="text-slate-400 font-normal ml-1 text-[10px]">
+                          (餘 {devQuota.remaining})
                         </span>
                       </span>
                     </div>
 
-                    <div className="w-full bg-slate-200/70 h-2.5 rounded-full overflow-hidden">
+                    <div className="w-full bg-slate-200/50 h-2 rounded-full overflow-hidden">
                       <div
-                        className={`h-full rounded-full transition-all duration-300 ${
+                        className={`h-full rounded-full transition-all duration-500 ${
                           devQuota.todayUsage >= devQuota.dailyLimit
-                            ? 'bg-rose-500'
+                            ? 'bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.4)]'
                             : devQuota.todayUsage >= devQuota.dailyLimit * 0.8
-                            ? 'bg-amber-500'
-                            : 'bg-purple-600'
+                            ? 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.4)]'
+                            : 'bg-purple-600 shadow-[0_0_8px_rgba(147,51,234,0.3)]'
                         }`}
                         style={{
                           width: `${Math.min(
@@ -1623,14 +1652,14 @@ export const SettingsScreen: React.FC = () => {
                       />
                     </div>
 
-                    <div className="flex justify-between items-center text-[10px] text-slate-400 pt-1">
-                      <span>週期重設基準：每日太平洋時間 00:00 (自動歸零)</span>
+                    <div className="flex justify-between items-center text-[9px] text-slate-400">
+                      <span className="opacity-80">自動重置：每日 00:00 (PST)</span>
                       <button
                         type="button"
                         onClick={fetchDevQuota}
-                        className="text-purple-600 hover:text-purple-700 font-semibold flex items-center gap-1 cursor-pointer"
+                        className="text-purple-600 hover:text-purple-700 font-bold flex items-center gap-0.5 cursor-pointer hover:underline transition-colors"
                       >
-                        <RefreshCw className="w-2.5 h-2.5" /> 重新整理額度
+                        <RefreshCw className="w-2.5 h-2.5" /> 重新整理
                       </button>
                     </div>
                   </div>
@@ -1964,18 +1993,28 @@ export const SettingsScreen: React.FC = () => {
                 >
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
                     {/* User Info */}
-                    <div className="flex items-start sm:items-center gap-2.5">
+                    <div className="flex items-start sm:items-center gap-2.5 flex-1 min-w-0">
                       <div className="w-8 h-8 rounded-full bg-slate-100 text-slate-700 flex items-center justify-center font-bold text-xs shrink-0 mt-0.5 sm:mt-0">
                         {u.displayName ? u.displayName.slice(0, 1) : u.email.slice(0, 1).toUpperCase()}
                       </div>
-                      <div>
+                      <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-bold text-slate-900 text-xs">{u.displayName || '未設定暱稱'}</span>
-                          <span className="text-[11px] text-slate-500 font-mono">({u.email})</span>
+                          <span className="font-bold text-slate-900 text-xs truncate max-w-[120px]">{u.displayName || '未設定暱稱'}</span>
+                          <span className="text-[11px] text-slate-500 font-mono truncate max-w-[180px]">({u.email})</span>
                           {u.email.toLowerCase() === 'kevin10611@gmail.com' && (
-                            <span className="px-1.5 py-0.2 bg-amber-100 text-amber-800 border border-amber-300 rounded text-[9px] font-extrabold">
-                              👑 管理員
-                            </span>
+                            <div className="flex items-center gap-1">
+                              <span className="px-1.5 py-0.2 bg-amber-100 text-amber-800 border border-amber-300 rounded text-[9px] font-extrabold flex items-center gap-0.5">
+                                👑 管理員
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEditUser(u)}
+                                className="p-1 text-slate-400 hover:text-purple-600 hover:bg-purple-50 rounded transition-all cursor-pointer"
+                                title="編輯我的資料"
+                              >
+                                <Edit2 className="w-3 h-3" />
+                              </button>
+                            </div>
                           )}
                           {/* Status Badge */}
                           {u.status === 'approved' ? (
@@ -2002,7 +2041,7 @@ export const SettingsScreen: React.FC = () => {
                             今日已用：<strong className="text-purple-700">{u.todayUsage || 0} 次</strong>
                           </span>
                           {u.notes && (
-                            <span className="text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded text-[10px]">
+                            <span className="text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded text-[10px] truncate max-w-[150px]">
                               備註: {u.notes}
                             </span>
                           )}
@@ -2011,57 +2050,57 @@ export const SettingsScreen: React.FC = () => {
                     </div>
 
                     {/* Action Buttons */}
-                    <div className="flex items-center gap-1.5 self-end sm:self-center shrink-0">
-                      {u.status === 'pending' && (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => handleAdminApprove(u.email, u.dailyLimit || 20)}
-                            className="px-2.5 py-1 bg-sky-600 hover:bg-sky-700 text-white rounded-lg text-[11px] font-bold transition flex items-center gap-1 cursor-pointer shadow-2xs"
-                          >
-                            <Check className="w-3 h-3" />
-                            <span>核准 (20次)</span>
-                          </button>
+                    {u.email.toLowerCase() !== 'kevin10611@gmail.com' && (
+                      <div className="flex items-center gap-1.5 self-end sm:self-center shrink-0">
+                        {u.status === 'pending' && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => handleAdminApprove(u.email, u.dailyLimit || 20)}
+                              className="px-2.5 py-1 bg-sky-600 hover:bg-sky-700 text-white rounded-lg text-[11px] font-bold transition flex items-center gap-1 cursor-pointer shadow-2xs"
+                            >
+                              <Check className="w-3 h-3" />
+                              <span>核准 (20次)</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleAdminReject(u.email)}
+                              className="px-2 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-[11px] font-bold transition cursor-pointer"
+                            >
+                              拒絕
+                            </button>
+                          </>
+                        )}
+
+                        {u.status === 'approved' && (
                           <button
                             type="button"
                             onClick={() => handleAdminReject(u.email)}
-                            className="px-2 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-[11px] font-bold transition cursor-pointer"
+                            className="px-2 py-1 bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-700 rounded-lg text-[11px] font-semibold transition cursor-pointer"
                           >
-                            拒絕
+                            停用
                           </button>
-                        </>
-                      )}
+                        )}
 
-                      {u.status === 'approved' && u.email.toLowerCase() !== 'kevin10611@gmail.com' && (
+                        {u.status === 'rejected' && (
+                          <button
+                            type="button"
+                            onClick={() => handleAdminApprove(u.email, u.dailyLimit || 20)}
+                            className="px-2.5 py-1 bg-sky-600 hover:bg-sky-700 text-white rounded-lg text-[11px] font-bold transition cursor-pointer"
+                          >
+                            重新核准
+                          </button>
+                        )}
+
                         <button
                           type="button"
-                          onClick={() => handleAdminReject(u.email)}
-                          className="px-2 py-1 bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-700 rounded-lg text-[11px] font-semibold transition cursor-pointer"
+                          onClick={() => handleOpenEditUser(u)}
+                          className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition cursor-pointer"
+                          title="編輯配額與設定"
                         >
-                          停用
+                          <Edit2 className="w-3.5 h-3.5" />
                         </button>
-                      )}
 
-                      {u.status === 'rejected' && (
-                        <button
-                          type="button"
-                          onClick={() => handleAdminApprove(u.email, u.dailyLimit || 20)}
-                          className="px-2.5 py-1 bg-sky-600 hover:bg-sky-700 text-white rounded-lg text-[11px] font-bold transition cursor-pointer"
-                        >
-                          重新核准
-                        </button>
-                      )}
-
-                      <button
-                        type="button"
-                        onClick={() => handleOpenEditUser(u)}
-                        className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition cursor-pointer"
-                        title="編輯配額與設定"
-                      >
-                        <Edit2 className="w-3.5 h-3.5" />
-                      </button>
-
-                      {u.email.toLowerCase() !== 'kevin10611@gmail.com' && (
                         <button
                           type="button"
                           onClick={() => handleAdminDelete(u.email)}
@@ -2070,8 +2109,8 @@ export const SettingsScreen: React.FC = () => {
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
-                      )}
-                    </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               ))
@@ -3089,17 +3128,73 @@ export const SettingsScreen: React.FC = () => {
                   />
                 </div>
 
-                <div className="space-y-1.5">
+                <div className="space-y-1.5 relative">
                   <label className="text-xs font-bold text-slate-700">初始狀態</label>
-                  <select
-                    value={formStatus}
-                    onChange={(e) => setFormStatus(e.target.value as any)}
-                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/30 cursor-pointer"
-                  >
-                    <option value="approved">已核准 (可立即使用)</option>
-                    <option value="pending">待審核 (暫不可用)</option>
-                    <option value="rejected">已拒絕 / 停用</option>
-                  </select>
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setShowStatusDropdown(!showStatusDropdown)}
+                      className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 flex items-center justify-between cursor-pointer focus:bg-white focus:ring-2 focus:ring-amber-500/30 transition-all active:scale-[0.98]"
+                    >
+                      <span className="flex items-center gap-2">
+                        {formStatus === 'approved' && <CheckCircle2 className="w-3.5 h-3.5 text-sky-600" />}
+                        {formStatus === 'pending' && <Clock className="w-3.5 h-3.5 text-amber-600" />}
+                        {formStatus === 'rejected' && <UserX className="w-3.5 h-3.5 text-rose-600" />}
+                        {formStatus === 'approved' ? '已核准' : formStatus === 'pending' ? '待審核' : '已拒絕 / 停用'}
+                      </span>
+                      <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform duration-200 ${showStatusDropdown ? 'rotate-180' : ''}`} />
+                    </button>
+
+                    {showStatusDropdown && (
+                      <>
+                        <div 
+                          className="fixed inset-0 z-[60]" 
+                          onClick={() => setShowStatusDropdown(false)}
+                        />
+                        <div className="absolute z-[70] top-full left-0 right-0 mt-1.5 bg-white border border-slate-200 rounded-2xl shadow-xl overflow-hidden py-1.5 animate-in fade-in slide-in-from-top-2 duration-200 ring-4 ring-black/5">
+                          <button
+                            type="button"
+                            onClick={() => { setFormStatus('approved'); setShowStatusDropdown(false); }}
+                            className={`w-full px-4 py-2.5 text-left text-xs font-bold flex items-center gap-2.5 hover:bg-slate-50 transition-colors ${formStatus === 'approved' ? 'text-sky-700 bg-sky-50' : 'text-slate-600 hover:text-slate-900'}`}
+                          >
+                            <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${formStatus === 'approved' ? 'bg-sky-100' : 'bg-slate-100'}`}>
+                              <CheckCircle2 className="w-4 h-4 text-sky-600" />
+                            </div>
+                            <div className="flex flex-col">
+                              <span>已核准</span>
+                              <span className="text-[10px] opacity-60 font-normal">開放使用 AI 共享額度</span>
+                            </div>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => { setFormStatus('pending'); setShowStatusDropdown(false); }}
+                            className={`w-full px-4 py-2.5 text-left text-xs font-bold flex items-center gap-2.5 hover:bg-slate-50 transition-colors ${formStatus === 'pending' ? 'text-amber-700 bg-amber-50' : 'text-slate-600 hover:text-slate-900'}`}
+                          >
+                            <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${formStatus === 'pending' ? 'bg-amber-100' : 'bg-slate-100'}`}>
+                              <Clock className="w-4 h-4 text-amber-600" />
+                            </div>
+                            <div className="flex flex-col">
+                              <span>待審核</span>
+                              <span className="text-[10px] opacity-60 font-normal">使用者需等待開發者核准</span>
+                            </div>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => { setFormStatus('rejected'); setShowStatusDropdown(false); }}
+                            className={`w-full px-4 py-2.5 text-left text-xs font-bold flex items-center gap-2.5 hover:bg-slate-50 transition-colors ${formStatus === 'rejected' ? 'text-rose-700 bg-rose-50' : 'text-slate-600 hover:text-slate-900'}`}
+                          >
+                            <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${formStatus === 'rejected' ? 'bg-rose-100' : 'bg-slate-100'}`}>
+                              <UserX className="w-4 h-4 text-rose-600" />
+                            </div>
+                            <div className="flex flex-col">
+                              <span>已拒絕 / 停用</span>
+                              <span className="text-[10px] opacity-60 font-normal">禁止該用戶使用共享額度</span>
+                            </div>
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -3184,17 +3279,73 @@ export const SettingsScreen: React.FC = () => {
                   />
                 </div>
 
-                <div className="space-y-1.5">
+                <div className="space-y-1.5 relative">
                   <label className="text-xs font-bold text-slate-700">授權狀態</label>
-                  <select
-                    value={formStatus}
-                    onChange={(e) => setFormStatus(e.target.value as any)}
-                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:bg-white focus:outline-none focus:ring-2 focus:ring-purple-500/30 cursor-pointer"
-                  >
-                    <option value="approved">已核准 (Approved)</option>
-                    <option value="pending">待審核 (Pending)</option>
-                    <option value="rejected">拒絕 / 停用 (Rejected)</option>
-                  </select>
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setShowStatusDropdown(!showStatusDropdown)}
+                      className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 flex items-center justify-between cursor-pointer focus:bg-white focus:ring-2 focus:ring-purple-500/30 transition-all active:scale-[0.98]"
+                    >
+                      <span className="flex items-center gap-2">
+                        {formStatus === 'approved' && <CheckCircle2 className="w-3.5 h-3.5 text-sky-600" />}
+                        {formStatus === 'pending' && <Clock className="w-3.5 h-3.5 text-amber-600" />}
+                        {formStatus === 'rejected' && <UserX className="w-3.5 h-3.5 text-rose-600" />}
+                        {formStatus === 'approved' ? '已核准' : formStatus === 'pending' ? '待審核' : '已拒絕 / 停用'}
+                      </span>
+                      <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform duration-200 ${showStatusDropdown ? 'rotate-180' : ''}`} />
+                    </button>
+
+                    {showStatusDropdown && (
+                      <>
+                        <div 
+                          className="fixed inset-0 z-[60]" 
+                          onClick={() => setShowStatusDropdown(false)}
+                        />
+                        <div className="absolute z-[70] top-full left-0 right-0 mt-1.5 bg-white border border-slate-200 rounded-2xl shadow-xl overflow-hidden py-1.5 animate-in fade-in slide-in-from-top-2 duration-200 ring-4 ring-black/5">
+                          <button
+                            type="button"
+                            onClick={() => { setFormStatus('approved'); setShowStatusDropdown(false); }}
+                            className={`w-full px-4 py-2.5 text-left text-xs font-bold flex items-center gap-2.5 hover:bg-slate-50 transition-colors ${formStatus === 'approved' ? 'text-sky-700 bg-sky-50' : 'text-slate-600 hover:text-slate-900'}`}
+                          >
+                            <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${formStatus === 'approved' ? 'bg-sky-100' : 'bg-slate-100'}`}>
+                              <CheckCircle2 className="w-4 h-4 text-sky-600" />
+                            </div>
+                            <div className="flex flex-col">
+                              <span>已核准</span>
+                              <span className="text-[10px] opacity-60 font-normal">開放使用 AI 共享額度</span>
+                            </div>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => { setFormStatus('pending'); setShowStatusDropdown(false); }}
+                            className={`w-full px-4 py-2.5 text-left text-xs font-bold flex items-center gap-2.5 hover:bg-slate-50 transition-colors ${formStatus === 'pending' ? 'text-amber-700 bg-amber-50' : 'text-slate-600 hover:text-slate-900'}`}
+                          >
+                            <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${formStatus === 'pending' ? 'bg-amber-100' : 'bg-slate-100'}`}>
+                              <Clock className="w-4 h-4 text-amber-600" />
+                            </div>
+                            <div className="flex flex-col">
+                              <span>待審核</span>
+                              <span className="text-[10px] opacity-60 font-normal">使用者需等待開發者核准</span>
+                            </div>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => { setFormStatus('rejected'); setShowStatusDropdown(false); }}
+                            className={`w-full px-4 py-2.5 text-left text-xs font-bold flex items-center gap-2.5 hover:bg-slate-50 transition-colors ${formStatus === 'rejected' ? 'text-rose-700 bg-rose-50' : 'text-slate-600 hover:text-slate-900'}`}
+                          >
+                            <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${formStatus === 'rejected' ? 'bg-rose-100' : 'bg-slate-100'}`}>
+                              <UserX className="w-4 h-4 text-rose-600" />
+                            </div>
+                            <div className="flex flex-col">
+                              <span>已拒絕 / 停用</span>
+                              <span className="text-[10px] opacity-60 font-normal">禁止該用戶使用共享額度</span>
+                            </div>
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
                 </div>
               </div>
 
