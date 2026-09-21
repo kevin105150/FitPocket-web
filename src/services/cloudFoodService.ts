@@ -287,48 +287,78 @@ export const CloudFoodService = {
   /**
    * Fetch online foods from global database.
    */
-  async fetchCloudFoods(searchQuery: string = '', maxResults: number = 40): Promise<FoodSearchResult[]> {
+  /**
+   * Fetch online foods from global database, including stores (FamilyMart, McDonald's, Subway).
+   */
+  async fetchCloudFoods(searchQuery: string = '', maxResults: number = 60): Promise<FoodSearchResult[]> {
     try {
       const qStr = searchQuery.trim().toLowerCase();
-      const colRef = collection(db, COLLECTION_NAME);
-      
-      const q = query(colRef, limit(150));
-      const querySnapshot = await getDocs(q);
-      
       const results: FoodSearchResult[] = [];
-      querySnapshot.forEach((docSnap) => {
-        const data = docSnap.data() as CloudFood;
-        const matchesQuery = !qStr || 
-          data.name.toLowerCase().includes(qStr) || 
-          (data.brand && data.brand.toLowerCase().includes(qStr)) ||
-          (data.barcode && data.barcode.includes(qStr));
 
-        if (matchesQuery) {
-          results.push({
-            id: `cloud_${data.id}`,
-            name: data.name,
-            brand: data.brand || '網路資料庫',
-            calories: data.calories,
-            carbs: data.carbs,
-            sugars: data.sugars,
-            fiber: data.fiber,
-            protein: data.protein,
-            fat: data.fat,
-            sodium: data.sodium,
-            potassium: data.potassium,
-            servingAmount: data.servingAmount,
-            servingUnit: data.servingUnit,
-            servingSizeText: `1 ${data.servingUnit} (${data.servingAmount}${data.servingUnit})`,
-            imageUrl: data.imageUrl,
-            isLocalPreset: false,
-            isUserCustom: false,
-            isCloudPreset: true,
-            barcode: data.barcode,
+      // Helper to fetch and map from a collection
+      const fetchFromCol = async (colName: string, brandDefault: string, idPrefix: string) => {
+        try {
+          const colRef = collection(db, colName);
+          const q = query(colRef, limit(100)); // Limit per collection for performance
+          const snap = await getDocs(q);
+          snap.forEach(docSnap => {
+            const data = docSnap.data();
+            const name = String(data.name || '');
+            const brand = String(data.brand || brandDefault);
+            const barcode = String(data.barcode || '');
+            
+            const matchesQuery = !qStr || 
+              name.toLowerCase().includes(qStr) || 
+              brand.toLowerCase().includes(qStr) ||
+              barcode.includes(qStr);
+            
+            if (matchesQuery) {
+              results.push({
+                id: `${idPrefix}_${data.id || docSnap.id}`,
+                name: name,
+                brand: brand,
+                calories: Number(data.calories) || 0,
+                carbs: Number(data.carbs) || 0,
+                sugars: Number(data.sugars) || 0,
+                fiber: Number(data.fiber) || 0,
+                protein: Number(data.protein) || 0,
+                fat: Number(data.fat) || 0,
+                sodium: Number(data.sodium) || 0,
+                potassium: Number(data.potassium) || 0,
+                servingAmount: Number(data.servingAmount) || 100,
+                servingUnit: String(data.servingUnit || 'g'),
+                servingSizeText: String(data.servingSizeText || `1 ${data.servingUnit || 'g'} (${data.servingAmount || 100}${data.servingUnit || 'g'})`),
+                imageUrl: String(data.imageUrl || ''),
+                isLocalPreset: false,
+                isUserCustom: false,
+                isCloudPreset: true,
+                barcode: barcode,
+              });
+            }
           });
+        } catch (err) {
+          console.warn(`[CloudFoodService] Error fetching from ${colName}:`, err);
         }
+      };
+
+      // Execute queries in parallel
+      await Promise.all([
+        fetchFromCol(COLLECTION_NAME, '網路資料庫', 'cloud'),
+        fetchFromCol('family_foods', '全家', 'family'),
+        fetchFromCol('mcdonald_foods', '麥當勞', 'mcd'),
+        fetchFromCol('subway_foods', 'SUBWAY', 'subway')
+      ]);
+
+      // Remove duplicates by name + brand
+      const seen = new Set<string>();
+      const finalResults = results.filter(item => {
+        const key = `${item.name.trim().toLowerCase()}_${(item.brand || '').trim().toLowerCase()}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
       });
 
-      return results.slice(0, maxResults);
+      return finalResults.slice(0, maxResults);
     } catch (err) {
       handleFirestoreError(err, OperationType.LIST, COLLECTION_NAME);
       return [];
@@ -350,38 +380,53 @@ export const CloudFoodService = {
   },
 
   /**
-   * Fetch cloud food by barcode from global database.
+   * Fetch cloud food by barcode from global database, including stores.
    */
   async fetchCloudFoodByBarcode(barcode: string): Promise<FoodSearchResult | null> {
     try {
       const cleanBarcode = barcode.trim();
       if (!cleanBarcode) return null;
-      const colRef = collection(db, COLLECTION_NAME);
-      const q = query(colRef, where('barcode', '==', cleanBarcode), limit(1));
-      const querySnap = await getDocs(q);
-      if (!querySnap.empty) {
-        const data = querySnap.docs[0].data() as CloudFood;
-        return {
-          id: `cloud_${data.id}`,
-          name: data.name,
-          brand: data.brand || '網路資料庫',
-          calories: data.calories,
-          carbs: data.carbs,
-          sugars: data.sugars,
-          fiber: data.fiber,
-          protein: data.protein,
-          fat: data.fat,
-          sodium: data.sodium,
-          potassium: data.potassium,
-          servingAmount: data.servingAmount,
-          servingUnit: data.servingUnit,
-          servingSizeText: `1 ${data.servingUnit} (${data.servingAmount}${data.servingUnit})`,
-          imageUrl: data.imageUrl,
-          isLocalPreset: false,
-          isUserCustom: false,
-          isCloudPreset: true,
-          barcode: data.barcode,
-        };
+
+      const collectionsToSearch = [
+        { name: COLLECTION_NAME, brand: '網路資料庫', prefix: 'cloud' },
+        { name: 'family_foods', brand: '全家', prefix: 'family' },
+        { name: 'mcdonald_foods', brand: '麥當勞', prefix: 'mcd' },
+        { name: 'subway_foods', brand: 'SUBWAY', prefix: 'subway' }
+      ];
+
+      for (const colInfo of collectionsToSearch) {
+        try {
+          const colRef = collection(db, colInfo.name);
+          const q = query(colRef, where('barcode', '==', cleanBarcode), limit(1));
+          const querySnap = await getDocs(q);
+          
+          if (!querySnap.empty) {
+            const data = querySnap.docs[0].data();
+            return {
+              id: `${colInfo.prefix}_${data.id || querySnap.docs[0].id}`,
+              name: data.name,
+              brand: data.brand || colInfo.brand,
+              calories: Number(data.calories) || 0,
+              carbs: Number(data.carbs) || 0,
+              sugars: Number(data.sugars) || 0,
+              fiber: Number(data.fiber) || 0,
+              protein: Number(data.protein) || 0,
+              fat: Number(data.fat) || 0,
+              sodium: Number(data.sodium) || 0,
+              potassium: Number(data.potassium) || 0,
+              servingAmount: Number(data.servingAmount) || 100,
+              servingUnit: data.servingUnit || 'g',
+              servingSizeText: data.servingSizeText || `1 ${data.servingUnit} (${data.servingAmount}${data.servingUnit})`,
+              imageUrl: data.imageUrl || '',
+              isLocalPreset: false,
+              isUserCustom: false,
+              isCloudPreset: true,
+              barcode: data.barcode,
+            };
+          }
+        } catch (err) {
+          console.warn(`[CloudFoodService] Error searching barcode in ${colInfo.name}:`, err);
+        }
       }
     } catch (err) {
       console.warn('Failed to fetch cloud food by barcode:', err);

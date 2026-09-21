@@ -719,6 +719,8 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
       list = familyResults;
     } else if (activeTab === 'OPEN_FOOD') {
       list = openFoods;
+    } else if (activeTab === 'CLOUD') {
+      list = cloudFoods;
     } else {
       list = local;
     }
