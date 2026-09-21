@@ -263,6 +263,13 @@ async function recordUsageAndHistory(email: string, tokens: number) {
   try {
     const record = await getWhitelistUserFromFirestore(normalized);
     if (record) {
+      const currentCycleDate = getServerGoogleApiQuotaCycleDate();
+      if (record.quotaCycleDate !== currentCycleDate) {
+        record.todayTokens = 0;
+        record.todayUsage = 0;
+        record.quotaCycleDate = currentCycleDate;
+      }
+      record.todayTokens = (Number(record.todayTokens) || 0) + tokens;
       record.totalTokensUsed = (Number(record.totalTokensUsed) || 0) + tokens;
       await saveWhitelistUserToFirestore(record);
     }
@@ -475,9 +482,12 @@ async function validateAndAuthoriseAiRequest(
 
   // Quota Cycle Rollover (PT midnight reset)
   let todayUsage = Number(userRecord.todayUsage) || 0;
+  let todayTokens = Number(userRecord.todayTokens) || 0;
   if (userRecord.quotaCycleDate !== currentCycleDate) {
     todayUsage = 0;
+    todayTokens = 0;
     userRecord.todayUsage = 0;
+    userRecord.todayTokens = 0;
     userRecord.quotaCycleDate = currentCycleDate;
   }
 
@@ -920,9 +930,12 @@ app.get('/api/ai/developer-quota', async (req, res) => {
     }
 
     let todayUsage = Number(userRecord.todayUsage) || 0;
+    let todayTokens = Number(userRecord.todayTokens) || 0;
     if (userRecord.quotaCycleDate !== currentCycleDate) {
       todayUsage = 0;
+      todayTokens = 0;
       userRecord.todayUsage = 0;
+      userRecord.todayTokens = 0;
       userRecord.quotaCycleDate = currentCycleDate;
     }
 
@@ -935,6 +948,7 @@ app.get('/api/ai/developer-quota', async (req, res) => {
       displayName: userRecord.displayName,
       dailyLimit,
       todayUsage,
+      todayTokens,
       remaining,
       totalUsage: Number(userRecord.totalUsage) || 0,
       totalTokensUsed: Number(userRecord.totalTokensUsed) || 0,
@@ -1034,6 +1048,7 @@ app.post('/api/ai/clear-usage-stats', async (req, res) => {
     const users = await getAllWhitelistUsers();
     for (const u of users) {
       u.todayUsage = 0;
+      u.todayTokens = 0;
       u.totalUsage = 0;
       u.totalTokensUsed = 0;
       await saveWhitelistUserToFirestore(u);
@@ -1168,6 +1183,19 @@ app.get('/api/admin/whitelist', async (req, res) => {
       }
     }
 
+    const currentCycleDate = getServerGoogleApiQuotaCycleDate();
+    users.forEach((u) => {
+      if (u.quotaCycleDate !== currentCycleDate) {
+        u.todayUsage = 0;
+        u.todayTokens = 0;
+      } else {
+        u.todayTokens = Number(u.todayTokens) || 0;
+      }
+      u.todayUsage = Number(u.todayUsage) || 0;
+      u.totalUsage = Number(u.totalUsage) || 0;
+      u.totalTokensUsed = Number(u.totalTokensUsed) || 0;
+    });
+
     users.sort((a, b) => {
       if (a.status === 'pending' && b.status !== 'pending') return -1;
       if (a.status !== 'pending' && b.status === 'pending') return 1;
@@ -1222,6 +1250,7 @@ app.post('/api/admin/whitelist/update', async (req, res) => {
       }
       if (resetTodayUsage === true) {
         existing.todayUsage = 0;
+        existing.todayTokens = 0;
         existing.quotaCycleDate = currentCycleDate;
       }
       if (notes !== undefined) {

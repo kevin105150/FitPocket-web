@@ -1190,8 +1190,9 @@ export const SettingsScreen: React.FC = () => {
 
   const todayLADate = getTodayLADate();
   const todayHistoryItem = dailyHistory.find((item) => item.date === todayLADate);
+  const totalTokensToday = adminWhitelist.reduce((acc, curr) => acc + (Number(curr.todayTokens) || 0), 0);
   const todayTotalCalls = todayHistoryItem ? todayHistoryItem.calls : totalCallsToday;
-  const todayTotalTokens = todayHistoryItem ? todayHistoryItem.tokens : 0;
+  const todayTotalTokens = todayHistoryItem ? todayHistoryItem.tokens : totalTokensToday;
 
   return (
     <div className="space-y-5 pb-28 max-w-2xl mx-auto">
@@ -2213,11 +2214,15 @@ export const SettingsScreen: React.FC = () => {
               </button>
               <button
                 type="button"
-                onClick={fetchAdminWhitelist}
-                disabled={loadingAdminWhitelist}
+                onClick={async () => {
+                  fetchAdminWhitelist();
+                  fetchDailyHistory();
+                  fetchDevQuota();
+                }}
+                disabled={loadingAdminWhitelist || loadingDailyHistory || loadingDevQuota}
                 className="w-full px-4 py-2.5 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-xs font-bold rounded-xl transition flex items-center justify-center gap-2 shadow-2xs cursor-pointer disabled:opacity-50"
               >
-                <RefreshCw className={`w-4 h-4 ${loadingAdminWhitelist ? 'animate-spin' : ''}`} />
+                <RefreshCw className={`w-4 h-4 ${loadingAdminWhitelist || loadingDailyHistory || loadingDevQuota ? 'animate-spin' : ''}`} />
                 <span>重新整理</span>
               </button>
               <button
@@ -2425,6 +2430,9 @@ export const SettingsScreen: React.FC = () => {
                           </span>
                           <span>
                             今日已用：<strong className="text-purple-700">{u.todayUsage || 0} 次</strong>
+                          </span>
+                          <span>
+                            今日 Token：<strong className="text-emerald-600">{(Number(u.todayTokens) || 0).toLocaleString()}</strong>
                           </span>
                           {u.notes && (
                             <span className="text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded text-[10px] truncate max-w-[150px]">

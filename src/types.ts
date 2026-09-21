@@ -218,6 +218,7 @@ export interface AiWhitelistUser {
   status: 'approved' | 'pending' | 'rejected';
   dailyLimit: number; // default: 20
   todayUsage: number;
+  todayTokens?: number;
   totalUsage: number;
   quotaCycleDate: string; // "YYYY-MM-DD" Pacific Time
   requestedAt: number;
@@ -230,6 +231,7 @@ export interface AiWhitelistUser {
 export interface DeveloperQuotaInfo {
   dailyLimit: number;
   todayUsage: number;
+  todayTokens?: number;
   remaining: number;
   totalTokensUsed: number;
   quotaCycleDate: string;

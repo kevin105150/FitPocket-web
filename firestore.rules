@@ -41,6 +41,11 @@ service cloud.firestore {
       ) || true;
     }
 
+    // AI Daily Usage History (for daily calls and tokens reporting)
+    match /ai_daily_usage_history/{historyId} {
+      allow read, write: if true;
+    }
+
     // User profiles and all user sub-collections
     match /users/{userId} {
       allow read, write: if isOwner(userId) || !isAuthenticated();

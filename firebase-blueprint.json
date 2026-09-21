@@ -279,12 +279,28 @@
           "status": { "type": "string" },
           "dailyLimit": { "type": "number" },
           "todayUsage": { "type": "number" },
+          "todayTokens": { "type": "number" },
           "totalUsage": { "type": "number" },
+          "totalTokensUsed": { "type": "number" },
           "quotaCycleDate": { "type": "string" },
           "requestedAt": { "type": "number" },
           "approvedAt": { "type": "number" },
           "lastUsedAt": { "type": "number" },
           "notes": { "type": "string" }
+        }
+      }
+    }
+  },
+  "ai_daily_usage_history": {
+    "description": "Historical log of daily AI calls and token usage aggregated by date and user",
+    "documents": {
+      "{historyDocId}": {
+        "fields": {
+          "email": { "type": "string" },
+          "date": { "type": "string" },
+          "calls": { "type": "number" },
+          "tokens": { "type": "number" },
+          "lastUpdatedAt": { "type": "number" }
         }
       }
     }
