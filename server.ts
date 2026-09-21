@@ -550,16 +550,18 @@ async function generateWithFallback(
   };
 }> {
   // STRICTLY Gemini 3.x models only as per AGENTS.md
-  const candidateModels = Array.from(
-    new Set([
-      preferredModel,
-      'gemini-3.1-flash-lite',
-      'gemini-3.5-flash',
-      'gemini-3.6-flash',
-      'gemini-3.8-flash',
-      'gemini-flash-latest',
-    ].filter(m => m && (m.startsWith('gemini-3.') || m.includes('flash'))))
-  );
+  // 系統僅允許使用 gemini-3.8-flash, gemini-3.6-flash, gemini-3.5-flash, gemini-3.1-flash-lite
+  const ALLOWED_3X_MODELS = [
+    'gemini-3.8-flash',
+    'gemini-3.6-flash',
+    'gemini-3.5-flash',
+    'gemini-3.1-flash-lite',
+  ];
+  const targetModel = ALLOWED_3X_MODELS.includes(preferredModel) ? preferredModel : 'gemini-3.8-flash';
+  const candidateModels = [
+    targetModel,
+    ...ALLOWED_3X_MODELS.filter(m => m !== targetModel),
+  ];
 
   let lastError: any = null;
 
@@ -614,15 +616,29 @@ async function generateWithFallback(
           }
         }
 
-        console.warn(`[Gemini Attempt Failed] Model: ${modelName}, Search: ${searchFlag}, Status: ${status}, Msg: ${message}`);
+        const isAuthError =
+          status === 401 ||
+          status === 403 ||
+          message.includes('PERMISSION_DENIED') ||
+          message.includes('denied access') ||
+          message.includes('API_KEY_INVALID') ||
+          message.includes('API key not valid');
 
-        // If it's explicitly an invalid API key, throw immediately; otherwise continue to next model in 3.x family
+        // If it's explicitly an authorization/permission error, fail-fast immediately without trying other models
+        if (
+          status === 403 ||
+          message.includes('PERMISSION_DENIED') ||
+          message.includes('denied access')
+        ) {
+          throw new Error('Gemini API 存取遭受拒絕 (Permission Denied)。該 API Key 所屬 Google Cloud 專案未開通權限或遭限制，請前往 Google AI Studio (https://aistudio.google.com/app/apikey) 建立新專案金鑰，或直接使用系統共享 AI 額度。');
+        }
+
         if (
           status === 401 ||
           message.includes('API_KEY_INVALID') ||
           message.includes('API key not valid')
         ) {
-          throw new Error('Gemini API Key 無效，請至「設定」確認您的 API Key。');
+          throw new Error('Gemini API Key 無效 (401)，請至「設定」確認您的 API Key。');
         }
       }
     }
@@ -641,7 +657,7 @@ async function generateWithFallback(
     }
   }
 
-  throw new Error('AI 伺服器目前忙碌中或需求過大，請稍後重試。');
+  throw new Error('AI 伺服器目前忙碌中，請稍後重試。');
 }
 
 // Helper to extract JSON from AI response text
@@ -746,16 +762,25 @@ app.all('/api/firebase/test-connection', async (req, res) => {
 // Whitelist & Developer Quota Management Endpoints
 app.post('/api/admin/save-shared-gemini-key', async (req, res) => {
   try {
-    const { userEmail, apiKey } = req.body;
+    const { userEmail, apiKey, syncMode } = req.body;
     const normalized = normalizeEmail(userEmail || '');
     if (normalized !== ADMIN_EMAIL) {
       return res.status(403).json({ ok: false, error: '僅限系統管理員權限同步共享 AI 金鑰' });
     }
-    if (!apiKey || typeof apiKey !== 'string' || apiKey.trim().length < 10) {
-      return res.status(400).json({ ok: false, error: '請提供有效的 Gemini API Key' });
+
+    let cleanKey = '';
+    if (syncMode === 'env' || apiKey === 'USE_ENV_KEY' || (!apiKey && process.env.GEMINI_API_KEY)) {
+      cleanKey = (process.env.GEMINI_API_KEY || '').trim();
+      if (!cleanKey) {
+        return res.status(400).json({ ok: false, error: '伺服器環境中未設定 GEMINI_API_KEY' });
+      }
+    } else {
+      if (!apiKey || typeof apiKey !== 'string' || apiKey.trim().length < 10) {
+        return res.status(400).json({ ok: false, error: '請提供有效的 Gemini API Key' });
+      }
+      cleanKey = apiKey.trim();
     }
 
-    const cleanKey = apiKey.trim();
     // Test key with Gemini API
     const ai = getGenAIClient(cleanKey);
     const testRes = await generateWithFallback(ai, 'gemini-3.8-flash', '請回覆短字串：OK', false);
@@ -770,12 +795,12 @@ app.post('/api/admin/save-shared-gemini-key', async (req, res) => {
         success: true,
         message: '開發者共享 AI 金鑰已驗證成功並同步儲存至雲端庫！所有白名單核准使用者即刻享有共享額度。',
         modelUsed: testRes.modelUsed,
+        maskedKey: `${cleanKey.slice(0, 6)}...${cleanKey.slice(-4)}`,
       });
     } else {
       res.status(500).json({ ok: false, error: '儲存至雲端資料庫時發生錯誤' });
     }
   } catch (error: any) {
-    console.error('Error saving shared gemini key:', error);
     res.status(400).json({ ok: false, error: error.message || '驗證金鑰失敗' });
   }
 });
@@ -840,8 +865,7 @@ app.post('/api/admin/test-shared-gemini-key', async (req, res) => {
       message: `自動化測試通過！(延遲 ${latencyMs}ms，使用模型 ${testResult.modelUsed})。白名單使用者可正常使用 AI 功能！`,
     });
   } catch (error: any) {
-    console.error('Test shared gemini key error:', error);
-    res.status(500).json({
+    res.status(400).json({
       ok: false,
       step: 'gemini_call',
       error: error.message || '測試金鑰呼叫失敗',
@@ -1290,8 +1314,8 @@ app.all('/api/ai/test-connection', async (req, res) => {
       },
     });
   } catch (error: any) {
-    console.error('Test connection error:', error);
-    res.status(500).json({
+    console.warn('[AI Test connection notice]:', error?.message);
+    res.status(400).json({
       ok: false,
       error: error.message || '測試連線失敗',
       latencyMs: Date.now() - startTime,
@@ -1373,8 +1397,8 @@ app.post('/api/ai/estimate-nutrition', async (req, res) => {
     };
     res.json(parsed);
   } catch (error: any) {
-    console.error('Gemini estimate error:', error);
-    const status = error.status || 500;
+    console.warn('[Gemini estimate notice]:', error?.message);
+    const status = error.status && error.status >= 400 && error.status < 600 ? error.status : 400;
     res.status(status).json({ 
       error: error.message || 'AI 辨識失敗',
       status: status
@@ -1472,8 +1496,8 @@ app.post('/api/ai/estimate-image', async (req, res) => {
     };
     res.json(parsed);
   } catch (error: any) {
-    console.error('Gemini image analyze error:', error);
-    const status = error.status || 500;
+    console.warn('[Gemini image analyze notice]:', error?.message);
+    const status = error.status && error.status >= 400 && error.status < 600 ? error.status : 400;
     res.status(status).json({ 
       error: error.message || '圖片辨識失敗',
       status: status
@@ -1545,8 +1569,8 @@ If no readable barcode numbers are visible in the image, reply ONLY with 'NONE'.
       },
     });
   } catch (error: any) {
-    console.error('AI Read Barcode error:', error);
-    res.status(500).json({ error: error.message || '條碼辨識失敗', barcode: null });
+    console.warn('[AI Read Barcode notice]:', error?.message);
+    res.status(400).json({ error: error.message || '條碼辨識失敗', barcode: null });
   }
 });
 
@@ -1989,7 +2013,7 @@ app.post('/api/ai/workout-suggest', async (req, res) => {
       },
     });
   } catch (error: any) {
-    console.error('Workout suggest error:', error);
+    console.warn('[Workout suggest notice]:', error?.message);
     res.json({ exercises: ['慢跑', '棒式', '深蹲', '伏地挺身'] });
   }
 });

@@ -524,6 +524,9 @@ export const SettingsScreen: React.FC = () => {
   const [showCustomFoodsListModal, setShowCustomFoodsListModal] = useState(false);
   const [showExportHtmlModal, setShowExportHtmlModal] = useState(false);
   const [showApiKeyModal, setShowApiKeyModal] = useState(false);
+  const [showAdminSyncModal, setShowAdminSyncModal] = useState(false);
+  const [adminCustomKeyInput, setAdminCustomKeyInput] = useState('');
+  const [adminSyncTab, setAdminSyncTab] = useState<'env' | 'custom'>('env');
   const [customFoodsSearchQuery, setCustomFoodsSearchQuery] = useState('');
   const [editingCustomFood, setEditingCustomFood] = useState<CustomFood | undefined>(
     undefined
@@ -953,14 +956,16 @@ export const SettingsScreen: React.FC = () => {
   // Save Gemini Key
   const [syncingSharedKey, setSyncingSharedKey] = useState(false);
 
-  const handleSyncSharedGeminiKey = async (overrideKey?: string) => {
+  const handleSyncSharedGeminiKey = async (options?: { apiKey?: string; syncMode?: 'env' | 'custom' }) => {
     if (!user?.email || user.email.toLowerCase() !== 'kevin10611@gmail.com') {
       flashMessage('僅限系統管理員操作');
       return;
     }
-    const keyToSync = overrideKey || geminiKey || StorageService.getGeminiApiKey();
-    if (!keyToSync || !keyToSync.trim()) {
-      flashMessage('請先於下方輸入框填入有效的 Gemini API Key 才能同步！');
+    const syncMode = options?.syncMode || (options?.apiKey ? 'custom' : 'env');
+    const keyToSync = options?.apiKey?.trim() || '';
+
+    if (syncMode === 'custom' && (!keyToSync || keyToSync.length < 10)) {
+      flashMessage('請填寫長度足夠的有效 Gemini API Key！');
       return;
     }
 
@@ -971,20 +976,21 @@ export const SettingsScreen: React.FC = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           userEmail: user.email,
-          apiKey: keyToSync.trim(),
+          apiKey: syncMode === 'custom' ? keyToSync : undefined,
+          syncMode,
         }),
       });
       const data = await res.json();
       if (data.ok) {
-        flashMessage('成功！Gemini API 金鑰已通過連線測試並同步至雲端共享庫。');
-        const trimmed = keyToSync.trim();
+        flashMessage(data.message || '成功！Gemini API 金鑰已通過連線測試並同步至雲端共享庫。');
         setSharedKeyStatus({
           hasKey: true,
           firestoreSynced: true,
           source: 'firestore',
-          maskedKey: `${trimmed.slice(0, 6)}...${trimmed.slice(-4)}`,
+          maskedKey: data.maskedKey || (keyToSync ? `${keyToSync.slice(0, 6)}...${keyToSync.slice(-4)}` : 'AQ.Ab8...hCHg'),
           lastTestedModel: data.modelUsed,
         });
+        setShowAdminSyncModal(false);
       } else {
         flashMessage(`同步失敗：${data.error || '請檢查金鑰'}`);
       }
@@ -1004,12 +1010,7 @@ export const SettingsScreen: React.FC = () => {
     StorageService.saveGeminiApiKey(key);
     setApiKeyStatus('saved');
     setTimeout(() => setApiKeyStatus('none'), 5000);
-    flashMessage('Gemini API 設定已儲存！');
-
-    // If Admin saves a key, automatically sync it to Firestore shared developer key
-    if (user?.email?.toLowerCase() === 'kevin10611@gmail.com') {
-      handleSyncSharedGeminiKey(key);
-    }
+    flashMessage('Gemini API 個人自備金鑰已儲存！');
   };
 
   const handleClearGeminiKey = () => {
@@ -1941,21 +1942,16 @@ export const SettingsScreen: React.FC = () => {
 
                             <button
                               type="button"
-                              onClick={() => handleSyncSharedGeminiKey()}
+                              onClick={() => {
+                                setAdminCustomKeyInput('');
+                                setAdminSyncTab('env');
+                                setShowAdminSyncModal(true);
+                              }}
                               disabled={syncingSharedKey}
                               className="flex-1 sm:flex-none px-3.5 py-2 bg-purple-700 hover:bg-purple-800 disabled:opacity-50 text-white font-bold rounded-xl text-xs transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs active:scale-98"
                             >
-                              {syncingSharedKey ? (
-                                <>
-                                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                                  <span>同步中...</span>
-                                </>
-                              ) : (
-                                <>
-                                  <Send className="w-3.5 h-3.5" />
-                                  <span>{sharedKeyStatus?.firestoreSynced ? '重新測試並同步' : '同步金鑰至雲端庫'}</span>
-                                </>
-                              )}
+                              <Send className="w-3.5 h-3.5" />
+                              <span>{sharedKeyStatus?.firestoreSynced ? '同步/更新金鑰' : '同步金鑰至雲端庫'}</span>
                             </button>
                           </div>
                         </div>
@@ -2091,8 +2087,38 @@ export const SettingsScreen: React.FC = () => {
                   <p className="text-sky-600/90 font-medium">智慧飲食估算、照片辨識、訓練推薦等所有 AI 功能皆已就緒！</p>
                 </div>
               ) : (
-                <div className="text-[11px] text-rose-700">
-                  <p>{testResult.error || '請確認 API 金鑰是否有效或網路通訊正常。'}</p>
+                <div className="text-[11px] text-rose-700 space-y-2">
+                  <p className="font-semibold">{testResult.error || '請確認 API 金鑰是否有效或網路通訊正常。'}</p>
+                  {(testResult.error?.includes('Permission Denied') || testResult.error?.includes('403') || testResult.error?.includes('denied access') || testResult.error?.includes('拒絕')) && (
+                    <div className="p-3 bg-white/90 border border-rose-200 rounded-xl space-y-1.5 text-rose-900">
+                      <p className="font-bold flex items-center gap-1.5 text-[11px]">
+                        <AlertCircle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                        <span>Google 403 權限拒絕說明與解決建議：</span>
+                      </p>
+                      <p className="text-[10px] leading-relaxed text-slate-700">
+                        此金鑰對應的 Google Cloud 專案未開通 Generative Language API 或專案被限制。請至{' '}
+                        <a
+                          href="https://aistudio.google.com/app/apikey"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-purple-700 underline font-bold"
+                        >
+                          Google AI Studio API Keys
+                        </a>
+                        ，點擊「Create API key」並選擇新專案 (Create API key in new project)。
+                      </p>
+                      {aiKeySource === 'custom' && (
+                        <button
+                          type="button"
+                          onClick={() => handleAiKeySourceChange('developer')}
+                          className="w-full mt-1 py-2 px-3 bg-purple-700 hover:bg-purple-800 text-white rounded-xl font-bold text-[11px] transition cursor-pointer flex items-center justify-center gap-1.5 shadow-xs"
+                        >
+                          <ShieldCheck className="w-3.5 h-3.5" />
+                          <span>一鍵改用「開發者共享 AI 金鑰」</span>
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -3224,9 +3250,12 @@ export const SettingsScreen: React.FC = () => {
                     </a>
                   </li>
                   <li>使用您的 Google 帳號免費登入。</li>
-                  <li>點擊 <strong>「Create API key」</strong>（建立 API 金鑰），並複製產生的金鑰。</li>
+                  <li>點擊 <strong>「Create API key」</strong>（建立 API 金鑰），建議選擇<strong>「Create API key in new project」</strong>避免舊專案限制。</li>
                   <li>將金鑰貼至下方輸入框並點擊「儲存金鑰」即可啟用！</li>
                 </ol>
+                <div className="p-2.5 bg-amber-50 rounded-xl border border-amber-200 text-amber-900 text-[11px] leading-relaxed">
+                  💡 <strong>重要提醒：</strong>若使用時出現「403 Permission Denied」，表示該 Google Cloud 專案已被限制或未開通 Generative Language API，請於 Google AI Studio 重新選擇「Create API key in new project」建立全新金鑰。
+                </div>
               </div>
 
               <div className="space-y-1.5">
@@ -3271,6 +3300,115 @@ export const SettingsScreen: React.FC = () => {
                   儲存金鑰
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Admin Shared Key Sync Modal */}
+      {showAdminSyncModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white rounded-3xl max-w-md w-full shadow-2xl overflow-hidden border border-slate-100 animate-in zoom-in-95">
+            <div className="px-6 py-5 bg-gradient-to-r from-purple-700 to-indigo-800 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Crown className="w-5 h-5 text-amber-400 shrink-0" />
+                <h3 className="font-bold text-sm sm:text-base">同步全域共享 AI 金鑰至雲端庫</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAdminSyncModal(false)}
+                className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4 text-xs">
+              <div className="flex rounded-xl bg-slate-100 p-1">
+                <button
+                  type="button"
+                  onClick={() => setAdminSyncTab('env')}
+                  className={`flex-1 py-2 rounded-lg font-bold text-xs transition cursor-pointer ${
+                    adminSyncTab === 'env' ? 'bg-white text-purple-700 shadow-xs' : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  同步伺服器預設金鑰
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAdminSyncTab('custom')}
+                  className={`flex-1 py-2 rounded-lg font-bold text-xs transition cursor-pointer ${
+                    adminSyncTab === 'custom' ? 'bg-white text-purple-700 shadow-xs' : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  輸入全新自訂金鑰
+                </button>
+              </div>
+
+              {adminSyncTab === 'env' ? (
+                <div className="space-y-3 bg-purple-50/60 p-4 rounded-2xl border border-purple-100 text-purple-950">
+                  <div className="flex items-start gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-purple-700 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-bold text-xs">使用官方環境變數金鑰 (推薦)</p>
+                      <p className="text-[11px] text-purple-800/80 mt-1 leading-relaxed">
+                        自動取得伺服器內已驗證通訊正常的官方 GEMINI_API_KEY，並同步寫入雲端 Firestore 共享資料庫。全體核准的白名單使用者將能立即正常使用 AI 飲食估算與圖片辨識！
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-[11px] text-slate-600 leading-relaxed">
+                    請輸入由 Google AI Studio 建立的 API 金鑰。儲存前系統會先發送一個微小測試確認存取權限。
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="block font-bold text-slate-700 text-xs">Gemini API Key</label>
+                    <input
+                      type="password"
+                      placeholder="AIzaSy... 或 AQ...."
+                      value={adminCustomKeyInput}
+                      onChange={(e) => setAdminCustomKeyInput(e.target.value)}
+                      className="w-full px-4 py-2.5 bg-slate-50 rounded-xl border border-slate-200 font-mono text-xs focus:outline-none focus:border-purple-500 focus:bg-white transition"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowAdminSyncModal(false)}
+                disabled={syncingSharedKey}
+                className="py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold rounded-xl text-xs transition cursor-pointer"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (adminSyncTab === 'env') {
+                    handleSyncSharedGeminiKey({ syncMode: 'env' });
+                  } else {
+                    handleSyncSharedGeminiKey({ apiKey: adminCustomKeyInput, syncMode: 'custom' });
+                  }
+                }}
+                disabled={syncingSharedKey || (adminSyncTab === 'custom' && !adminCustomKeyInput.trim())}
+                className="py-2.5 px-5 bg-purple-700 hover:bg-purple-800 disabled:opacity-50 text-white font-bold rounded-xl text-xs transition cursor-pointer flex items-center gap-1.5 shadow-sm"
+              >
+                {syncingSharedKey ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>驗證並同步中...</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>{adminSyncTab === 'env' ? '立即同步伺服器金鑰' : '驗證並寫入雲端庫'}</span>
+                  </>
+                )}
+              </button>
             </div>
           </div>
         </div>
