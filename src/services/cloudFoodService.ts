@@ -347,6 +347,46 @@ export const CloudFoodService = {
       console.warn('Failed to get cloud foods count:', err);
       return 0;
     }
+  },
+
+  /**
+   * Fetch cloud food by barcode from global database.
+   */
+  async fetchCloudFoodByBarcode(barcode: string): Promise<FoodSearchResult | null> {
+    try {
+      const cleanBarcode = barcode.trim();
+      if (!cleanBarcode) return null;
+      const colRef = collection(db, COLLECTION_NAME);
+      const q = query(colRef, where('barcode', '==', cleanBarcode), limit(1));
+      const querySnap = await getDocs(q);
+      if (!querySnap.empty) {
+        const data = querySnap.docs[0].data() as CloudFood;
+        return {
+          id: `cloud_${data.id}`,
+          name: data.name,
+          brand: data.brand || '網路資料庫',
+          calories: data.calories,
+          carbs: data.carbs,
+          sugars: data.sugars,
+          fiber: data.fiber,
+          protein: data.protein,
+          fat: data.fat,
+          sodium: data.sodium,
+          potassium: data.potassium,
+          servingAmount: data.servingAmount,
+          servingUnit: data.servingUnit,
+          servingSizeText: `1 ${data.servingUnit} (${data.servingAmount}${data.servingUnit})`,
+          imageUrl: data.imageUrl,
+          isLocalPreset: false,
+          isUserCustom: false,
+          isCloudPreset: true,
+          barcode: data.barcode,
+        };
+      }
+    } catch (err) {
+      console.warn('Failed to fetch cloud food by barcode:', err);
+    }
+    return null;
   }
 };
 

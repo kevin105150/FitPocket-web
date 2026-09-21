@@ -812,6 +812,13 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
         return;
       }
 
+      // Second check in cloud database (cloud_foods)
+      const cloudMatch = await CloudFoodService.fetchCloudFoodByBarcode(trimmed);
+      if (cloudMatch) {
+        onSelectFood(cloudMatch);
+        return;
+      }
+
       // Then check OpenFoodFacts proxy
       const res = await fetch(`/api/openfoodfacts/barcode/${encodeURIComponent(trimmed)}`);
       if (res.ok) {
