@@ -386,6 +386,17 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   useEffect(() => {
     if (isOpen && activeMode === 'camera') {
       setIsExiting(false);
+      // Pre-enumerate cameras immediately if permission is already granted
+      Html5Qrcode.getCameras().then((devices) => {
+        if (devices && devices.length > 0) {
+          const formatted = rankAndFormatCameras(devices);
+          setAvailableCameras(formatted);
+          if (!selectedCameraId && formatted.length > 0) {
+            setSelectedCameraId(formatted[0].id);
+          }
+        }
+      }).catch(() => {});
+
       const timer = setTimeout(() => {
         startCamera(selectedCameraId);
       }, 300);
