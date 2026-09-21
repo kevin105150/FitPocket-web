@@ -57,16 +57,15 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
         className="max-w-md w-full bg-white rounded-[40px] shadow-2xl border border-slate-200/50 p-8 sm:p-12 relative z-10 text-center"
       >
         {/* App Logo */}
-        <img
-          src="/logo.svg"
-          alt="FitPocket Logo"
-          className="w-20 h-20 rounded-[28px] object-cover shadow-sm mx-auto mb-8"
-          referrerPolicy="no-referrer"
-        />
+        <div className="mb-8 flex justify-center">
+          <img
+            src="/logo.jpg"
+            alt="FitPocket Logo"
+            className="w-32 h-auto object-contain"
+            referrerPolicy="no-referrer"
+          />
+        </div>
 
-        <h1 className="text-3xl font-black text-slate-900 mb-2 tracking-tight">
-          FitPocket
-        </h1>
         <p className="text-slate-500 text-sm font-medium mb-10">
           您的 AI 飲食與健身私人管家
         </p>
