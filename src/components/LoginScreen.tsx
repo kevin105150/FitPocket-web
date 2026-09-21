@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
-import { LogIn, Sparkles, Smartphone, CheckCircle2, AlertCircle } from 'lucide-react';
+import { LogIn, Sparkles, Smartphone, CheckCircle2, AlertCircle, Flame } from 'lucide-react';
 import { loginWithGoogle } from '../lib/firebase';
 
 interface LoginScreenProps {
@@ -10,6 +10,7 @@ interface LoginScreenProps {
 export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [imgError, setImgError] = useState(false);
 
   const handleLogin = async (forcedMethod?: 'popup' | 'redirect') => {
     setIsLoading(true);
@@ -57,13 +58,21 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
         className="max-w-md w-full bg-white rounded-[40px] shadow-2xl border border-slate-200/50 p-8 sm:p-12 relative z-10 text-center"
       >
         {/* App Logo */}
-        <div className="mb-8 flex justify-center">
-          <img
-            src="/logo.jpg"
-            alt="FitPocket Logo"
-            className="w-32 h-auto object-contain"
-            referrerPolicy="no-referrer"
-          />
+        <div className="mb-6 flex flex-col items-center justify-center">
+          {!imgError ? (
+            <img
+              src="/favicon.jpg"
+              alt="FitPocket Logo"
+              className="w-16 h-16 rounded-2xl object-cover shadow-md mb-3"
+              onError={() => setImgError(true)}
+              referrerPolicy="no-referrer"
+            />
+          ) : (
+            <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-sky-500 to-cyan-500 flex items-center justify-center shadow-lg shadow-sky-500/30 mb-3 text-white">
+              <Flame className="w-8 h-8" />
+            </div>
+          )}
+          <h1 className="text-2xl font-black text-slate-900 tracking-tight">FitPocket</h1>
         </div>
 
         <p className="text-slate-500 text-sm font-medium mb-10">
