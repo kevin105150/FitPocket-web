@@ -231,28 +231,6 @@ const MealSection: React.FC<MealSectionProps> = ({
                           {/* 1. 名稱 & 膠囊 */}
                           <div className="flex items-center gap-1.5 min-w-0 max-w-full h-8">
                             <span className="font-bold text-sm text-slate-800 truncate min-w-0 shrink">{item.name}</span>
-                            <div className="inline-flex items-center gap-1 shrink-0">
-                              {item.sourceFoodId && (
-                                <span className="text-[10px] font-bold px-1.5 py-0.25 bg-amber-100 text-amber-800 rounded-md whitespace-nowrap shrink-0">
-                                  我的自訂
-                                </span>
-                              )}
-                              {(item.sourceFoodId?.startsWith('cloud_') || item.barcode) && (
-                                <span className="text-[10px] font-bold px-1.5 py-0.25 bg-sky-100 text-sky-800 rounded-md whitespace-nowrap shrink-0">
-                                  網路資料庫
-                                </span>
-                              )}
-                              {item.aiSource === 'vision' && (
-                                <span className="text-[10px] font-bold px-1.5 py-0.25 bg-purple-50 text-purple-700 border border-purple-100 rounded-md whitespace-nowrap shrink-0">
-                                  AI 視覺辨識
-                                </span>
-                              )}
-                              {item.aiSource === 'estimation' && (
-                                <span className="text-[10px] font-bold px-1.5 py-0.25 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-md whitespace-nowrap shrink-0">
-                                  AI 智慧估算
-                                </span>
-                              )}
-                            </div>
                           </div>
 
                           {/* 2. 品牌 */}

@@ -3112,30 +3112,6 @@ export const SettingsScreen: React.FC = () => {
                         {/* 1. 名稱 & 膠囊 */}
                         <div className="flex items-center gap-1.5 min-w-0 max-w-full">
                           <span className="font-bold text-sm text-slate-800 truncate min-w-0 shrink">{cf.name}</span>
-                          <div className="inline-flex items-center gap-1 shrink-0">
-                            <span className="text-[10px] font-bold px-1.5 py-0.25 bg-amber-100 text-amber-800 rounded-md whitespace-nowrap shrink-0">
-                              我的自訂
-                            </span>
-                            {(() => {
-                              const isVision = cf.aiSource === 'vision' || cf.brand === 'AI 視覺辨識';
-                              const isEstimation = cf.aiSource === 'estimation' || cf.brand === 'AI 智慧估算';
-                              if (isVision) {
-                                return (
-                                  <span className="text-[10px] font-bold px-1.5 py-0.25 bg-purple-50 text-purple-700 border border-purple-100 rounded-md whitespace-nowrap shrink-0">
-                                    AI 視覺辨識
-                                  </span>
-                                );
-                              }
-                              if (isEstimation) {
-                                return (
-                                  <span className="text-[10px] font-bold px-1.5 py-0.25 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-md whitespace-nowrap shrink-0">
-                                    AI 智慧估算
-                                  </span>
-                                );
-                              }
-                              return null;
-                            })()}
-                          </div>
                         </div>
 
                         {/* 2. 品牌 */}

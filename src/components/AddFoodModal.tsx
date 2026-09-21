@@ -1391,9 +1391,6 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                                 <h4 className="font-bold text-sm text-slate-900 group-hover:text-emerald-800 truncate min-w-0 shrink">
                                   {record.name}
                                 </h4>
-                                <span className="text-[10px] font-bold px-1.5 py-0.25 bg-emerald-100 text-emerald-800 rounded-md whitespace-nowrap shrink-0">
-                                  全家
-                                </span>
                                 <button
                                   type="button"
                                   onClick={(e) => {
@@ -1470,9 +1467,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                                 {food.name}
                               </h4>
                               <div className="inline-flex items-center gap-1 shrink-0">
-                                <span className="text-[10px] font-bold px-1.5 py-0.25 bg-emerald-100 text-emerald-800 rounded-md whitespace-nowrap">
-                                  全家官網
-                                </span>
+
                                 <button
                                   type="button"
                                   onClick={(e) => {
@@ -1645,9 +1640,6 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                                 {food.name}
                               </h4>
                               <div className="inline-flex items-center gap-1 shrink-0">
-                                <span className="text-[10px] font-bold px-1.5 py-0.25 bg-red-100 text-red-800 rounded-md whitespace-nowrap">
-                                  麥當勞官網
-                                </span>
                                 <button
                                   type="button"
                                   onClick={(e) => {
@@ -1821,9 +1813,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                               <h4 className="font-bold text-sm text-slate-900 group-hover:text-amber-800 truncate min-w-0 shrink">
                                 {food.name}
                               </h4>
-                              <span className="text-[10px] font-bold px-1.5 py-0.25 bg-amber-100 text-amber-800 rounded-md whitespace-nowrap shrink-0">
-                                Subway
-                              </span>
+
                               <button
                                 type="button"
                                 onClick={(e) => {
@@ -2145,10 +2135,6 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                           {food.name}
                         </h4>
                         <div className="inline-flex items-center gap-1 shrink-0">
-                          <span className="text-[10px] font-bold px-1.5 py-0.25 bg-sky-100 text-sky-800 rounded-md flex items-center gap-0.5 whitespace-nowrap">
-                            <Cloud className="w-2.5 h-2.5 text-sky-600" />
-                            網路資料庫
-                          </span>
                           <button
                             type="button"
                             onClick={(e) => {
@@ -2362,26 +2348,6 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                                 {record.name}
                               </h4>
                               <div className="inline-flex items-center gap-1 shrink-0">
-                                {record.sourceFoodId?.startsWith('custom_') && (
-                                  <span className="text-[10px] font-bold px-1.5 py-0.25 bg-amber-100 text-amber-800 rounded-md whitespace-nowrap">
-                                    我的自訂
-                                  </span>
-                                )}
-                                {(record.sourceFoodId?.startsWith('cloud_') || record.barcode) && (
-                                  <span className="text-[10px] font-bold px-1.5 py-0.25 bg-sky-100 text-sky-800 rounded-md whitespace-nowrap">
-                                    網路資料庫
-                                  </span>
-                                )}
-                                {record.aiSource === 'vision' && (
-                                  <span className="text-[10px] font-bold px-1.5 py-0.25 bg-purple-50 text-purple-700 border border-purple-100 rounded-md whitespace-nowrap">
-                                    AI 視覺辨識
-                                  </span>
-                                )}
-                                {record.aiSource === 'estimation' && (
-                                  <span className="text-[10px] font-bold px-1.5 py-0.25 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-md whitespace-nowrap">
-                                    AI 智慧估算
-                                  </span>
-                                )}
                                 <button
                                   type="button"
                                   onClick={(e) => {
@@ -2460,44 +2426,18 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                             {food.name}
                           </h4>
                           <div className="inline-flex items-center gap-1 shrink-0">
-                            {food.isUserCustom && (
-                              <span className="text-[10px] font-bold px-1.5 py-0.25 bg-amber-100 text-amber-800 rounded-md whitespace-nowrap">
-                                我的自訂
-                              </span>
-                            )}
-                            {food.id.startsWith('cloud_') && (
-                              <span className="text-[10px] font-bold px-1.5 py-0.25 bg-sky-100 text-sky-800 rounded-md whitespace-nowrap">
-                                網路資料庫
-                              </span>
-                            )}
-                            {(food.isOpenFood || food.id.startsWith('off_') || food.id.startsWith('open_')) && (
-                              <span className="text-[10px] font-bold px-1.5 py-0.25 bg-amber-100 text-amber-800 rounded-md whitespace-nowrap">
-                                Open Food
-                              </span>
-                            )}
-                            {(food.aiSource === 'vision' || food.brand === 'AI 視覺辨識') && (
-                              <span className="text-[10px] font-bold px-1.5 py-0.25 bg-purple-50 text-purple-700 border border-purple-100 rounded-md whitespace-nowrap">
-                                AI 視覺辨識
-                              </span>
-                            )}
-                            {(food.aiSource === 'estimation' || food.brand === 'AI 智慧估算') && (
-                              <span className="text-[10px] font-bold px-1.5 py-0.25 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-md whitespace-nowrap">
-                                AI 智慧估算
-                              </span>
-                            )}
-
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleSelectFoodWithHistory(food);
-                              }}
-                              className="p-1 text-slate-400 hover:text-sky-700 hover:bg-sky-50 rounded-lg transition cursor-pointer"
-                              title="點擊修改/設定份量"
-                            >
-                              <Pencil className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleSelectFoodWithHistory(food);
+                                }}
+                                className="p-1 text-slate-400 hover:text-sky-700 hover:bg-sky-50 rounded-lg transition cursor-pointer"
+                                title="點擊修改/設定份量"
+                              >
+                                <Pencil className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
                         </div>
 
                         {/* 2. 品牌 */}
