@@ -310,12 +310,12 @@ async function validateAndAuthoriseAiRequest(
   }
 
   // 2. Developer Key Mode (Backend-managed)
-  const devKey = process.env.GEMINI_API_KEY || getFirestoreConfig().apiKey;
+  const devKey = (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.trim()) || '';
   if (!devKey) {
     return {
       allowed: false,
-      statusCode: 500,
-      errorMessage: '伺服器後端尚未設定 GEMINI_API_KEY 環境變數，請確認環境設定或改用個人 API Key。',
+      statusCode: 400,
+      errorMessage: '後端未偵測到開發者 GEMINI_API_KEY。請至「設定」輸入您的個人 Gemini API Key 即可開啟完整 AI 功能！',
     };
   }
 
@@ -488,91 +488,94 @@ async function generateWithFallback(
   };
 }> {
   // STRICTLY Gemini 3.x models only as per AGENTS.md
-  // Priority order for speed: Lite models first for simple tasks if preferred, but usually Flash 8b/Flash are fast.
   const candidateModels = Array.from(
     new Set([
       preferredModel,
-      'gemini-3.1-flash-lite', // Fastest in 3.x family
       'gemini-3.8-flash',
+      'gemini-3.1-flash-lite',
       'gemini-3.6-flash',
       'gemini-3.5-flash',
-    ].filter(m => m && m.startsWith('gemini-3.')))
+      'gemini-flash-latest',
+    ].filter(m => m && (m.startsWith('gemini-3.') || m.includes('flash'))))
   );
 
   let lastError: any = null;
 
   for (const modelName of candidateModels) {
-    try {
-      console.log(`[Gemini Request] Attempting model: ${modelName} (Search: ${useSearch})...`);
-      
-      const isLite = modelName.includes('lite');
-      
-      const config: any = {
-        model: modelName,
-        contents: Array.isArray(contents) ? contents : [{ role: 'user', parts: [{ text: contents }] }],
-        generationConfig: {
-          responseMimeType: 'application/json',
-          temperature: isLite ? 0.4 : 0.7, // Lower temperature for lite models for more stability
-        }
-      };
+    const isLite = modelName.includes('lite');
+    // Try with search if requested; if search fails, try without search as fallback
+    const searchOptions = useSearch ? [true, false] : [false];
 
-      if (useSearch) {
-        config.tools = [{ googleSearch: {} }];
-      }
-
-      // Fast timeout for lite models if they are secondary
-      const response = await ai.models.generateContent(config);
-
-      const text = response.text;
-      if (text && text.trim().length > 0) {
-        console.log(`[Gemini Success] Successfully generated with ${modelName}`);
-        const promptTokens = Number(response.usageMetadata?.promptTokenCount) || 0;
-        const candidatesTokens = Number(response.usageMetadata?.candidatesTokenCount) || 0;
-        const totalTokens = Number(response.usageMetadata?.totalTokenCount) || (promptTokens + candidatesTokens);
-
-        return {
-          text: text.trim(),
-          modelUsed: modelName,
-          usageMetadata: {
-            promptTokenCount: promptTokens,
-            candidatesTokenCount: candidatesTokens,
-            totalTokenCount: totalTokens,
-          },
+    for (const searchFlag of searchOptions) {
+      try {
+        console.log(`[Gemini Request] Attempting model: ${modelName} (Search: ${searchFlag})...`);
+        const config: any = {
+          model: modelName,
+          contents: Array.isArray(contents) ? contents : [{ role: 'user', parts: [{ text: contents }] }],
+          generationConfig: {
+            responseMimeType: 'application/json',
+            temperature: isLite ? 0.4 : 0.7,
+          }
         };
-      }
-    } catch (err: any) {
-      lastError = err;
-      let status = err.status || err.code || 0;
-      const message = err.message || '';
 
-      if (!status && message) {
-        const match = message.match(/503|429|500/);
-        if (match) {
-          status = parseInt(match[0], 10);
+        if (searchFlag) {
+          config.tools = [{ googleSearch: {} }];
+        }
+
+        const response = await ai.models.generateContent(config);
+        const text = response.text;
+        if (text && text.trim().length > 0) {
+          console.log(`[Gemini Success] Successfully generated with ${modelName} (Search: ${searchFlag})`);
+          const promptTokens = Number(response.usageMetadata?.promptTokenCount) || 0;
+          const candidatesTokens = Number(response.usageMetadata?.candidatesTokenCount) || 0;
+          const totalTokens = Number(response.usageMetadata?.totalTokenCount) || (promptTokens + candidatesTokens);
+
+          return {
+            text: text.trim(),
+            modelUsed: modelName,
+            usageMetadata: {
+              promptTokenCount: promptTokens,
+              candidatesTokenCount: candidatesTokens,
+              totalTokenCount: totalTokens,
+            },
+          };
+        }
+      } catch (err: any) {
+        lastError = err;
+        let status = err.status || err.code || 0;
+        const message = err.message || '';
+
+        if (!status && message) {
+          const match = message.match(/503|429|500|400|401|403/);
+          if (match) {
+            status = parseInt(match[0], 10);
+          }
+        }
+
+        console.warn(`[Gemini Attempt Failed] Model: ${modelName}, Search: ${searchFlag}, Status: ${status}, Msg: ${message}`);
+
+        // If it's explicitly an API key / auth / permission error, throw immediately
+        if (
+          status === 400 || status === 401 || status === 403 ||
+          message.includes('API_KEY_INVALID') ||
+          message.includes('API key not valid') ||
+          message.includes('PERMISSION_DENIED') ||
+          message.includes('UNAUTHENTICATED')
+        ) {
+          throw new Error('Gemini API Key 無效或未開通權限，請至「設定」確認您的 API Key。');
         }
       }
-
-      console.log(`[Gemini Fallback] Model ${modelName} returned status ${status || 'busy'} (Will try next 3.x candidate in family)`);
-
-      // If it's a transient server issue (503, 429, 500), try the next 3.x model
-      if (
-        status === 503 ||
-        status === 429 ||
-        status === 500 ||
-        message.includes('high demand') ||
-        message.includes('UNAVAILABLE') ||
-        message.includes('RESOURCE_EXHAUSTED')
-      ) {
-        continue;
-      }
-
-      // Continue to next 3.x model for any error to maximize success rate within the family
-      continue;
     }
   }
 
-  if (lastError && (lastError.message?.includes('RESOURCE_EXHAUSTED') || lastError.message?.includes('exceeded your current quota') || lastError.status === 429)) {
-    throw new Error('Gemini API 額度已達上限 (Quota Exceeded)，請檢查您的 API 方案與額度，或稍後再試。');
+  if (lastError) {
+    const msg = lastError.message || '';
+    if (msg.includes('RESOURCE_EXHAUSTED') || msg.includes('exceeded your current quota') || lastError.status === 429) {
+      throw new Error('Gemini API 額度已達上限 (Quota Exceeded)，請稍後再試或至「設定」改用個人 API Key。');
+    }
+    if (msg) {
+      throw new Error(`AI 服務暫時無法回應 (${msg.slice(0, 100)})`);
+    }
   }
 
   throw new Error('AI 伺服器目前忙碌中或需求過大，請稍後重試。');
@@ -1903,7 +1906,7 @@ app.get('/api/openfoodfacts/search', async (req, res) => {
 
       // Fast Gemini AI Translation fallback (1.2s timeout to avoid slowing response)
       const customApiKey = req.query.customApiKey as string;
-      const keyToUse = customApiKey || process.env.GEMINI_API_KEY || getFirestoreConfig().apiKey;
+      const keyToUse = customApiKey || process.env.GEMINI_API_KEY;
       const ai = keyToUse ? getGenAIClient(keyToUse) : null;
       if (ai) {
         try {
