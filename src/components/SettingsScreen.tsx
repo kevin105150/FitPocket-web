@@ -4430,8 +4430,11 @@ export const SettingsScreen: React.FC = () => {
                     type="number"
                     min="0.1"
                     step="any"
-                    value={editFoodServingAmount}
-                    onChange={(e) => setEditFoodServingAmount(Number(e.target.value) || 100)}
+                    value={editFoodServingAmount === 0 ? '' : editFoodServingAmount}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setEditFoodServingAmount(val === '' ? 0 : Number(val));
+                    }}
                     className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-sky-500/30"
                   />
                 </div>
@@ -4473,8 +4476,11 @@ export const SettingsScreen: React.FC = () => {
                       type="number"
                       min="0"
                       step="any"
-                      value={editFoodCalories}
-                      onChange={(e) => setEditFoodCalories(Number(e.target.value) || 0)}
+                      value={editFoodCalories === 0 ? '' : editFoodCalories}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setEditFoodCalories(val === '' ? 0 : Number(val));
+                      }}
                       className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-amber-600 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/30"
                     />
                   </div>
@@ -4485,8 +4491,11 @@ export const SettingsScreen: React.FC = () => {
                       type="number"
                       min="0"
                       step="any"
-                      value={editFoodCarbs}
-                      onChange={(e) => setEditFoodCarbs(Number(e.target.value) || 0)}
+                      value={editFoodCarbs === 0 ? '' : editFoodCarbs}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setEditFoodCarbs(val === '' ? 0 : Number(val));
+                      }}
                       className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-500/30"
                     />
                   </div>
@@ -4497,8 +4506,11 @@ export const SettingsScreen: React.FC = () => {
                       type="number"
                       min="0"
                       step="any"
-                      value={editFoodProtein}
-                      onChange={(e) => setEditFoodProtein(Number(e.target.value) || 0)}
+                      value={editFoodProtein === 0 ? '' : editFoodProtein}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setEditFoodProtein(val === '' ? 0 : Number(val));
+                      }}
                       className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-emerald-600 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
                     />
                   </div>
@@ -4509,8 +4521,11 @@ export const SettingsScreen: React.FC = () => {
                       type="number"
                       min="0"
                       step="any"
-                      value={editFoodFat}
-                      onChange={(e) => setEditFoodFat(Number(e.target.value) || 0)}
+                      value={editFoodFat === 0 ? '' : editFoodFat}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setEditFoodFat(val === '' ? 0 : Number(val));
+                      }}
                       className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-blue-600 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/30"
                     />
                   </div>
@@ -4536,8 +4551,11 @@ export const SettingsScreen: React.FC = () => {
                       type="number"
                       min="0"
                       step="any"
-                      value={editFoodSugars}
-                      onChange={(e) => setEditFoodSugars(Number(e.target.value) || 0)}
+                      value={editFoodSugars === 0 ? '' : editFoodSugars}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setEditFoodSugars(val === '' ? 0 : Number(val));
+                      }}
                       className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-500/30"
                     />
                   </div>
@@ -4548,8 +4566,11 @@ export const SettingsScreen: React.FC = () => {
                       type="number"
                       min="0"
                       step="any"
-                      value={editFoodFiber}
-                      onChange={(e) => setEditFoodFiber(Number(e.target.value) || 0)}
+                      value={editFoodFiber === 0 ? '' : editFoodFiber}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setEditFoodFiber(val === '' ? 0 : Number(val));
+                      }}
                       className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-500/30"
                     />
                   </div>
@@ -4560,8 +4581,11 @@ export const SettingsScreen: React.FC = () => {
                       type="number"
                       min="0"
                       step="any"
-                      value={editFoodSodium}
-                      onChange={(e) => setEditFoodSodium(Number(e.target.value) || 0)}
+                      value={editFoodSodium === 0 ? '' : editFoodSodium}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setEditFoodSodium(val === '' ? 0 : Number(val));
+                      }}
                       className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-500/30"
                     />
                   </div>
@@ -4572,8 +4596,11 @@ export const SettingsScreen: React.FC = () => {
                       type="number"
                       min="0"
                       step="any"
-                      value={editFoodPotassium}
-                      onChange={(e) => setEditFoodPotassium(Number(e.target.value) || 0)}
+                      value={editFoodPotassium === 0 ? '' : editFoodPotassium}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setEditFoodPotassium(val === '' ? 0 : Number(val));
+                      }}
                       className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-500/30"
                     />
                   </div>
