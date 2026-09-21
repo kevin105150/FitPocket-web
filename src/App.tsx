@@ -102,8 +102,13 @@ export default function App() {
       } else {
         throw new Error("No token received");
       }
-    } catch (err) {
-      console.error("Restore auth error:", err);
+    } catch (err: any) {
+      const errCode = err?.code || '';
+      if (errCode === 'auth/popup-closed-by-user' || errCode === 'auth/cancelled-popup-request') {
+        console.log("Restore auth cancelled by user.");
+      } else {
+        console.error("Restore auth error:", err);
+      }
       localStorage.removeItem('fitpocket_redirect_pending');
       localStorage.removeItem('fitpocket_auth_locking');
       setIsUpdatingCredentials(false);

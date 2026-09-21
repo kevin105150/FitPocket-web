@@ -277,7 +277,7 @@ let cachedSharedApiKey = '';
 let cachedSharedApiKeyTime = 0;
 
 async function getSharedDeveloperApiKeyFromFirestore(): Promise<string> {
-  if (cachedSharedApiKey && Date.now() - cachedSharedApiKeyTime < 60000) {
+  if (cachedSharedApiKey && Date.now() - cachedSharedApiKeyTime < 300000) {
     return cachedSharedApiKey;
   }
   const cfg = getFirestoreConfig();
@@ -292,11 +292,14 @@ async function getSharedDeveloperApiKeyFromFirestore(): Promise<string> {
         cachedSharedApiKeyTime = Date.now();
         return cachedSharedApiKey;
       }
+    } else {
+      const errTxt = await resp.text();
+      console.warn('Firestore fetch shared key status:', resp.status, errTxt);
     }
   } catch (err) {
     console.error('Error fetching shared developer key from Firestore:', err);
   }
-  return '';
+  return cachedSharedApiKey || '';
 }
 
 async function saveSharedDeveloperApiKeyToFirestore(apiKey: string, updatedBy: string): Promise<boolean> {
@@ -368,11 +371,15 @@ async function validateAndAuthoriseAiRequest(
   }
 
   if (!devKey) {
-    return {
-      allowed: false,
-      statusCode: 400,
-      errorMessage: '系統管理員尚未同步共享 GEMINI_API_KEY 至雲端庫。請點擊「設定」輸入您的個人 Gemini API Key，或由管理員於設定中按下「同步共享金鑰」！',
-    };
+    if (cleanCustomKey && cleanCustomKey.length > 10) {
+      devKey = cleanCustomKey;
+    } else {
+      return {
+        allowed: false,
+        statusCode: 400,
+        errorMessage: '系統管理員尚未完成共享 GEMINI_API_KEY 同步。請點擊「設定」輸入您的個人 Gemini API Key，或由管理員於「設定」輸入有效金鑰並點擊「同步金鑰至雲端庫」！',
+      };
+    }
   }
 
   const normalizedEmail = normalizeEmail(userEmail || '');

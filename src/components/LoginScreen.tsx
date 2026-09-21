@@ -22,20 +22,23 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
       }
       onLoginSuccess();
     } catch (error: any) {
-      console.error('Login failed:', error);
       const code = error?.code || '';
       const message = error?.message || '';
       
-      if (code === 'auth/popup-closed-by-user') {
-        setErrorMsg('登入視窗已關閉。若在手機上遇到彈窗限制，系統將為您自動切換至跳轉模式，或點選下方「跳轉登入」。');
-      } else if (code === 'auth/popup-blocked') {
-        setErrorMsg('登入彈窗被瀏覽器攔截，請允許此網頁彈窗，或使用下方「跳轉模式」。');
-      } else if (code === 'auth/unauthorized-domain') {
-        setErrorMsg(`網域未授權 (${window.location.hostname})，請在 Firebase 控制台新增 Authorized Domain。`);
-      } else if (code === 'auth/network-request-failed') {
-        setErrorMsg('網路連接失敗，請檢查網路狀態。');
+      if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
+        console.log('Login popup closed by user');
+        setErrorMsg('登入視窗已關閉。若在手機上遇到彈窗限制，您可以點選下方「跳轉登入」或重試。');
       } else {
-        setErrorMsg(`登入失敗 (${code || 'Error'}): ${message || '請稍後再試'}`);
+        console.error('Login failed:', error);
+        if (code === 'auth/popup-blocked') {
+          setErrorMsg('登入彈窗被瀏覽器攔截，請允許此網頁彈窗，或使用下方「跳轉模式」。');
+        } else if (code === 'auth/unauthorized-domain') {
+          setErrorMsg(`網域未授權 (${window.location.hostname})，請在 Firebase 控制台新增 Authorized Domain。`);
+        } else if (code === 'auth/network-request-failed') {
+          setErrorMsg('網路連接失敗，請檢查網路狀態。');
+        } else {
+          setErrorMsg(`登入失敗 (${code || 'Error'}): ${message || '請稍後再試'}`);
+        }
       }
     } finally {
       setIsLoading(false);

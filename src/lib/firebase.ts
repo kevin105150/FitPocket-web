@@ -248,14 +248,15 @@ export const loginWithGoogle = async (forceSelectAccount = false, forceMethod?: 
         }
         return { user: result.user, accessToken: cachedAccessToken, isRedirecting: false };
       } catch (popupErr: any) {
-        console.warn("Firebase popup login encountered error, evaluating fallback:", popupErr);
         const errCode = popupErr?.code || '';
         
-        // If user manually closed the popup, do not proceed with fallback
+        // If user manually closed the popup, do not log warning or proceed with fallback
         if (errCode === 'auth/popup-closed-by-user' || errCode === 'auth/cancelled-popup-request') {
           console.log("User closed or cancelled the login popup. Staying on current view.");
           throw popupErr;
         }
+
+        console.warn("Firebase popup login encountered error, evaluating fallback:", popupErr);
 
         // Attempt fallback via modern Google Identity Services (GIS) Token Client
         try {
@@ -296,7 +297,12 @@ export const loginWithGoogle = async (forceSelectAccount = false, forceMethod?: 
       }
     }
   } catch (error: any) {
-    console.error("Login failed:", error);
+    const errCode = error?.code || '';
+    if (errCode === 'auth/popup-closed-by-user' || errCode === 'auth/cancelled-popup-request') {
+      console.log("Google Sign-In popup closed by user.");
+    } else {
+      console.error("Login failed:", error);
+    }
     throw error;
   }
 };
