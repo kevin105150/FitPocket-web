@@ -63,6 +63,16 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    // McDonald's single products database (no duplication)
+    match /mcdonald_foods/{foodId} {
+      allow read, write: if true;
+    }
+
+    // Subway single products database (no duplication)
+    match /subway_foods/{foodId} {
+      allow read, write: if true;
+    }
+
     // Open Food Facts saved foods collection
     match /open_foods/{foodId} {
       allow read: if true;

@@ -163,6 +163,58 @@
       }
     }
   },
+  "mcdonald_foods": {
+    "description": "Global McDonald's single product records",
+    "documents": {
+      "{foodId}": {
+        "fields": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "brand": { "type": "string" },
+          "calories": { "type": "number" },
+          "carbs": { "type": "number" },
+          "sugars": { "type": "number" },
+          "fiber": { "type": "number" },
+          "protein": { "type": "number" },
+          "fat": { "type": "number" },
+          "sodium": { "type": "number" },
+          "potassium": { "type": "number" },
+          "servingAmount": { "type": "number" },
+          "servingUnit": { "type": "string" },
+          "servingSizeText": { "type": "string" },
+          "imageUrl": { "type": "string" },
+          "isLocalPreset": { "type": "boolean" },
+          "updatedAt": { "type": "number" }
+        }
+      }
+    }
+  },
+  "subway_foods": {
+    "description": "Global Subway single product records",
+    "documents": {
+      "{foodId}": {
+        "fields": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "brand": { "type": "string" },
+          "calories": { "type": "number" },
+          "carbs": { "type": "number" },
+          "sugars": { "type": "number" },
+          "fiber": { "type": "number" },
+          "protein": { "type": "number" },
+          "fat": { "type": "number" },
+          "sodium": { "type": "number" },
+          "potassium": { "type": "number" },
+          "servingAmount": { "type": "number" },
+          "servingUnit": { "type": "string" },
+          "servingSizeText": { "type": "string" },
+          "imageUrl": { "type": "string" },
+          "isLocalPreset": { "type": "boolean" },
+          "updatedAt": { "type": "number" }
+        }
+      }
+    }
+  },
   "cloud_foods": {
     "description": "Global user-shared cloud foods database",
     "documents": {

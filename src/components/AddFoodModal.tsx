@@ -19,12 +19,16 @@ import {
   History,
   Clock,
   Store,
+  Flame,
+  Database,
 } from 'lucide-react';
 import { CustomFood, FoodSearchResult, MealType, FoodRecord } from '../types';
 import { StorageService } from '../services/storage';
 import { CloudFoodService } from '../services/cloudFoodService';
 import { OpenFoodService } from '../services/openFoodService';
 import { FamilyCacheService } from '../services/familyCacheService';
+import { McdonaldCacheService } from '../services/mcdonaldCacheService';
+import { SubwayCacheService } from '../services/subwayCacheService';
 import { BatchCrawlModal } from './BatchCrawlModal';
 import { BarcodeScannerModal } from './BarcodeScannerModal';
 import { AiCameraModal } from './AiCameraModal';
@@ -309,11 +313,161 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
   const [onlineResults, setOnlineResults] = useState<FoodSearchResult[]>([]);
 
   // FamilyMart Search state (default empty, record history when searched)
+  const [subStore, setSubStore] = useState<'family' | 'mcd' | 'subway'>('family');
   const [familyKeyword, setFamilyKeyword] = useState('');
   const [isFamilySearching, setIsFamilySearching] = useState(false);
   const [familyResults, setFamilyResults] = useState<FoodSearchResult[]>([]);
   const [familyError, setFamilyError] = useState('');
   const [showBatchModal, setShowBatchModal] = useState(false);
+
+  // McDonald's Search state
+  const [mcdKeyword, setMcdKeyword] = useState('');
+  const [isMcdSearching, setIsMcdSearching] = useState(false);
+  const [mcdResults, setMcdResults] = useState<FoodSearchResult[]>([]);
+  const [mcdError, setMcdError] = useState('');
+
+  const handleMcdSearch = async (keywordToSearch?: string) => {
+    const query = (keywordToSearch !== undefined ? keywordToSearch : mcdKeyword).trim();
+    if (!query) return;
+
+    setIsMcdSearching(true);
+    setMcdError('');
+    setMcdResults([]);
+
+    try {
+      const res = await fetch('/api/mcd/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ keyword: query })
+      });
+
+      if (!res.ok) {
+        throw new Error('搜尋麥當勞食品失敗，請稍後重試');
+      }
+
+      const data = await res.json();
+      if (data.products && Array.isArray(data.products)) {
+        setMcdResults(data.products);
+        
+        // Sync searched items to Firestore 'mcdonald_foods' collection
+        McdonaldCacheService.saveMcDonaldFoods(data.products).catch((err) => {
+          console.error('[AddFoodModal] Failed to sync McDonald foods to Firestore:', err);
+        });
+
+        if (data.products.length === 0) {
+          setMcdError('找不到符合的麥當勞食品，請嘗試其他關鍵字（例如：大麥克、薯條、麥克鷄塊）。');
+        }
+      }
+    } catch (err: any) {
+      console.error('McDonald search error:', err);
+      setMcdError(err.message || '搜尋發生錯誤');
+    } finally {
+      setIsMcdSearching(false);
+    }
+  };
+
+  // Subway Search state
+  const [subwayKeyword, setSubwayKeyword] = useState('');
+  const [isSubwaySearching, setIsSubwaySearching] = useState(false);
+  const [isSubwayCrawlingAll, setIsSubwayCrawlingAll] = useState(false);
+  const [subwayResults, setSubwayResults] = useState<FoodSearchResult[]>([]);
+  const [subwayError, setSubwayError] = useState('');
+  const [subwaySuccessMsg, setSubwaySuccessMsg] = useState('');
+
+  const handleSubwayCrawlAll = async () => {
+    setIsSubwayCrawlingAll(true);
+    setSubwayError('');
+    setSubwaySuccessMsg('');
+
+    try {
+      const res = await fetch('/api/subway/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ crawlAll: true })
+      });
+
+      if (!res.ok) {
+        throw new Error('一鍵爬取 Subway 全量菜單失敗，請稍後重試');
+      }
+
+      const data = await res.json();
+      if (data.products && Array.isArray(data.products) && data.products.length > 0) {
+        setSubwayResults(data.products);
+        
+        // Save all products to Firestore subway_foods
+        await SubwayCacheService.saveSubwayFoods(data.products);
+        setSubwaySuccessMsg(`成功一鍵爬取並將 ${data.products.length} 筆 Subway 官方菜單同步至 Firebase 雲端資料庫！`);
+      } else {
+        setSubwayError('未爬取到任何 Subway 品項，請稍後再試。');
+      }
+    } catch (err: any) {
+      console.error('Subway crawl all error:', err);
+      setSubwayError(err.message || '一鍵爬取 Subway 時發生未知錯誤');
+    } finally {
+      setIsSubwayCrawlingAll(false);
+    }
+  };
+
+  const handleLoadSubwayFromFirebase = async () => {
+    setIsSubwaySearching(true);
+    setSubwayError('');
+    setSubwaySuccessMsg('');
+    try {
+      const list = await SubwayCacheService.getSubwayFoodsFromFirestore();
+      if (list && list.length > 0) {
+        setSubwayResults(list);
+        setSubwaySuccessMsg(`成功從 Firebase 雲端資料庫（subway_foods）載入 ${list.length} 筆 Subway 食品！`);
+      } else {
+        setSubwayError('Firebase 雲端資料庫中尚無 Subway 資料。點擊上方「一鍵全量爬取」即可將官網品項自動存入 Firebase！');
+      }
+    } catch (err: any) {
+      console.error('Load from Firebase error:', err);
+      setSubwayError('從 Firebase 載入 Subway 資料時發生錯誤');
+    } finally {
+      setIsSubwaySearching(false);
+    }
+  };
+
+  const handleSubwaySearch = async (keywordToSearch?: string) => {
+    const query = (keywordToSearch !== undefined ? keywordToSearch : subwayKeyword).trim();
+    if (!query) return;
+
+    setIsSubwaySearching(true);
+    setSubwayError('');
+    setSubwaySuccessMsg('');
+    setSubwayResults([]);
+
+    try {
+      const res = await fetch('/api/subway/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ keyword: query })
+      });
+
+      if (!res.ok) {
+        throw new Error('搜尋 Subway 食品失敗，請稍後重試');
+      }
+
+      const data = await res.json();
+      if (data.products && Array.isArray(data.products)) {
+        setSubwayResults(data.products);
+        
+        // Sync searched items to Firestore 'subway_foods' collection
+        SubwayCacheService.saveSubwayFoods(data.products).catch((err) => {
+          console.error('[AddFoodModal] Failed to sync Subway foods to Firestore:', err);
+        });
+
+        if (data.products.length === 0) {
+          setSubwayError('找不到符合的 Subway 食品，請嘗試其他關鍵字（例如：牛肉、嫩雞、潛艇堡、餅乾、沙拉）。');
+        }
+      }
+    } catch (err: any) {
+      console.error('Subway search error:', err);
+      setSubwayError(err.message || '搜尋 Subway 時發生未知錯誤');
+    } finally {
+      setIsSubwaySearching(false);
+    }
+  };
 
   const handleFamilySearch = async (keywordToSearch?: string) => {
     const query = (keywordToSearch !== undefined ? keywordToSearch : familyKeyword).trim();
@@ -935,7 +1089,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
             }`}
           >
             <Store className="w-4 h-4" />
-            全家搜尋
+            進階搜尋
           </button>
         </div>
 
@@ -1008,222 +1162,545 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
           {/* TAB: FAMILY SEARCH */}
           {activeTab === 'FAMILY' && (
             <div className="space-y-4 max-w-md mx-auto py-2">
-              <div className="bg-emerald-50 border border-emerald-200/80 rounded-2xl p-4 text-emerald-900">
-                <div className="flex items-center gap-2 font-bold text-sm mb-1">
-                  <Store className="w-4 h-4 text-emerald-600" />
-                  全家食在購安心 官方資料庫查詢
-                </div>
-                <p className="text-xs text-emerald-700 leading-relaxed">
-                  直接串接全家便利商店官方食安與營養標示資料庫（foodsafety.family.com.tw），輸入關鍵字（例如：飯糰、地瓜、雞胸肉、茶）即可查詢真實營養成分！
-                </p>
+              {/* Store Switcher Segmented Control */}
+              <div className="flex bg-slate-100 p-1 rounded-2xl gap-1">
+                <button
+                  type="button"
+                  onClick={() => setSubStore('family')}
+                  className={`flex-1 py-2 text-xs font-black rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                    subStore === 'family'
+                      ? 'bg-emerald-600 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                  }`}
+                >
+                  <Store className="w-3.5 h-3.5" />
+                  全家搜尋
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSubStore('mcd')}
+                  className={`flex-1 py-2 text-xs font-black rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                    subStore === 'mcd'
+                      ? 'bg-red-600 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                  }`}
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  麥當勞搜尋
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSubStore('subway')}
+                  className={`flex-1 py-2 text-xs font-black rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                    subStore === 'subway'
+                      ? 'bg-amber-600 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                  }`}
+                >
+                  <Flame className="w-3.5 h-3.5" />
+                  Subway 搜尋
+                </button>
               </div>
 
-              {/* 智慧批次爬蟲按鈕 (移至關鍵字搜尋上方) */}
-              <button
-                type="button"
-                onClick={() => setShowBatchModal(true)}
-                className="w-full py-3 px-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white text-xs font-black rounded-2xl shadow-md transition flex items-center justify-center gap-2 cursor-pointer"
-              >
-                <Sparkles className="w-4 h-4" />
-                <span>🎯 開啟全家智慧批次爬蟲 (20+ 預設與自訂選擇)</span>
-              </button>
+              {/* STORE 1: FAMILY */}
+              {subStore === 'family' && (
+                <div className="space-y-4">
+                  <div className="bg-emerald-50 border border-emerald-200/80 rounded-2xl p-4 text-emerald-900">
+                    <div className="flex items-center gap-2 font-bold text-sm mb-1">
+                      <Store className="w-4 h-4 text-emerald-600" />
+                      全家食在購安心 官方資料庫查詢
+                    </div>
+                    <p className="text-xs text-emerald-700 leading-relaxed">
+                      直接串接全家便利商店官方食安與營養標示資料庫（foodsafety.family.com.tw），輸入關鍵字（例如：飯糰、地瓜、雞胸肉、茶）即可查詢真實營養成分！
+                    </p>
+                  </div>
 
-              {showBatchModal && (
-                <BatchCrawlModal
-                  onClose={() => setShowBatchModal(false)}
-                  onFinished={() => setShowBatchModal(false)}
-                />
-              )}
-
-              {/* 關鍵字搜尋框 */}
-              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-3">
-                <label className="block text-xs font-bold text-slate-700">搜尋全家食品關鍵字</label>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    placeholder="例如: 飯糰、地瓜、茶、雞胸肉"
-                    value={familyKeyword}
-                    onChange={(e) => setFamilyKeyword(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && handleFamilySearch()}
-                    className="flex-1 px-3 py-2.5 bg-white rounded-xl border border-slate-200 text-sm focus:outline-emerald-600"
-                  />
+                  {/* 智慧批次爬蟲按鈕 (移至關鍵字搜尋上方) */}
                   <button
                     type="button"
-                    onClick={() => handleFamilySearch()}
-                    disabled={isFamilySearching || !familyKeyword.trim()}
-                    className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 whitespace-nowrap"
+                    onClick={() => setShowBatchModal(true)}
+                    className="w-full py-3 px-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white text-xs font-black rounded-2xl shadow-md transition flex items-center justify-center gap-2 cursor-pointer"
                   >
-                    {isFamilySearching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
-                    搜尋全家
+                    <Sparkles className="w-4 h-4" />
+                    <span>🎯 開啟全家智慧批次爬蟲 (20+ 預設與自訂選擇)</span>
                   </button>
-                </div>
-              </div>
 
-              {familyError && (
-                <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 flex items-center gap-2">
-                  <AlertCircle className="w-4 h-4 shrink-0" />
-                  <span>{familyError}</span>
-                </div>
-              )}
+                  {showBatchModal && (
+                    <BatchCrawlModal
+                      onClose={() => setShowBatchModal(false)}
+                      onFinished={() => setShowBatchModal(false)}
+                    />
+                  )}
 
-              {/* 過往食用過的全家食品區塊 */}
-              {familyHistoryRecords.length > 0 && (
-                <div className="space-y-2 pt-2 border-t border-slate-200/60">
-                  <div className="flex items-center justify-between px-1">
-                    <div className="flex items-center gap-1.5">
-                      <History className="w-3.5 h-3.5 text-emerald-600" />
-                      <h5 className="text-[11px] font-black text-slate-700 tracking-wider">過往食用過的全家食品</h5>
-                    </div>
-                    <span className="text-[10px] font-bold text-slate-400">共 {familyHistoryRecords.length} 項</span>
-                  </div>
-                  {familyHistoryRecords.map((record) => {
-                    const searchItem = mapRecordToSearchResult(record);
-                    const isAnimating = animatingHistoryId === record.id;
-                    const isAdded = addedIds[record.id] || addedIds[searchItem.id];
-                    return (
-                      <div
-                        key={`fam_hist_${record.id}`}
-                        onClick={() => handleSelectFoodWithHistory(searchItem)}
-                        className="p-3 bg-white border border-emerald-100 hover:border-emerald-400 rounded-2xl hover:shadow-xs transition cursor-pointer flex items-start justify-between gap-3 group"
-                      >
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-1.5 min-w-0 h-8">
-                            <h4 className="font-bold text-sm text-slate-900 group-hover:text-emerald-800 truncate min-w-0 shrink">
-                              {record.name}
-                            </h4>
-                            <span className="text-[10px] font-bold px-1.5 py-0.25 bg-emerald-100 text-emerald-800 rounded-md whitespace-nowrap shrink-0">
-                              全家
-                            </span>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleSelectFoodWithHistory(searchItem);
-                              }}
-                              className="p-1 text-slate-400 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition cursor-pointer"
-                              title="設定份量並新增"
-                            >
-                              <Pencil className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                          <div className="text-[11px] font-semibold text-slate-400 -mt-0.5 mb-1">
-                            {record.brand || '全家'}
-                          </div>
-                          <div className="flex flex-wrap items-center gap-1.5 mt-1.5 pb-0.5">
-                            <span className="text-[11px] font-bold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded-full whitespace-nowrap">
-                              {record.loggedAmount}{record.loggedUnit}
-                            </span>
-                            <span className="text-[11px] font-bold text-sky-800 bg-sky-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">
-                              {record.calories} kcal
-                            </span>
-                            <span className="text-[10px] font-bold text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">C:{record.carbs}</span>
-                            <span className="text-[10px] font-bold text-blue-800 bg-blue-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">P:{record.protein}</span>
-                            <span className="text-[10px] font-bold text-rose-800 bg-rose-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">F:{record.fat}</span>
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleQuickAddHistory(record);
-                          }}
-                          disabled={isAnimating}
-                          className={`p-2.5 rounded-xl transition-all duration-300 shrink-0 cursor-pointer flex items-center justify-center ${
-                            isAnimating || isAdded
-                              ? 'bg-emerald-500 text-white scale-110 shadow-md ring-2 ring-emerald-300'
-                              : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-600 hover:text-white'
-                          }`}
-                          title="快速新增至當前餐點"
-                        >
-                          {isAnimating || isAdded ? (
-                            <Check className="w-5 h-5 animate-in zoom-in-75 duration-200" />
-                          ) : (
-                            <Plus className="w-5 h-5" />
-                          )}
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-
-              {familyResults.length > 0 && (
-                <div className="space-y-2 pt-2 border-t border-slate-200/60">
-                  <div className="flex items-center justify-between px-1">
-                    <h5 className="text-[11px] font-black text-slate-400 uppercase tracking-wider">全家查詢結果 ({familyResults.length})</h5>
-                    <button 
-                      onClick={handleClearFamilyHistory}
-                      className="text-[10px] font-bold text-slate-400 hover:text-slate-600"
-                    >
-                      清除歷程
-                    </button>
-                  </div>
-                  {familyResults.map((food) => (
-                    <div
-                      key={food.id}
-                      onClick={() => onSelectFood(food)}
-                      className="p-3 bg-white border border-slate-100 hover:border-emerald-300 rounded-2xl hover:shadow-sm transition cursor-pointer flex items-start justify-between gap-3 group"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1.5 min-w-0 h-8">
-                          <h4 className="font-bold text-sm text-slate-900 group-hover:text-emerald-800 truncate min-w-0 shrink">
-                            {food.name}
-                          </h4>
-                          <div className="inline-flex items-center gap-1 shrink-0">
-                            <span className="text-[10px] font-bold px-1.5 py-0.25 bg-emerald-100 text-emerald-800 rounded-md whitespace-nowrap">
-                              全家官網
-                            </span>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                onSelectFood(food);
-                              }}
-                              className="p-1 text-slate-400 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition cursor-pointer"
-                              title="點擊修改/設定份量"
-                            >
-                              <Pencil className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        </div>
-
-                        <div className="text-[11px] font-semibold text-slate-400 -mt-0.5 mb-1">
-                          全家
-                        </div>
-
-                        <div className="flex flex-wrap items-center gap-1.5 mt-1.5 pb-0.5">
-                          <span className="text-[11px] font-bold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded-full whitespace-nowrap">
-                            {food.servingAmount}{food.servingUnit}
-                          </span>
-                          <span className="text-[11px] font-bold text-sky-800 bg-sky-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">
-                            {food.calories} kcal
-                          </span>
-                          <span className="text-[10px] font-bold text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">C:{food.carbs}</span>
-                          <span className="text-[10px] font-bold text-blue-800 bg-blue-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">P:{food.protein}</span>
-                          <span className="text-[10px] font-bold text-rose-800 bg-rose-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">F:{food.fat}</span>
-                        </div>
-                      </div>
+                  {/* 關鍵字搜尋框 */}
+                  <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-3">
+                    <label className="block text-xs font-bold text-slate-700">搜尋全家食品關鍵字</label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        placeholder="例如: 飯糰、地瓜、茶、雞胸肉"
+                        value={familyKeyword}
+                        onChange={(e) => setFamilyKeyword(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && handleFamilySearch()}
+                        className="flex-1 px-3 py-2.5 bg-white rounded-xl border border-slate-200 text-sm focus:outline-emerald-600"
+                      />
                       <button
                         type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleFastAdd(food);
-                        }}
-                        className={`p-2 rounded-xl transition-all duration-200 shrink-0 cursor-pointer flex items-center justify-center ${
-                          addedIds[food.id]
-                            ? 'bg-emerald-500 text-white scale-105 shadow-xs'
-                            : 'text-slate-400 group-hover:text-emerald-700 group-hover:bg-emerald-50'
-                        }`}
-                        title="快速新增至餐點"
+                        onClick={() => handleFamilySearch()}
+                        disabled={isFamilySearching || !familyKeyword.trim()}
+                        className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 whitespace-nowrap"
                       >
-                        {addedIds[food.id] ? (
-                          <Check className="w-5 h-5 animate-in zoom-in-50 duration-200" />
-                        ) : (
-                          <Plus className="w-5 h-5" />
-                        )}
+                        {isFamilySearching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+                        搜尋全家
                       </button>
                     </div>
-                  ))}
+                  </div>
+
+                  {familyError && (
+                    <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4 shrink-0" />
+                      <span>{familyError}</span>
+                    </div>
+                  )}
+
+                  {/* 過往食用過的全家食品區塊 */}
+                  {familyHistoryRecords.length > 0 && (
+                    <div className="space-y-2 pt-2 border-t border-slate-200/60">
+                      <div className="flex items-center justify-between px-1">
+                        <div className="flex items-center gap-1.5">
+                          <History className="w-3.5 h-3.5 text-emerald-600" />
+                          <h5 className="text-[11px] font-black text-slate-700 tracking-wider">過往食用過的全家食品</h5>
+                        </div>
+                        <span className="text-[10px] font-bold text-slate-400">共 {familyHistoryRecords.length} 項</span>
+                      </div>
+                      {familyHistoryRecords.map((record) => {
+                        const searchItem = mapRecordToSearchResult(record);
+                        const isAnimating = animatingHistoryId === record.id;
+                        const isAdded = addedIds[record.id] || addedIds[searchItem.id];
+                        return (
+                          <div
+                            key={`fam_hist_${record.id}`}
+                            onClick={() => handleSelectFoodWithHistory(searchItem)}
+                            className="p-3 bg-white border border-emerald-100 hover:border-emerald-400 rounded-2xl hover:shadow-xs transition cursor-pointer flex items-start justify-between gap-3 group"
+                          >
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-1.5 min-w-0 h-8">
+                                <h4 className="font-bold text-sm text-slate-900 group-hover:text-emerald-800 truncate min-w-0 shrink">
+                                  {record.name}
+                                </h4>
+                                <span className="text-[10px] font-bold px-1.5 py-0.25 bg-emerald-100 text-emerald-800 rounded-md whitespace-nowrap shrink-0">
+                                  全家
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleSelectFoodWithHistory(searchItem);
+                                  }}
+                                  className="p-1 text-slate-400 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition cursor-pointer"
+                                  title="設定份量並新增"
+                                >
+                                  <Pencil className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                              <div className="text-[11px] font-semibold text-slate-400 -mt-0.5 mb-1">
+                                {record.brand || '全家'}
+                              </div>
+                              <div className="flex flex-wrap items-center gap-1.5 mt-1.5 pb-0.5">
+                                <span className="text-[11px] font-bold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                                  {record.loggedAmount}{record.loggedUnit}
+                                </span>
+                                <span className="text-[11px] font-bold text-sky-800 bg-sky-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                                  {record.calories} kcal
+                                </span>
+                                <span className="text-[10px] font-bold text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">C:{record.carbs}</span>
+                                <span className="text-[10px] font-bold text-blue-800 bg-blue-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">P:{record.protein}</span>
+                                <span className="text-[10px] font-bold text-rose-800 bg-rose-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">F:{record.fat}</span>
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleQuickAddHistory(record);
+                              }}
+                              disabled={isAnimating}
+                              className={`p-2.5 rounded-xl transition-all duration-300 shrink-0 cursor-pointer flex items-center justify-center ${
+                                isAnimating || isAdded
+                                  ? 'bg-emerald-500 text-white scale-110 shadow-md ring-2 ring-emerald-300'
+                                  : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-600 hover:text-white'
+                              }`}
+                              title="快速新增至當前餐點"
+                            >
+                              {isAnimating || isAdded ? (
+                                <Check className="w-5 h-5 animate-in zoom-in-75 duration-200" />
+                              ) : (
+                                <Plus className="w-5 h-5" />
+                              )}
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {familyResults.length > 0 && (
+                    <div className="space-y-2 pt-2 border-t border-slate-200/60">
+                      <div className="flex items-center justify-between px-1">
+                        <h5 className="text-[11px] font-black text-slate-400 uppercase tracking-wider">全家查詢結果 ({familyResults.length})</h5>
+                        <button 
+                          onClick={handleClearFamilyHistory}
+                          className="text-[10px] font-bold text-slate-400 hover:text-slate-600"
+                        >
+                          清除歷程
+                        </button>
+                      </div>
+                      {familyResults.map((food) => (
+                        <div
+                          key={food.id}
+                          onClick={() => onSelectFood(food)}
+                          className="p-3 bg-white border border-slate-100 hover:border-emerald-300 rounded-2xl hover:shadow-sm transition cursor-pointer flex items-start justify-between gap-3 group"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5 min-w-0 h-8">
+                              <h4 className="font-bold text-sm text-slate-900 group-hover:text-emerald-800 truncate min-w-0 shrink">
+                                {food.name}
+                              </h4>
+                              <div className="inline-flex items-center gap-1 shrink-0">
+                                <span className="text-[10px] font-bold px-1.5 py-0.25 bg-emerald-100 text-emerald-800 rounded-md whitespace-nowrap">
+                                  全家官網
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    onSelectFood(food);
+                                  }}
+                                  className="p-1 text-slate-400 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition cursor-pointer"
+                                  title="點擊修改/設定份量"
+                                >
+                                  <Pencil className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </div>
+
+                            <div className="text-[11px] font-semibold text-slate-400 -mt-0.5 mb-1">
+                              全家
+                            </div>
+
+                            <div className="flex flex-wrap items-center gap-1.5 mt-1.5 pb-0.5">
+                              <span className="text-[11px] font-bold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                                {food.servingAmount}{food.servingUnit}
+                              </span>
+                              <span className="text-[11px] font-bold text-sky-800 bg-sky-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                                {food.calories} kcal
+                              </span>
+                              <span className="text-[10px] font-bold text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">C:{food.carbs}</span>
+                              <span className="text-[10px] font-bold text-blue-800 bg-blue-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">P:{food.protein}</span>
+                              <span className="text-[10px] font-bold text-rose-800 bg-rose-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">F:{food.fat}</span>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleFastAdd(food);
+                            }}
+                            className={`p-2 rounded-xl transition-all duration-200 shrink-0 cursor-pointer flex items-center justify-center ${
+                              addedIds[food.id]
+                                ? 'bg-emerald-500 text-white scale-105 shadow-xs'
+                                : 'text-slate-400 group-hover:text-emerald-700 group-hover:bg-emerald-50'
+                            }`}
+                            title="快速新增至餐點"
+                          >
+                            {addedIds[food.id] ? (
+                              <Check className="w-5 h-5 animate-in zoom-in-50 duration-200" />
+                            ) : (
+                              <Plus className="w-5 h-5" />
+                            )}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* STORE 2: MCDONALD'S */}
+              {subStore === 'mcd' && (
+                <div className="space-y-4">
+                  <div className="bg-red-50 border border-red-200/80 rounded-2xl p-4 text-red-950">
+                    <div className="flex items-center gap-2 font-bold text-sm mb-1 text-red-700">
+                      <Sparkles className="w-4 h-4 text-red-600" />
+                      台灣麥當勞 官方營養計算機
+                    </div>
+                    <p className="text-xs text-red-800/90 leading-relaxed">
+                      採用即時雲端爬蟲技術，直連台灣麥當勞官方營養計算機，隨時隨地獲取最新官方食品的真實營養標示！
+                    </p>
+                  </div>
+
+                  {/* 關鍵字搜尋框 */}
+                  <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-3">
+                    <label className="block text-xs font-bold text-slate-700">搜尋麥當勞食品關鍵字</label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        placeholder="例如: 大麥克、薯條、麥克鷄塊、極選"
+                        value={mcdKeyword}
+                        onChange={(e) => setMcdKeyword(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && handleMcdSearch()}
+                        className="flex-1 px-3 py-2.5 bg-white rounded-xl border border-slate-200 text-sm focus:outline-red-600"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleMcdSearch()}
+                        disabled={isMcdSearching || !mcdKeyword.trim()}
+                        className="px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-xl shadow-xs transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 whitespace-nowrap"
+                      >
+                        {isMcdSearching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+                        搜尋麥當勞
+                      </button>
+                    </div>
+                  </div>
+
+                  {mcdError && (
+                    <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4 shrink-0" />
+                      <span>{mcdError}</span>
+                    </div>
+                  )}
+
+                  {mcdResults.length > 0 && (
+                    <div className="space-y-2 pt-2 border-t border-slate-200/60">
+                      <div className="flex items-center justify-between px-1">
+                        <h5 className="text-[11px] font-black text-slate-400 uppercase tracking-wider">麥當勞查詢結果 ({mcdResults.length})</h5>
+                      </div>
+                      {mcdResults.map((food) => (
+                        <div
+                          key={food.id}
+                          onClick={() => onSelectFood(food)}
+                          className="p-3 bg-white border border-slate-100 hover:border-red-300 rounded-2xl hover:shadow-sm transition cursor-pointer flex items-start justify-between gap-3 group"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5 min-w-0 h-8">
+                              <h4 className="font-bold text-sm text-slate-900 group-hover:text-red-800 truncate min-w-0 shrink">
+                                {food.name}
+                              </h4>
+                              <div className="inline-flex items-center gap-1 shrink-0">
+                                <span className="text-[10px] font-bold px-1.5 py-0.25 bg-red-100 text-red-800 rounded-md whitespace-nowrap">
+                                  麥當勞官網
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    onSelectFood(food);
+                                  }}
+                                  className="p-1 text-slate-400 hover:text-red-700 hover:bg-red-50 rounded-lg transition cursor-pointer"
+                                  title="點擊修改/設定份量"
+                                >
+                                  <Pencil className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </div>
+
+                            <div className="text-[11px] font-semibold text-slate-400 -mt-0.5 mb-1">
+                              麥當勞 McDonald's
+                            </div>
+
+                            <div className="flex flex-wrap items-center gap-1.5 mt-1.5 pb-0.5">
+                              <span className="text-[11px] font-bold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                                {food.servingAmount}{food.servingUnit}
+                              </span>
+                              <span className="text-[11px] font-bold text-sky-800 bg-sky-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                                {food.calories} kcal
+                              </span>
+                              <span className="text-[10px] font-bold text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">C:{food.carbs}</span>
+                              <span className="text-[10px] font-bold text-blue-800 bg-blue-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">P:{food.protein}</span>
+                              <span className="text-[10px] font-bold text-rose-800 bg-rose-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">F:{food.fat}</span>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleFastAdd(food);
+                            }}
+                            className={`p-2 rounded-xl transition-all duration-200 shrink-0 cursor-pointer flex items-center justify-center ${
+                              addedIds[food.id]
+                                ? 'bg-red-500 text-white scale-105 shadow-xs'
+                                : 'text-slate-400 group-hover:text-red-700 group-hover:bg-red-50'
+                            }`}
+                            title="快速新增至餐點"
+                          >
+                            {addedIds[food.id] ? (
+                              <Check className="w-5 h-5 animate-in zoom-in-50 duration-200" />
+                            ) : (
+                              <Plus className="w-5 h-5" />
+                            )}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* STORE 3: SUBWAY */}
+              {subStore === 'subway' && (
+                <div className="space-y-4">
+                  <div className="bg-amber-50 border border-amber-200/80 rounded-2xl p-4 text-amber-950">
+                    <div className="flex items-center gap-2 font-bold text-sm mb-1 text-amber-800">
+                      <Flame className="w-4 h-4 text-amber-600" />
+                      台灣 Subway 官方營養資訊實時爬蟲 & Firebase 雲端庫
+                    </div>
+                    <p className="text-xs text-amber-900 leading-relaxed mb-3">
+                      Subway 官網結構清晰，您可以直接點擊「一鍵全量爬取」一次抓取全網菜單並存入 Firebase `subway_foods` 資料庫；或輸入關鍵字實時搜尋！
+                    </p>
+                    
+                    <div className="flex flex-col sm:flex-row gap-2 pt-1 border-t border-amber-200/60 w-full">
+                      <button
+                        type="button"
+                        onClick={handleSubwayCrawlAll}
+                        disabled={isSubwayCrawlingAll || isSubwaySearching}
+                        className="flex-1 w-full py-2.5 px-3.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-black rounded-xl shadow-xs transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                      >
+                        {isSubwayCrawlingAll ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            <span>全量爬取並同步中...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles className="w-3.5 h-3.5" />
+                            <span>一鍵全量爬取全菜單至 Firebase</span>
+                          </>
+                        )}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleLoadSubwayFromFirebase}
+                        disabled={isSubwayCrawlingAll || isSubwaySearching}
+                        className="flex-1 w-full py-2.5 px-3.5 bg-white text-amber-900 border border-amber-300 hover:bg-amber-100/80 text-xs font-bold rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                      >
+                        <Database className="w-3.5 h-3.5 text-amber-700" />
+                        <span>從 Firebase 雲端載入全量資料</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {subwaySuccessMsg && (
+                    <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs font-bold text-emerald-800 flex items-center gap-2 animate-in fade-in duration-200">
+                      <Sparkles className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span>{subwaySuccessMsg}</span>
+                    </div>
+                  )}
+
+                  {/* 關鍵字搜尋框 */}
+                  <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-3">
+                    <label className="block text-xs font-bold text-slate-700">搜尋 Subway 食品關鍵字</label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        placeholder="例如: 牛肉、嫩雞、潛艇堡、餅乾、沙拉"
+                        value={subwayKeyword}
+                        onChange={(e) => setSubwayKeyword(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && handleSubwaySearch()}
+                        className="flex-1 px-3 py-2.5 bg-white rounded-xl border border-slate-200 text-sm focus:outline-amber-600"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleSubwaySearch()}
+                        disabled={isSubwaySearching || !subwayKeyword.trim()}
+                        className="px-4 py-2.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-xl shadow-xs transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 whitespace-nowrap"
+                      >
+                        {isSubwaySearching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+                        搜尋 Subway
+                      </button>
+                    </div>
+                  </div>
+
+                  {subwayError && (
+                    <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4 shrink-0" />
+                      <span>{subwayError}</span>
+                    </div>
+                  )}
+
+                  {/* Subway 搜尋結果列表 */}
+                  {subwayResults.length > 0 && (
+                    <div className="space-y-2 pt-2 border-t border-slate-200/60">
+                      <div className="flex items-center justify-between px-1">
+                        <h5 className="text-[11px] font-black text-slate-400 uppercase tracking-wider">Subway 查詢結果 ({subwayResults.length})</h5>
+                      </div>
+
+                      {subwayResults.map((food) => (
+                        <div
+                          key={`subway_res_${food.id}`}
+                          onClick={() => onSelectFood(food)}
+                          className="p-3 bg-white border border-slate-100 hover:border-amber-300 rounded-2xl hover:shadow-xs transition cursor-pointer flex items-start justify-between gap-3 group"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5 min-w-0 h-8">
+                              <h4 className="font-bold text-sm text-slate-900 group-hover:text-amber-800 truncate min-w-0 shrink">
+                                {food.name}
+                              </h4>
+                              <span className="text-[10px] font-bold px-1.5 py-0.25 bg-amber-100 text-amber-800 rounded-md whitespace-nowrap shrink-0">
+                                Subway
+                              </span>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onSelectFood(food);
+                                }}
+                                className="p-1 text-slate-400 hover:text-amber-700 hover:bg-amber-50 rounded-lg transition cursor-pointer"
+                                title="點擊修改/設定份量"
+                              >
+                                <Pencil className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+
+                            <div className="text-[11px] font-semibold text-slate-400 -mt-0.5 mb-1">
+                              SUBWAY 官方資訊
+                            </div>
+
+                            <div className="flex flex-wrap items-center gap-1.5 mt-1.5 pb-0.5">
+                              <span className="text-[11px] font-bold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                                {food.servingAmount}{food.servingUnit}
+                              </span>
+                              <span className="text-[11px] font-bold text-sky-800 bg-sky-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                                {food.calories} kcal
+                              </span>
+                              <span className="text-[10px] font-bold text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">C:{food.carbs}</span>
+                              <span className="text-[10px] font-bold text-blue-800 bg-blue-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">P:{food.protein}</span>
+                              <span className="text-[10px] font-bold text-rose-800 bg-rose-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">F:{food.fat}</span>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleFastAdd(food);
+                            }}
+                            className={`p-2 rounded-xl transition-all duration-200 shrink-0 cursor-pointer flex items-center justify-center ${
+                              addedIds[food.id]
+                                ? 'bg-amber-500 text-white scale-105 shadow-xs'
+                                : 'text-slate-400 group-hover:text-amber-700 group-hover:bg-amber-50'
+                            }`}
+                            title="快速新增至餐點"
+                          >
+                            {addedIds[food.id] ? (
+                              <Check className="w-5 h-5 animate-in zoom-in-50 duration-200" />
+                            ) : (
+                              <Plus className="w-5 h-5" />
+                            )}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
