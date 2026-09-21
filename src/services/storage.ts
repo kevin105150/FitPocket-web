@@ -738,7 +738,11 @@ export const StorageService = {
   // AI Key Source ('custom' | 'developer')
   getAiKeySource(): AiKeySource {
     const customKey = this.getGeminiApiKey();
-    return getItem<AiKeySource>(STORAGE_KEYS.AI_KEY_SOURCE, customKey ? 'custom' : 'developer');
+    const stored = getItem<AiKeySource>(STORAGE_KEYS.AI_KEY_SOURCE, 'developer');
+    if (stored === 'custom' && (!customKey || !customKey.trim())) {
+      return 'developer';
+    }
+    return stored;
   },
   saveAiKeySource(source: AiKeySource): void {
     setItem(STORAGE_KEYS.AI_KEY_SOURCE, source);

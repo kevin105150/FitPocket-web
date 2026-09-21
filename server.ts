@@ -310,7 +310,7 @@ async function validateAndAuthoriseAiRequest(
   }
 
   // 2. Developer Key Mode (Backend-managed)
-  const devKey = process.env.GEMINI_API_KEY;
+  const devKey = process.env.GEMINI_API_KEY || getFirestoreConfig().apiKey;
   if (!devKey) {
     return {
       allowed: false,
@@ -1039,7 +1039,7 @@ app.post('/api/admin/whitelist/update', async (req, res) => {
     }
 
     const saved = await saveWhitelistUserToFirestore(existing);
-    res.json({ success: true, user: saved });
+    res.json({ success: true, ok: true, user: saved });
   } catch (error: any) {
     console.error('Admin update whitelist error:', error);
     res.status(500).json({ error: error.message || '更新白名單失敗' });
@@ -1060,7 +1060,7 @@ app.post('/api/admin/whitelist/delete', async (req, res) => {
     }
 
     const ok = await deleteWhitelistUser(normalizedTarget);
-    res.json({ success: ok });
+    res.json({ success: ok, ok: ok });
   } catch (error: any) {
     console.error('Admin delete whitelist error:', error);
     res.status(500).json({ error: error.message || '刪除白名單失敗' });
@@ -1903,7 +1903,8 @@ app.get('/api/openfoodfacts/search', async (req, res) => {
 
       // Fast Gemini AI Translation fallback (1.2s timeout to avoid slowing response)
       const customApiKey = req.query.customApiKey as string;
-      const ai = getGenAI(customApiKey);
+      const keyToUse = customApiKey || process.env.GEMINI_API_KEY || getFirestoreConfig().apiKey;
+      const ai = keyToUse ? getGenAIClient(keyToUse) : null;
       if (ai) {
         try {
           const aiPromise = generateWithFallback(

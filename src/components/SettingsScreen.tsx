@@ -493,6 +493,10 @@ export const SettingsScreen: React.FC = () => {
           status: data.status,
           isAdmin: data.isAdmin,
         });
+        const currentCustomKey = StorageService.getGeminiApiKey();
+        if (data.status === 'approved' && (!currentCustomKey || !currentCustomKey.trim())) {
+          StorageService.saveAiKeySource('developer');
+        }
       }
     } catch (err) {
       console.warn('Failed to fetch developer quota:', err);
@@ -642,14 +646,14 @@ export const SettingsScreen: React.FC = () => {
         }),
       });
       const data = await res.json();
-      if (data.ok) {
+      if (res.ok && (data.ok || data.success)) {
         flashMessage(`已核准 ${targetEmail} 的 AI 使用權限 (每日 ${dailyLimit} 次)！`);
         await fetchAdminWhitelist();
         if (user.email.toLowerCase() === targetEmail.toLowerCase()) {
           await fetchDevQuota();
         }
       } else {
-        flashMessage(`操作失敗：${data.error}`);
+        flashMessage(`操作失敗：${data.error || '無法完成核准'}`);
       }
     } catch (err: any) {
       flashMessage(`操作發生錯誤：${err.message}`);
@@ -669,14 +673,14 @@ export const SettingsScreen: React.FC = () => {
         }),
       });
       const data = await res.json();
-      if (data.ok) {
+      if (res.ok && (data.ok || data.success)) {
         flashMessage(`已拒絕 / 停用 ${targetEmail} 的使用權限。`);
         await fetchAdminWhitelist();
         if (user.email.toLowerCase() === targetEmail.toLowerCase()) {
           await fetchDevQuota();
         }
       } else {
-        flashMessage(`操作失敗：${data.error}`);
+        flashMessage(`操作失敗：${data.error || '無法完成停用'}`);
       }
     } catch (err: any) {
       flashMessage(`操作發生錯誤：${err.message}`);
@@ -696,14 +700,14 @@ export const SettingsScreen: React.FC = () => {
         }),
       });
       const data = await res.json();
-      if (data.ok) {
+      if (res.ok && (data.ok || data.success)) {
         flashMessage(`已刪除 ${targetEmail} 的白名單記錄。`);
         await fetchAdminWhitelist();
         if (user.email.toLowerCase() === targetEmail.toLowerCase()) {
           await fetchDevQuota();
         }
       } else {
-        flashMessage(`刪除失敗：${data.error}`);
+        flashMessage(`刪除失敗：${data.error || '無法刪除白名單記錄'}`);
       }
     } catch (err: any) {
       flashMessage(`刪除發生錯誤：${err.message}`);
@@ -739,7 +743,7 @@ export const SettingsScreen: React.FC = () => {
         }),
       });
       const data = await res.json();
-      if (data.ok) {
+      if (res.ok && (data.ok || data.success)) {
         flashMessage(`已更新 ${selectedWhitelistUser.email} 的設定！`);
         setShowEditWhitelistModal(false);
         await fetchAdminWhitelist();
@@ -747,7 +751,7 @@ export const SettingsScreen: React.FC = () => {
           await fetchDevQuota();
         }
       } else {
-        flashMessage(`儲存失敗：${data.error}`);
+        flashMessage(`儲存失敗：${data.error || '更新設定失敗'}`);
       }
     } catch (err: any) {
       flashMessage(`儲存發生錯誤：${err.message}`);
@@ -777,7 +781,7 @@ export const SettingsScreen: React.FC = () => {
         }),
       });
       const data = await res.json();
-      if (data.ok) {
+      if (res.ok && (data.ok || data.success)) {
         flashMessage(`已成功將 ${formEmail.trim()} 加入白名單！`);
         setShowAddWhitelistModal(false);
         setFormEmail('');
@@ -785,7 +789,7 @@ export const SettingsScreen: React.FC = () => {
         setFormNotes('');
         await fetchAdminWhitelist();
       } else {
-        flashMessage(`新增失敗：${data.error}`);
+        flashMessage(`新增失敗：${data.error || '新增白名單使用者失敗'}`);
       }
     } catch (err: any) {
       flashMessage(`新增發生錯誤：${err.message}`);
