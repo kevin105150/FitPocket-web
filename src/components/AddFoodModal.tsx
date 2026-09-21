@@ -35,6 +35,7 @@ import { AiCameraModal } from './AiCameraModal';
 import { optimizeImageForAi } from '../utils/imageOptimizer';
 import { checkAiKeyOrWarn, getAiRequestParams } from '../utils/aiHelper';
 import { getTodayString } from '../utils/dateUtils';
+import { auth } from '../lib/firebase';
 
 interface AddFoodModalProps {
   initialMealType: MealType;
@@ -287,6 +288,9 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
 
   const selectedMealName = availableMeals.find(m => m.type === selectedMealType)?.name || '餐點';
 
+  // Check Admin role
+  const isAdmin = (auth.currentUser?.email || '').toLowerCase() === 'kevin10611@gmail.com';
+
   // AI Scanner state
   const [aiPrompt, setAiPrompt] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
@@ -323,8 +327,64 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
   // McDonald's Search state
   const [mcdKeyword, setMcdKeyword] = useState('');
   const [isMcdSearching, setIsMcdSearching] = useState(false);
+  const [isMcdCrawlingAll, setIsMcdCrawlingAll] = useState(false);
   const [mcdResults, setMcdResults] = useState<FoodSearchResult[]>([]);
   const [mcdError, setMcdError] = useState('');
+  const [mcdSuccessMsg, setMcdSuccessMsg] = useState('');
+
+  const handleMcdCrawlAll = async () => {
+    setIsMcdCrawlingAll(true);
+    setMcdError('');
+    setMcdSuccessMsg('');
+
+    try {
+      const res = await fetch('/api/mcd/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ crawlAll: true })
+      });
+
+      if (!res.ok) {
+        throw new Error('一鍵爬取麥當勞全量菜單失敗，請稍後重試');
+      }
+
+      const data = await res.json();
+      if (data.products && Array.isArray(data.products) && data.products.length > 0) {
+        setMcdResults(data.products);
+        
+        // Save all products to Firestore mcdonald_foods
+        await McdonaldCacheService.saveMcDonaldFoods(data.products);
+        setMcdSuccessMsg(`成功一鍵全量爬取並將 ${data.products.length} 筆麥當勞官方菜單同步至 Firebase 雲端資料庫！`);
+      } else {
+        setMcdError('未爬取到任何麥當勞品項，請稍後再試。');
+      }
+    } catch (err: any) {
+      console.error('McDonald crawl all error:', err);
+      setMcdError(err.message || '一鍵爬取麥當勞時發生未知錯誤');
+    } finally {
+      setIsMcdCrawlingAll(false);
+    }
+  };
+
+  const handleLoadMcdFromFirebase = async () => {
+    setIsMcdSearching(true);
+    setMcdError('');
+    setMcdSuccessMsg('');
+    try {
+      const list = await McdonaldCacheService.getMcdonaldFoodsFromFirestore();
+      if (list && list.length > 0) {
+        setMcdResults(list);
+        setMcdSuccessMsg(`成功從 Firebase 雲端資料庫（mcdonald_foods）載入 ${list.length} 筆麥當勞食品！`);
+      } else {
+        setMcdError('Firebase 雲端資料庫中尚無麥當勞資料。點擊上方「一鍵全量爬取」即可將官網品項自動存入 Firebase！');
+      }
+    } catch (err: any) {
+      console.error('Load McDonald from Firebase error:', err);
+      setMcdError('從 Firebase 載入麥當勞資料時發生錯誤');
+    } finally {
+      setIsMcdSearching(false);
+    }
+  };
 
   const handleMcdSearch = async (keywordToSearch?: string) => {
     const query = (keywordToSearch !== undefined ? keywordToSearch : mcdKeyword).trim();
@@ -332,9 +392,20 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
 
     setIsMcdSearching(true);
     setMcdError('');
+    setMcdSuccessMsg('');
     setMcdResults([]);
 
     try {
+      // 1. Check Firebase mcdonald_foods first
+      const cached = await McdonaldCacheService.searchMcdonaldFoodsInFirestore(query);
+      if (cached && cached.length > 0) {
+        setMcdResults(cached);
+        setMcdSuccessMsg(`已優先從 Firebase 雲端快取速載 ${cached.length} 筆相符食品！`);
+        setIsMcdSearching(false);
+        return;
+      }
+
+      // 2. Fallback to live server crawler if not cached
       const res = await fetch('/api/mcd/search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -356,6 +427,8 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
 
         if (data.products.length === 0) {
           setMcdError('找不到符合的麥當勞食品，請嘗試其他關鍵字（例如：大麥克、薯條、麥克鷄塊）。');
+        } else {
+          setMcdSuccessMsg(`已即時爬取官網 ${data.products.length} 筆資料，並自動同步至 Firebase 雲端！`);
         }
       }
     } catch (err: any) {
@@ -438,6 +511,16 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
     setSubwayResults([]);
 
     try {
+      // 1. Check Firebase subway_foods first
+      const cached = await SubwayCacheService.searchSubwayFoodsInFirestore(query);
+      if (cached && cached.length > 0) {
+        setSubwayResults(cached);
+        setSubwaySuccessMsg(`已優先從 Firebase 雲端快取速載 ${cached.length} 筆相符食品！`);
+        setIsSubwaySearching(false);
+        return;
+      }
+
+      // 2. Fallback to live server crawler if not cached
       const res = await fetch('/api/subway/search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -459,6 +542,8 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
 
         if (data.products.length === 0) {
           setSubwayError('找不到符合的 Subway 食品，請嘗試其他關鍵字（例如：牛肉、嫩雞、潛艇堡、餅乾、沙拉）。');
+        } else {
+          setSubwaySuccessMsg(`已即時爬取官網 ${data.products.length} 筆資料，並自動同步至 Firebase 雲端！`);
         }
       }
     } catch (err: any) {
@@ -468,6 +553,17 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
       setIsSubwaySearching(false);
     }
   };
+
+  // Auto-load McDonald's / Subway foods from Firebase when switching to their store tab
+  useEffect(() => {
+    if (activeTab === 'FAMILY') {
+      if (subStore === 'mcd' && mcdResults.length === 0 && !isMcdSearching && !isMcdCrawlingAll) {
+        handleLoadMcdFromFirebase();
+      } else if (subStore === 'subway' && subwayResults.length === 0 && !isSubwaySearching && !isSubwayCrawlingAll) {
+        handleLoadSubwayFromFirebase();
+      }
+    }
+  }, [activeTab, subStore]);
 
   const handleFamilySearch = async (keywordToSearch?: string) => {
     const query = (keywordToSearch !== undefined ? keywordToSearch : familyKeyword).trim();
@@ -1429,15 +1525,70 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
               {/* STORE 2: MCDONALD'S */}
               {subStore === 'mcd' && (
                 <div className="space-y-4">
-                  <div className="bg-red-50 border border-red-200/80 rounded-2xl p-4 text-red-950">
-                    <div className="flex items-center gap-2 font-bold text-sm mb-1 text-red-700">
-                      <Sparkles className="w-4 h-4 text-red-600" />
-                      台灣麥當勞 官方營養計算機
+                  {isAdmin ? (
+                    <div className="bg-red-50 border border-red-200/80 rounded-2xl p-4 text-red-950">
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="flex items-center gap-2 font-bold text-sm text-red-700">
+                          <Sparkles className="w-4 h-4 text-red-600" />
+                          台灣麥當勞 官方營養計算機 & Firebase 雲端庫
+                        </div>
+                        <span className="text-[10px] font-black px-2 py-0.5 bg-red-200 text-red-800 rounded-md shrink-0">
+                          👑 管理員
+                        </span>
+                      </div>
+                      <p className="text-xs text-red-800/90 leading-relaxed mb-3">
+                        預設優先從 Firebase 雲端資料庫（`mcdonald_foods`）速載查詢；若無資料則自動發起即時爬蟲。您也可以點擊下方按鈕進行全量同步或重載！
+                      </p>
+
+                      <div className="flex flex-col sm:flex-row gap-2 pt-1 border-t border-red-200/60 w-full">
+                        <button
+                          type="button"
+                          onClick={handleMcdCrawlAll}
+                          disabled={isMcdCrawlingAll || isMcdSearching}
+                          className="flex-1 w-full py-2.5 px-3.5 bg-red-600 hover:bg-red-700 text-white text-xs font-black rounded-xl shadow-xs transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                        >
+                          {isMcdCrawlingAll ? (
+                            <>
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              <span>全量爬取並同步中...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Sparkles className="w-3.5 h-3.5" />
+                              <span>一鍵全量爬取全菜單至 Firebase</span>
+                            </>
+                          )}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={handleLoadMcdFromFirebase}
+                          disabled={isMcdCrawlingAll || isMcdSearching}
+                          className="flex-1 w-full py-2.5 px-3.5 bg-white text-red-900 border border-red-300 hover:bg-red-100/80 text-xs font-bold rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                        >
+                          <Database className="w-3.5 h-3.5 text-red-700" />
+                          <span>從 Firebase 雲端載入全量資料</span>
+                        </button>
+                      </div>
                     </div>
-                    <p className="text-xs text-red-800/90 leading-relaxed">
-                      採用即時雲端爬蟲技術，直連台灣麥當勞官方營養計算機，隨時隨地獲取最新官方食品的真實營養標示！
-                    </p>
-                  </div>
+                  ) : (
+                    <div className="bg-red-50/80 border border-red-200/60 rounded-2xl p-4 text-red-950">
+                      <div className="flex items-center gap-2 font-bold text-sm mb-1 text-red-700">
+                        <Sparkles className="w-4 h-4 text-red-600" />
+                        台灣麥當勞 官方菜單庫 (Firebase 雲端連線)
+                      </div>
+                      <p className="text-xs text-red-800/90 leading-relaxed">
+                        系統預設已自動為您自 Firebase 雲端資料庫載入麥當勞全量菜單，您可直接挑選品項或輸入關鍵字搜尋！
+                      </p>
+                    </div>
+                  )}
+
+                  {mcdSuccessMsg && (
+                    <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs font-bold text-emerald-800 flex items-center gap-2 animate-in fade-in duration-200">
+                      <Sparkles className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span>{mcdSuccessMsg}</span>
+                    </div>
+                  )}
 
                   {/* 關鍵字搜尋框 */}
                   <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-3">
@@ -1549,46 +1700,63 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
               {/* STORE 3: SUBWAY */}
               {subStore === 'subway' && (
                 <div className="space-y-4">
-                  <div className="bg-amber-50 border border-amber-200/80 rounded-2xl p-4 text-amber-950">
-                    <div className="flex items-center gap-2 font-bold text-sm mb-1 text-amber-800">
-                      <Flame className="w-4 h-4 text-amber-600" />
-                      台灣 Subway 官方營養資訊實時爬蟲 & Firebase 雲端庫
-                    </div>
-                    <p className="text-xs text-amber-900 leading-relaxed mb-3">
-                      Subway 官網結構清晰，您可以直接點擊「一鍵全量爬取」一次抓取全網菜單並存入 Firebase `subway_foods` 資料庫；或輸入關鍵字實時搜尋！
-                    </p>
-                    
-                    <div className="flex flex-col sm:flex-row gap-2 pt-1 border-t border-amber-200/60 w-full">
-                      <button
-                        type="button"
-                        onClick={handleSubwayCrawlAll}
-                        disabled={isSubwayCrawlingAll || isSubwaySearching}
-                        className="flex-1 w-full py-2.5 px-3.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-black rounded-xl shadow-xs transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
-                      >
-                        {isSubwayCrawlingAll ? (
-                          <>
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                            <span>全量爬取並同步中...</span>
-                          </>
-                        ) : (
-                          <>
-                            <Sparkles className="w-3.5 h-3.5" />
-                            <span>一鍵全量爬取全菜單至 Firebase</span>
-                          </>
-                        )}
-                      </button>
+                  {isAdmin ? (
+                    <div className="bg-amber-50 border border-amber-200/80 rounded-2xl p-4 text-amber-950">
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="flex items-center gap-2 font-bold text-sm text-amber-800">
+                          <Flame className="w-4 h-4 text-amber-600" />
+                          台灣 Subway 官方營養資訊爬蟲 & Firebase 雲端庫
+                        </div>
+                        <span className="text-[10px] font-black px-2 py-0.5 bg-amber-200 text-amber-800 rounded-md shrink-0">
+                          👑 管理員
+                        </span>
+                      </div>
+                      <p className="text-xs text-amber-900 leading-relaxed mb-3">
+                        Subway 官網結構清晰，您可以點擊下方按鈕進行全量同步存入 Firebase `subway_foods` 或手動重新載入。
+                      </p>
+                      
+                      <div className="flex flex-col sm:flex-row gap-2 pt-1 border-t border-amber-200/60 w-full">
+                        <button
+                          type="button"
+                          onClick={handleSubwayCrawlAll}
+                          disabled={isSubwayCrawlingAll || isSubwaySearching}
+                          className="flex-1 w-full py-2.5 px-3.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-black rounded-xl shadow-xs transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                        >
+                          {isSubwayCrawlingAll ? (
+                            <>
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              <span>全量爬取並同步中...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Sparkles className="w-3.5 h-3.5" />
+                              <span>一鍵全量爬取全菜單至 Firebase</span>
+                            </>
+                          )}
+                        </button>
 
-                      <button
-                        type="button"
-                        onClick={handleLoadSubwayFromFirebase}
-                        disabled={isSubwayCrawlingAll || isSubwaySearching}
-                        className="flex-1 w-full py-2.5 px-3.5 bg-white text-amber-900 border border-amber-300 hover:bg-amber-100/80 text-xs font-bold rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
-                      >
-                        <Database className="w-3.5 h-3.5 text-amber-700" />
-                        <span>從 Firebase 雲端載入全量資料</span>
-                      </button>
+                        <button
+                          type="button"
+                          onClick={handleLoadSubwayFromFirebase}
+                          disabled={isSubwayCrawlingAll || isSubwaySearching}
+                          className="flex-1 w-full py-2.5 px-3.5 bg-white text-amber-900 border border-amber-300 hover:bg-amber-100/80 text-xs font-bold rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                        >
+                          <Database className="w-3.5 h-3.5 text-amber-700" />
+                          <span>從 Firebase 雲端載入全量資料</span>
+                        </button>
+                      </div>
                     </div>
-                  </div>
+                  ) : (
+                    <div className="bg-amber-50/80 border border-amber-200/60 rounded-2xl p-4 text-amber-950">
+                      <div className="flex items-center gap-2 font-bold text-sm mb-1 text-amber-800">
+                        <Flame className="w-4 h-4 text-amber-600" />
+                        台灣 Subway 官方菜單庫 (Firebase 雲端連線)
+                      </div>
+                      <p className="text-xs text-amber-900 leading-relaxed">
+                        系統預設已自動為您自 Firebase 雲端資料庫載入 Subway 全量菜單，您可直接挑選品項或輸入關鍵字搜尋！
+                      </p>
+                    </div>
+                  )}
 
                   {subwaySuccessMsg && (
                     <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs font-bold text-emerald-800 flex items-center gap-2 animate-in fade-in duration-200">

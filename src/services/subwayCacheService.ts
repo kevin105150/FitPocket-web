@@ -89,6 +89,19 @@ export const SubwayCacheService = {
   },
 
   /**
+   * Searches saved Subway foods in Firestore by matching keyword locally after fetching list.
+   */
+  async searchSubwayFoodsInFirestore(query: string): Promise<FoodSearchResult[]> {
+    const cleanQuery = query.trim().toLowerCase();
+    if (!cleanQuery) return [];
+    const all = await this.getSubwayFoodsFromFirestore();
+    return all.filter(item => {
+      const name = (item.name || '').toLowerCase();
+      return name.includes(cleanQuery) || cleanQuery.includes(name);
+    });
+  },
+
+  /**
    * Automatically saves searched Subway items to Firestore under the 'subway_foods' collection.
    * Compares each item to prevent duplicate uploads unless the nutrition profile has changed.
    */

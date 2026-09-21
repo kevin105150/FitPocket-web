@@ -1,4 +1,4 @@
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, collection, getDocs } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { FoodSearchResult } from '../types';
 
@@ -51,6 +51,56 @@ function isMcdFoodModified(foodA: any, foodB: any): boolean {
 }
 
 export const McdonaldCacheService = {
+  /**
+   * Fetches all saved McDonald's foods directly from the Firebase 'mcdonald_foods' collection.
+   */
+  async getMcdonaldFoodsFromFirestore(): Promise<FoodSearchResult[]> {
+    if (!db) return [];
+    try {
+      const colRef = collection(db, 'mcdonald_foods');
+      const snap = await getDocs(colRef);
+      const list: FoodSearchResult[] = [];
+      snap.forEach((docSnap) => {
+        const d = docSnap.data();
+        list.push({
+          id: d.id || docSnap.id,
+          name: d.name,
+          brand: '麥當勞',
+          calories: Number(d.calories) || 0,
+          protein: Number(d.protein) || 0,
+          fat: Number(d.fat) || 0,
+          carbs: Number(d.carbs) || 0,
+          sodium: Number(d.sodium) || 0,
+          sugars: Number(d.sugars) || 0,
+          fiber: Number(d.fiber) || 0,
+          potassium: Number(d.potassium) || 0,
+          imageUrl: '',
+          isLocalPreset: false,
+          servingAmount: Number(d.servingAmount) || 100,
+          servingSizeText: d.servingSizeText || `${d.servingAmount || 100}g`,
+          servingUnit: d.servingUnit || 'g'
+        });
+      });
+      return list;
+    } catch (err) {
+      console.error('[McdonaldCacheService] Error fetching from Firestore:', err);
+      return [];
+    }
+  },
+
+  /**
+   * Searches saved McDonald's foods in Firestore by matching keyword locally after fetching list.
+   */
+  async searchMcdonaldFoodsInFirestore(query: string): Promise<FoodSearchResult[]> {
+    const cleanQuery = query.trim().toLowerCase();
+    if (!cleanQuery) return [];
+    const all = await this.getMcdonaldFoodsFromFirestore();
+    return all.filter(item => {
+      const name = (item.name || '').toLowerCase();
+      return name.includes(cleanQuery) || cleanQuery.includes(name);
+    });
+  },
+
   /**
    * Automatically saves searched McDonald's items to Firestore under the 'mcdonald_foods' collection.
    * Compares each item to prevent duplicate uploads unless the nutrition profile has changed.

@@ -1502,13 +1502,13 @@ app.post('/api/family/search', async (req, res) => {
 // 3.6. McDonald's Taiwan Live Crawler Search
 app.post('/api/mcd/search', async (req, res) => {
   try {
-    const { keyword } = req.body;
+    const { keyword, crawlAll } = req.body;
     const cleanQuery = (keyword || '').trim();
-    if (!cleanQuery) {
+    if (!crawlAll && !cleanQuery) {
       return res.json({ products: [] });
     }
 
-    console.log(`[Crawler] Attempting live crawl to McDonald's Taiwan nutrition calculator for: "${cleanQuery}"...`);
+    console.log(`[Crawler] Attempting live crawl to McDonald's Taiwan nutrition calculator (crawlAll: ${!!crawlAll}, query: "${cleanQuery}")...`);
     
     const safariUa = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2.1 Safari/605.1.15";
     const mcdUrl = "https://www.mcdonalds.com/tw/zh-tw/sustainability/good-food/nutrition-calculator.html";
@@ -1541,7 +1541,9 @@ app.post('/api/mcd/search', async (req, res) => {
 
     for (const [id, prod] of Object.entries(productsDict) as [string, any][]) {
       const title = prod.title || "";
-      if (title.toLowerCase().includes(cleanQueryLower) || cleanQueryLower.includes(title.toLowerCase().replace(/®|™/g, ""))) {
+      if (crawlAll || !cleanQueryLower) {
+        matchedIds.push(id);
+      } else if (title.toLowerCase().includes(cleanQueryLower) || cleanQueryLower.includes(title.toLowerCase().replace(/®|™/g, ""))) {
         matchedIds.push(id);
       }
     }
@@ -1549,77 +1551,86 @@ app.post('/api/mcd/search', async (req, res) => {
     const finalItems: any[] = [];
 
     if (matchedIds.length > 0) {
-      const itemParam = matchedIds.map(id => `${id}()-`).join("");
-      const apiUrl = `https://www.mcdonalds.com/dnaapp/itemList?country=TW&language=zh&showLiveData=true&nutrient_req=Y&item=${encodeURIComponent(itemParam)}`;
-      
-      const apiRes = await fetch(apiUrl, {
-        headers: {
-          "User-Agent": safariUa,
-          "Accept": "application/json, text/plain, */*",
-          "Accept-Language": "zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7",
-          "Referer": mcdUrl
-        }
-      });
+      // Split into chunks of 30 to avoid extremely long URL strings
+      const chunkSize = 30;
+      for (let i = 0; i < matchedIds.length; i += chunkSize) {
+        const chunk = matchedIds.slice(i, i + chunkSize);
+        const itemParam = chunk.map(id => `${id}()-`).join("");
+        const apiUrl = `https://www.mcdonalds.com/dnaapp/itemList?country=TW&language=zh&showLiveData=true&nutrient_req=Y&item=${encodeURIComponent(itemParam)}`;
+        
+        try {
+          const apiRes = await fetch(apiUrl, {
+            headers: {
+              "User-Agent": safariUa,
+              "Accept": "application/json, text/plain, */*",
+              "Accept-Language": "zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7",
+              "Referer": mcdUrl
+            }
+          });
 
-      if (apiRes.ok) {
-        const apiData = await apiRes.json() as any;
-        const rawItems = apiData.items?.item || [];
-        const itemsList = Array.isArray(rawItems) ? rawItems : [rawItems];
+          if (apiRes.ok) {
+            const apiData = await apiRes.json() as any;
+            const rawItems = apiData.items?.item || [];
+            const itemsList = Array.isArray(rawItems) ? rawItems : [rawItems];
 
-        for (const item of itemsList) {
-          if (!item || !item.item_name) continue;
+            for (const item of itemsList) {
+              if (!item || !item.item_name) continue;
 
-          const name = item.item_name.replace(/®|™/g, "").trim();
-          const productId = item.id || item.item_id;
-          const nutrients = item.nutrient_facts?.nutrient || [];
-          
-          let calories = 0, protein = 0, fat = 0, carbs = 0, sodium = 0, sugars = 0, fiber = 0, servingAmount = 0;
-          let servingUnit = "g";
+              const name = item.item_name.replace(/®|™/g, "").trim();
+              const productId = item.id || item.item_id;
+              const nutrients = item.nutrient_facts?.nutrient || [];
+              
+              let calories = 0, protein = 0, fat = 0, carbs = 0, sodium = 0, sugars = 0, fiber = 0, servingAmount = 0;
+              let servingUnit = "g";
 
-          for (const nut of nutrients) {
-            const valStr = (nut.value || "0").replace(/,/g, "").trim();
-            const val = parseFloat(valStr) || 0;
+              for (const nut of nutrients) {
+                const valStr = (nut.value || "0").replace(/,/g, "").trim();
+                const val = parseFloat(valStr) || 0;
 
-            switch (nut.nutrient_name_id) {
-              case "energy_kcal": calories = val; break;
-              case "protein": protein = val; break;
-              case "fat": fat = val; break;
-              case "carbohydrate": carbs = val; break;
-              case "salt": sodium = val; break;
-              case "sugars": sugars = val; break;
-              case "dietary_fibre": fiber = val; break;
-              case "primary_serving_size":
-                servingAmount = val;
-                servingUnit = nut.uom || "g";
-                break;
+                switch (nut.nutrient_name_id) {
+                  case "energy_kcal": calories = val; break;
+                  case "protein": protein = val; break;
+                  case "fat": fat = val; break;
+                  case "carbohydrate": carbs = val; break;
+                  case "salt": sodium = val; break;
+                  case "sugars": sugars = val; break;
+                  case "dietary_fibre": fiber = val; break;
+                  case "primary_serving_size":
+                    servingAmount = val;
+                    servingUnit = nut.uom || "g";
+                    break;
+                }
+              }
+
+              const origProduct = productsDict[productId] || {};
+              const desktopImageUrl = origProduct.desktopImageUrl || "";
+
+              finalItems.push({
+                id: `mcd_${productId}`,
+                name: name,
+                brand: "麥當勞 McDonald's",
+                category: "FastFood",
+                calories: Math.round(calories),
+                protein: parseFloat(protein.toFixed(1)),
+                fat: parseFloat(fat.toFixed(1)),
+                carbs: parseFloat(carbs.toFixed(1)),
+                sodium: Math.round(sodium),
+                sugars: parseFloat(sugars.toFixed(1)),
+                fiber: Math.round(fiber),
+                potassium: 0,
+                imageUrl: desktopImageUrl,
+                isLocalPreset: false,
+                servingAmount: Math.round(servingAmount) || 100,
+                servingSizeText: `${Math.round(servingAmount) || 100}${servingUnit}`,
+                servingUnit: servingUnit,
+                officialSourceNote: "台灣麥當勞官網公開營養計算機 (實時爬取)",
+                verified: true,
+                tags: ["官網實時爬取", "美式速食", "經典品項"]
+              });
             }
           }
-
-          const origProduct = productsDict[productId] || {};
-          const desktopImageUrl = origProduct.desktopImageUrl || "";
-
-          finalItems.push({
-            id: `mcd_${productId}`,
-            name: name,
-            brand: "麥當勞 McDonald's",
-            category: "FastFood",
-            calories: Math.round(calories),
-            protein: parseFloat(protein.toFixed(1)),
-            fat: parseFloat(fat.toFixed(1)),
-            carbs: parseFloat(carbs.toFixed(1)),
-            sodium: Math.round(sodium),
-            sugars: parseFloat(sugars.toFixed(1)),
-            fiber: Math.round(fiber),
-            potassium: 0,
-            imageUrl: desktopImageUrl,
-            isLocalPreset: false,
-            servingAmount: Math.round(servingAmount) || 100,
-            servingSizeText: `${Math.round(servingAmount) || 100}${servingUnit}`,
-            servingUnit: servingUnit,
-            officialSourceNote: "台灣麥當勞官網公開營養計算機 (實時爬取)",
-            verified: true,
-            tags: ["官網實時爬取", "美式速食", "經典品項"]
-          });
+        } catch (chunkErr) {
+          console.error('[Crawler] Error fetching chunk for McDonald:', chunkErr);
         }
       }
     }
