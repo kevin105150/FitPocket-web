@@ -273,6 +273,58 @@ async function recordUsageAndHistory(email: string, tokens: number) {
   await recordDailyUsageHistory(normalized, tokens);
 }
 
+let cachedSharedApiKey = '';
+let cachedSharedApiKeyTime = 0;
+
+async function getSharedDeveloperApiKeyFromFirestore(): Promise<string> {
+  if (cachedSharedApiKey && Date.now() - cachedSharedApiKeyTime < 60000) {
+    return cachedSharedApiKey;
+  }
+  const cfg = getFirestoreConfig();
+  const url = `https://firestore.googleapis.com/v1/projects/${cfg.projectId}/databases/${cfg.databaseId}/documents/system_config/gemini_shared_key?key=${cfg.apiKey}`;
+  try {
+    const resp = await fetch(url);
+    if (resp.ok) {
+      const data = await resp.json();
+      const doc = parseFirestoreDoc(data);
+      if (doc && doc.apiKey && typeof doc.apiKey === 'string' && doc.apiKey.trim().length > 5) {
+        cachedSharedApiKey = doc.apiKey.trim();
+        cachedSharedApiKeyTime = Date.now();
+        return cachedSharedApiKey;
+      }
+    }
+  } catch (err) {
+    console.error('Error fetching shared developer key from Firestore:', err);
+  }
+  return '';
+}
+
+async function saveSharedDeveloperApiKeyToFirestore(apiKey: string, updatedBy: string): Promise<boolean> {
+  const cfg = getFirestoreConfig();
+  const url = `https://firestore.googleapis.com/v1/projects/${cfg.projectId}/databases/${cfg.databaseId}/documents/system_config/gemini_shared_key?key=${cfg.apiKey}`;
+  const fields = toFirestoreFields({
+    apiKey: apiKey.trim(),
+    updatedBy,
+    updatedAt: Date.now(),
+  });
+
+  try {
+    const resp = await fetch(url, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fields }),
+    });
+    if (resp.ok) {
+      cachedSharedApiKey = apiKey.trim();
+      cachedSharedApiKeyTime = Date.now();
+      return true;
+    }
+  } catch (err) {
+    console.error('Error saving shared developer key to Firestore:', err);
+  }
+  return false;
+}
+
 interface AuthAIResult {
   allowed: boolean;
   statusCode?: number;
@@ -309,13 +361,17 @@ async function validateAndAuthoriseAiRequest(
     };
   }
 
-  // 2. Developer Key Mode (Backend-managed)
-  const devKey = (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.trim()) || '';
+  // 2. Developer Key Mode (Backend-managed or Admin Firestore Shared)
+  let devKey = (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.trim()) || '';
+  if (!devKey) {
+    devKey = await getSharedDeveloperApiKeyFromFirestore();
+  }
+
   if (!devKey) {
     return {
       allowed: false,
       statusCode: 400,
-      errorMessage: '後端未偵測到開發者 GEMINI_API_KEY。請至「設定」輸入您的個人 Gemini API Key 即可開啟完整 AI 功能！',
+      errorMessage: '系統管理員尚未同步共享 GEMINI_API_KEY 至雲端庫。請點擊「設定」輸入您的個人 Gemini API Key，或由管理員於設定中按下「同步共享金鑰」！',
     };
   }
 
@@ -491,10 +547,10 @@ async function generateWithFallback(
   const candidateModels = Array.from(
     new Set([
       preferredModel,
-      'gemini-3.8-flash',
       'gemini-3.1-flash-lite',
-      'gemini-3.6-flash',
       'gemini-3.5-flash',
+      'gemini-3.6-flash',
+      'gemini-3.8-flash',
       'gemini-flash-latest',
     ].filter(m => m && (m.startsWith('gemini-3.') || m.includes('flash'))))
   );
@@ -554,15 +610,13 @@ async function generateWithFallback(
 
         console.warn(`[Gemini Attempt Failed] Model: ${modelName}, Search: ${searchFlag}, Status: ${status}, Msg: ${message}`);
 
-        // If it's explicitly an API key / auth / permission error, throw immediately
+        // If it's explicitly an invalid API key, throw immediately; otherwise continue to next model in 3.x family
         if (
-          status === 400 || status === 401 || status === 403 ||
+          status === 401 ||
           message.includes('API_KEY_INVALID') ||
-          message.includes('API key not valid') ||
-          message.includes('PERMISSION_DENIED') ||
-          message.includes('UNAUTHENTICATED')
+          message.includes('API key not valid')
         ) {
-          throw new Error('Gemini API Key 無效或未開通權限，請至「設定」確認您的 API Key。');
+          throw new Error('Gemini API Key 無效，請至「設定」確認您的 API Key。');
         }
       }
     }
@@ -572,6 +626,9 @@ async function generateWithFallback(
     const msg = lastError.message || '';
     if (msg.includes('RESOURCE_EXHAUSTED') || msg.includes('exceeded your current quota') || lastError.status === 429) {
       throw new Error('Gemini API 額度已達上限 (Quota Exceeded)，請稍後再試或至「設定」改用個人 API Key。');
+    }
+    if (msg.includes('PERMISSION_DENIED') || msg.includes('denied access') || lastError.status === 403) {
+      throw new Error('Gemini API 存取遭受拒絕 (Permission Denied)。請前往 Google AI Studio (https://aistudio.google.com/app/apikey) 申請具備 API 存取權限的 Gemini API Key。');
     }
     if (msg) {
       throw new Error(`AI 服務暫時無法回應 (${msg.slice(0, 100)})`);
@@ -681,6 +738,60 @@ app.all('/api/firebase/test-connection', async (req, res) => {
 });
 
 // Whitelist & Developer Quota Management Endpoints
+app.post('/api/admin/save-shared-gemini-key', async (req, res) => {
+  try {
+    const { userEmail, apiKey } = req.body;
+    const normalized = normalizeEmail(userEmail || '');
+    if (normalized !== ADMIN_EMAIL) {
+      return res.status(403).json({ ok: false, error: '僅限系統管理員權限同步共享 AI 金鑰' });
+    }
+    if (!apiKey || typeof apiKey !== 'string' || apiKey.trim().length < 10) {
+      return res.status(400).json({ ok: false, error: '請提供有效的 Gemini API Key' });
+    }
+
+    const cleanKey = apiKey.trim();
+    // Test key with Gemini API
+    const ai = getGenAIClient(cleanKey);
+    const testRes = await generateWithFallback(ai, 'gemini-3.8-flash', '請回覆短字串：OK', false);
+    if (!testRes || !testRes.text) {
+      return res.status(400).json({ ok: false, error: '金鑰連線測試無回應，請確認 Key 是否正確或具備存取權限。' });
+    }
+
+    const saved = await saveSharedDeveloperApiKeyToFirestore(cleanKey, normalized);
+    if (saved) {
+      res.json({
+        ok: true,
+        success: true,
+        message: '開發者共享 AI 金鑰已驗證成功並同步儲存至雲端庫！所有白名單核准使用者即刻享有共享額度。',
+        modelUsed: testRes.modelUsed,
+      });
+    } else {
+      res.status(500).json({ ok: false, error: '儲存至雲端資料庫時發生錯誤' });
+    }
+  } catch (error: any) {
+    console.error('Error saving shared gemini key:', error);
+    res.status(400).json({ ok: false, error: error.message || '驗證金鑰失敗' });
+  }
+});
+
+app.get('/api/admin/shared-gemini-key-status', async (req, res) => {
+  try {
+    const envKey = (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.trim()) || '';
+    const fsKey = await getSharedDeveloperApiKeyFromFirestore();
+    const activeKey = envKey || fsKey;
+    const hasKey = Boolean(activeKey);
+    const masked = activeKey ? `${activeKey.slice(0, 6)}...${activeKey.slice(-4)}` : '';
+
+    res.json({
+      ok: true,
+      hasKey,
+      source: envKey ? 'env' : (fsKey ? 'firestore' : 'none'),
+      maskedKey: masked,
+    });
+  } catch (error: any) {
+    res.status(500).json({ ok: false, hasKey: false, error: error.message });
+  }
+});
 app.get('/api/ai/developer-quota', async (req, res) => {
   try {
     const userEmail = (req.query.userEmail as string) || (req.headers['x-user-email'] as string) || '';
