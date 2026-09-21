@@ -32,7 +32,7 @@ import { OpenFoodService } from '../services/openFoodService';
 import { CARB_CYCLE_INFO, getCarbCycleBadgeStyle } from '../data/defaults';
 import { DateNavigator } from './DateNavigator';
 import { AddFoodModal, FoodTab } from './AddFoodModal';
-import { checkAiKeyOrWarn } from '../utils/aiHelper';
+import { checkAiKeyOrWarn, getAiRequestParams } from '../utils/aiHelper';
 import { PortionModal } from './PortionModal';
 import { CustomFoodModal } from './CustomFoodModal';
 import { GoalSettingModal } from './GoalSettingModal';
@@ -432,7 +432,7 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
         // 核心優化：壓縮圖片 (最佳化為 768x768，Gemini 視覺識別最速甜點尺寸)
         const optimizedBase64 = await optimizeImageForAi(base64, 768, 768, 0.7);
 
-        const userKey = StorageService.getGeminiApiKey();
+        const aiParams = getAiRequestParams();
         const model = StorageService.getSelectedAiModel();
         
         setAiPhotoProgress(40);
@@ -462,7 +462,10 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
             body: JSON.stringify({
               imageBase64: optimizedBase64,
               mimeType: 'image/jpeg',
-              customApiKey: userKey,
+              customApiKey: aiParams.customApiKey,
+              apiKeySource: aiParams.apiKeySource,
+              userEmail: aiParams.userEmail,
+              userUid: aiParams.userUid,
               model,
             }),
           });

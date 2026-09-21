@@ -49,6 +49,7 @@ import {
   Filter,
   Camera,
   Loader2,
+  BarChart3,
 } from 'lucide-react';
 import {
   CustomFood,
@@ -157,6 +158,12 @@ export const SettingsScreen: React.FC = () => {
   const [showEditWhitelistModal, setShowEditWhitelistModal] = useState(false);
   const [showStatusDropdown, setShowStatusDropdown] = useState(false);
   const [selectedWhitelistUser, setSelectedWhitelistUser] = useState<AiWhitelistUser | null>(null);
+
+  // Daily Usage History
+  const [dailyHistory, setDailyHistory] = useState<{ date: string; calls: number; tokens: number }[]>([]);
+  const [loadingDailyHistory, setLoadingDailyHistory] = useState(false);
+  const [clearingStats, setClearingStats] = useState(false);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
 
   // Form states for Add / Edit Whitelist User
   const [formEmail, setFormEmail] = useState('');
@@ -481,6 +488,7 @@ export const SettingsScreen: React.FC = () => {
           dailyLimit: data.dailyLimit,
           todayUsage: data.todayUsage,
           remaining: data.remaining,
+          totalTokensUsed: data.totalTokensUsed,
           quotaCycleDate: data.quotaCycleDate,
           status: data.status,
           isAdmin: data.isAdmin,
@@ -514,9 +522,27 @@ export const SettingsScreen: React.FC = () => {
     }
   }, [isAdmin, user?.email]);
 
+  // Fetch Daily Usage History
+  const fetchDailyHistory = useCallback(async () => {
+    if (!user?.email) return;
+    setLoadingDailyHistory(true);
+    try {
+      const res = await fetch(`/api/ai/daily-history?userEmail=${encodeURIComponent(user.email)}`);
+      const data = await res.json();
+      if (data && Array.isArray(data.history)) {
+        setDailyHistory(data.history);
+      }
+    } catch (err) {
+      console.warn('Failed to fetch daily history:', err);
+    } finally {
+      setLoadingDailyHistory(false);
+    }
+  }, [user?.email]);
+
   useEffect(() => {
     fetchDevQuota();
-  }, [fetchDevQuota]);
+    fetchDailyHistory();
+  }, [fetchDevQuota, fetchDailyHistory]);
 
   useEffect(() => {
     if (isAdmin) {
@@ -558,6 +584,35 @@ export const SettingsScreen: React.FC = () => {
       flashMessage(`申請過程發生錯誤：${err.message}`);
     } finally {
       setRequestingAccess(false);
+    }
+  };
+
+  // Clear all usage stats and history
+  const handleClearUsageStats = async () => {
+    if (!user?.email) return;
+
+    setClearingStats(true);
+    try {
+      const res = await fetch('/api/ai/clear-usage-stats', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userEmail: user.email }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        flashMessage('✨ 全站統計數據與歷史紀錄已成功清除！');
+        setShowClearConfirm(false);
+        await fetchDevQuota();
+        await fetchAdminWhitelist();
+        await fetchDailyHistory();
+      } else {
+        flashMessage(`清除失敗：${data.error || '未知錯誤'}`);
+      }
+    } catch (err: any) {
+      console.error('Clear usage stats error:', err);
+      flashMessage(`清除統計時發生錯誤：${err.message}`);
+    } finally {
+      setClearingStats(false);
     }
   };
 
@@ -985,6 +1040,27 @@ export const SettingsScreen: React.FC = () => {
   const pendingCount = adminWhitelist.filter((u) => u.status === 'pending').length;
   const approvedCount = adminWhitelist.filter((u) => u.status === 'approved').length;
   const totalCallsToday = adminWhitelist.reduce((acc, curr) => acc + (curr.todayUsage || 0), 0);
+
+  const getTodayLADate = () => {
+    try {
+      const formatter = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'America/Los_Angeles',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      });
+      return formatter.format(new Date());
+    } catch {
+      const d = new Date();
+      d.setHours(d.getHours() - 7); // Pacific Time
+      return d.toISOString().split('T')[0];
+    }
+  };
+
+  const todayLADate = getTodayLADate();
+  const todayHistoryItem = dailyHistory.find((item) => item.date === todayLADate);
+  const todayTotalCalls = todayHistoryItem ? todayHistoryItem.calls : totalCallsToday;
+  const todayTotalTokens = todayHistoryItem ? todayHistoryItem.tokens : 0;
 
   return (
     <div className="space-y-5 pb-28 max-w-2xl mx-auto">
@@ -1605,7 +1681,10 @@ export const SettingsScreen: React.FC = () => {
                               status: 'approved',
                               dailyLimit: devQuota.dailyLimit,
                               todayUsage: devQuota.todayUsage,
-                              lastUsedAt: new Date().toISOString()
+                              totalUsage: devQuota.todayUsage,
+                              requestedAt: Date.now(),
+                              quotaCycleDate: devQuota.quotaCycleDate || '',
+                              lastUsedAt: Date.now()
                             });
                           }
                         }}
@@ -1631,6 +1710,15 @@ export const SettingsScreen: React.FC = () => {
                         <span className="text-slate-400 font-normal ml-1 text-[10px]">
                           (餘 {devQuota.remaining})
                         </span>
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center text-[11px] mt-1">
+                      <span className="text-slate-500 font-bold flex items-center gap-1">
+                        <Sparkles className="w-3 h-3 text-amber-600" />
+                        總 Token 消耗量
+                      </span>
+                      <span className="font-black text-amber-700 text-xs">
+                        {devQuota.totalTokensUsed.toLocaleString()}
                       </span>
                     </div>
 
@@ -1857,7 +1945,7 @@ export const SettingsScreen: React.FC = () => {
               </div>
             </div>
 
-            <div className="flex flex-col gap-2 w-full">
+            <div className="grid grid-cols-2 gap-2 w-full">
               <button
                 type="button"
                 onClick={() => {
@@ -1894,11 +1982,42 @@ export const SettingsScreen: React.FC = () => {
                 <UserPlus className="w-4 h-4" />
                 <span>手動新增使用者</span>
               </button>
+              
+              {!showClearConfirm ? (
+                <button
+                  type="button"
+                  onClick={() => setShowClearConfirm(true)}
+                  disabled={clearingStats}
+                  className="w-full px-4 py-2.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl transition flex items-center justify-center gap-2 shadow-xs cursor-pointer disabled:opacity-50"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span>清除全站統計次數</span>
+                </button>
+              ) : (
+                <div className="flex gap-1.5 w-full">
+                  <button
+                    type="button"
+                    onClick={handleClearUsageStats}
+                    disabled={clearingStats}
+                    className="flex-1 px-2 py-2.5 bg-rose-600 hover:bg-rose-700 text-white text-[10px] sm:text-xs font-extrabold rounded-xl transition flex items-center justify-center gap-1 shadow-xs cursor-pointer disabled:opacity-50 animate-pulse"
+                  >
+                    <span>確定清除！</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowClearConfirm(false)}
+                    disabled={clearingStats}
+                    className="px-3 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] sm:text-xs font-bold rounded-xl transition flex items-center justify-center cursor-pointer disabled:opacity-50"
+                  >
+                    <span>取消</span>
+                  </button>
+                </div>
+              )}
             </div>
           </div>
 
           {/* Admin Quick Metrics Cards */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
             <div className="bg-white p-3 rounded-2xl border border-slate-200/80 shadow-2xs flex flex-col">
               <span className="text-[10px] font-bold text-slate-400 uppercase">總註冊/申請用戶</span>
               <span className="text-xl font-black text-slate-800 mt-1">{adminWhitelist.length} 人</span>
@@ -1913,12 +2032,26 @@ export const SettingsScreen: React.FC = () => {
               <span className="text-xl font-black text-amber-600 mt-1">{pendingCount} 人</span>
             </div>
             <div className="bg-white p-3 rounded-2xl border border-sky-200/80 shadow-2xs flex flex-col">
-              <span className="text-[10px] font-bold text-sky-600 uppercase">已核准使用中</span>
-              <span className="text-xl font-black text-sky-600 mt-1">{approvedCount} 人</span>
+              <span className="text-[10px] font-bold text-sky-600 uppercase">今日總呼叫次數</span>
+              <span className="text-xl font-black text-sky-600 mt-1">{todayTotalCalls} 次</span>
+            </div>
+            <div className="bg-white p-3 rounded-2xl border border-emerald-200/80 shadow-2xs flex flex-col">
+              <span className="text-[10px] font-bold text-emerald-600 uppercase">今日總 Token</span>
+              <span className="text-xl font-black text-emerald-600 mt-1 truncate" title={todayTotalTokens.toLocaleString()}>
+                {todayTotalTokens.toLocaleString()}
+              </span>
+            </div>
+            <div className="bg-white p-3 rounded-2xl border border-indigo-200/80 shadow-2xs flex flex-col">
+              <span className="text-[10px] font-bold text-indigo-600 uppercase">全站總呼叫次數</span>
+              <span className="text-xl font-black text-indigo-700 mt-1">
+                {adminWhitelist.reduce((acc, curr) => acc + (Number(curr.totalUsage) || 0), 0)} 次
+              </span>
             </div>
             <div className="bg-white p-3 rounded-2xl border border-purple-200/80 shadow-2xs flex flex-col">
-              <span className="text-[10px] font-bold text-purple-600 uppercase">今日全站調用總次數</span>
-              <span className="text-xl font-black text-purple-700 mt-1">{totalCallsToday} 次</span>
+              <span className="text-[10px] font-bold text-purple-600 uppercase">全站 Token 總量</span>
+              <span className="text-xl font-black text-purple-700 mt-1 truncate" title={adminWhitelist.reduce((acc, curr) => acc + (Number(curr.totalTokensUsed) || 0), 0).toLocaleString()}>
+                {adminWhitelist.reduce((acc, curr) => acc + (Number(curr.totalTokensUsed) || 0), 0).toLocaleString()}
+              </span>
             </div>
           </div>
 
@@ -2489,6 +2622,56 @@ export const SettingsScreen: React.FC = () => {
             </div>
           </div>
         )}
+
+        {/* Daily Usage History Timeline */}
+        <div className="pt-3 border-t border-slate-100">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[11px] font-bold text-slate-500">
+              {isAdmin ? '📊 全站每日總呼叫與總 Token 歷史' : '📊 個人每日歷史使用明細'}
+            </span>
+            <button
+              type="button"
+              onClick={fetchDailyHistory}
+              disabled={loadingDailyHistory}
+              className="text-[10px] font-bold text-purple-700 hover:text-purple-800 flex items-center gap-1 cursor-pointer"
+            >
+              <RefreshCw className={`w-2.5 h-2.5 ${loadingDailyHistory ? 'animate-spin' : ''}`} />
+              <span>重整歷史</span>
+            </button>
+          </div>
+
+          {loadingDailyHistory && dailyHistory.length === 0 ? (
+            <div className="p-4 text-center text-slate-400 text-[11px] flex items-center justify-center gap-2">
+              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+              <span>載入每日歷史中...</span>
+            </div>
+          ) : dailyHistory.length === 0 ? (
+            <div className="p-3 text-center bg-slate-50/50 rounded-xl border border-slate-100 text-slate-400 text-[10px]">
+              尚無每日歷史使用紀錄（完成 AI 呼叫後將自動寫入）
+            </div>
+          ) : (
+            <div className="max-h-48 overflow-y-auto border border-slate-100 rounded-xl overflow-hidden">
+              <table className="w-full text-left border-collapse text-[11px]">
+                <thead>
+                  <tr className="bg-slate-50 text-slate-500 font-bold border-b border-slate-100">
+                    <th className="px-3 py-1.5">日期</th>
+                    <th className="px-3 py-1.5 text-center">呼叫次數</th>
+                    <th className="px-3 py-1.5 text-right">消耗 Token</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 font-medium text-slate-600">
+                  {dailyHistory.map((item) => (
+                    <tr key={item.date} className="hover:bg-slate-50/30 transition-colors">
+                      <td className="px-3 py-1.5 font-bold text-slate-700">{item.date}</td>
+                      <td className="px-3 py-1.5 text-center text-purple-700 font-black">{item.calls} 次</td>
+                      <td className="px-3 py-1.5 text-right text-amber-700 font-mono">{item.tokens.toLocaleString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* 6. Data Backup & Restore */}

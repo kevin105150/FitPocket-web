@@ -728,16 +728,18 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
         </div>
 
         {/* Form */}
-        <form onSubmit={handleSubmit} className="px-6 py-4 overflow-y-auto space-y-4 text-sm">
-          {error && (
-            <div className="p-3 bg-rose-50 text-rose-700 text-xs rounded-xl flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 shrink-0" />
-              <span>{error}</span>
-            </div>
-          )}
+        <form onSubmit={handleSubmit} className="flex-1 flex flex-col overflow-hidden min-h-0 text-sm">
+          {/* Scrollable Form Content */}
+          <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+            {error && (
+              <div className="p-3 bg-rose-50 text-rose-700 text-xs rounded-xl flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{error}</span>
+              </div>
+            )}
 
-          {/* Name & Brand */}
-          <div className="space-y-3">
+            {/* Name & Brand */}
+            <div className="space-y-3">
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">
                 食品名稱 <span className="text-rose-500">*</span>
@@ -891,13 +893,14 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
               </div>
             </div>
           </div>
+          </div>
 
-          {/* Action buttons */}
-          <div className="pt-2 flex justify-end gap-3">
+          {/* Action buttons fixed/sticky at the bottom */}
+          <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/70 flex justify-end gap-3 shrink-0">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-xl transition cursor-pointer"
+              className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-xl transition cursor-pointer font-semibold"
             >
               取消
             </button>

@@ -215,6 +215,63 @@ async function deleteWhitelistUser(email: string): Promise<boolean> {
   }
 }
 
+async function recordDailyUsageHistory(email: string, tokens: number) {
+  const normalized = normalizeEmail(email);
+  if (!normalized) return;
+  const cfg = getFirestoreConfig();
+  const date = getServerGoogleApiQuotaCycleDate(); // YYYY-MM-DD
+  const userDocId = getDocIdForEmail(normalized);
+  const historyDocId = `${userDocId}_${date}`;
+  const url = `https://firestore.googleapis.com/v1/projects/${cfg.projectId}/databases/${cfg.databaseId}/documents/ai_daily_usage_history/${historyDocId}?key=${cfg.apiKey}`;
+
+  try {
+    const getResp = await fetch(url);
+    let existingCalls = 0;
+    let existingTokens = 0;
+
+    if (getResp.ok) {
+      const doc = await getResp.json();
+      const parsed = parseFirestoreDoc(doc);
+      existingCalls = Number(parsed.calls) || 0;
+      existingTokens = Number(parsed.tokens) || 0;
+    }
+
+    const updatedData = {
+      email: normalized,
+      date,
+      calls: existingCalls + 1,
+      tokens: existingTokens + tokens,
+      lastUpdatedAt: Date.now()
+    };
+
+    const fields = toFirestoreFields(updatedData);
+    await fetch(url, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fields })
+    });
+  } catch (err) {
+    console.warn('Error recording daily usage history:', err);
+  }
+}
+
+async function recordUsageAndHistory(email: string, tokens: number) {
+  const normalized = normalizeEmail(email);
+  if (!normalized) return;
+
+  try {
+    const record = await getWhitelistUserFromFirestore(normalized);
+    if (record) {
+      record.totalTokensUsed = (Number(record.totalTokensUsed) || 0) + tokens;
+      await saveWhitelistUserToFirestore(record);
+    }
+  } catch (err) {
+    console.warn('Error updating totalTokensUsed in whitelist:', err);
+  }
+
+  await recordDailyUsageHistory(normalized, tokens);
+}
+
 interface AuthAIResult {
   allowed: boolean;
   statusCode?: number;
@@ -237,7 +294,8 @@ async function validateAndAuthoriseAiRequest(
   customApiKey?: string,
   userEmail?: string,
   apiKeySource?: string,
-  uid?: string
+  uid?: string,
+  tokensUsed?: number
 ): Promise<AuthAIResult> {
   const cleanCustomKey = (customApiKey && typeof customApiKey === 'string') ? customApiKey.trim() : '';
   const isDeveloperMode = apiKeySource === 'developer' || !cleanCustomKey;
@@ -384,9 +442,11 @@ async function validateAndAuthoriseAiRequest(
   // Increment usage
   const nextTodayUsage = todayUsage + 1;
   const nextTotalUsage = (Number(userRecord.totalUsage) || 0) + 1;
+  const nextTotalTokensUsed = (Number(userRecord.totalTokensUsed) || 0) + (tokensUsed || 0);
 
   userRecord.todayUsage = nextTodayUsage;
   userRecord.totalUsage = nextTotalUsage;
+  userRecord.totalTokensUsed = nextTotalTokensUsed;
   userRecord.quotaCycleDate = currentCycleDate;
   userRecord.lastUsedAt = Date.now();
   if (uid && !userRecord.uid) userRecord.uid = uid;
@@ -682,6 +742,7 @@ app.get('/api/ai/developer-quota', async (req, res) => {
       todayUsage,
       remaining,
       totalUsage: Number(userRecord.totalUsage) || 0,
+      totalTokensUsed: Number(userRecord.totalTokensUsed) || 0,
       quotaCycleDate: currentCycleDate,
       requestedAt: userRecord.requestedAt,
       approvedAt: userRecord.approvedAt,
@@ -691,6 +752,128 @@ app.get('/api/ai/developer-quota', async (req, res) => {
   } catch (error: any) {
     console.error('Get developer quota error:', error);
     res.status(500).json({ error: error.message || '查詢額度失敗' });
+  }
+});
+
+app.get('/api/ai/daily-history', async (req, res) => {
+  try {
+    const userEmail = normalizeEmail((req.query.userEmail as string) || (req.headers['x-user-email'] as string) || '');
+    const targetEmail = normalizeEmail(req.query.targetEmail as string || '');
+    const isAdmin = userEmail === ADMIN_EMAIL;
+
+    // Normal users can only query their own history. Admin can query anyone or site-wide.
+    const queryEmail = isAdmin ? (targetEmail || null) : userEmail;
+
+    const cfg = getFirestoreConfig();
+    const url = `https://firestore.googleapis.com/v1/projects/${cfg.projectId}/databases/${cfg.databaseId}/documents:runQuery?key=${cfg.apiKey}`;
+
+    // Query all daily history records
+    const queryBody: any = {
+      structuredQuery: {
+        from: [{ collectionId: 'ai_daily_usage_history' }]
+      }
+    };
+
+    if (queryEmail) {
+      queryBody.structuredQuery.where = {
+        fieldFilter: {
+          field: { fieldPath: 'email' },
+          op: 'EQUAL',
+          value: { stringValue: queryEmail }
+        }
+      };
+    }
+
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(queryBody)
+    });
+
+    if (!resp.ok) {
+      const errText = await resp.text();
+      return res.status(500).json({ error: `Query daily history failed: ${errText}` });
+    }
+
+    const rawData = await resp.json();
+    const docs = (rawData || [])
+      .map((item: any) => item.document)
+      .filter(Boolean)
+      .map(parseFirestoreDoc);
+
+    // If targetEmail is null and we are admin, we group and sum by date for site-wide view!
+    if (isAdmin && !targetEmail) {
+      const grouped: Record<string, { date: string; calls: number; tokens: number }> = {};
+      for (const doc of docs) {
+        const d = doc.date;
+        if (!d) continue;
+        if (!grouped[d]) {
+          grouped[d] = { date: d, calls: 0, tokens: 0 };
+        }
+        grouped[d].calls += Number(doc.calls) || 0;
+        grouped[d].tokens += Number(doc.tokens) || 0;
+      }
+      const history = Object.values(grouped).sort((a, b) => b.date.localeCompare(a.date));
+      return res.json({ history });
+    }
+
+    // Sort by date descending
+    const history = docs.sort((a, b) => b.date.localeCompare(a.date));
+    res.json({ history });
+  } catch (error: any) {
+    console.error('Get daily history error:', error);
+    res.status(500).json({ error: error.message || '無法取得每日使用紀錄' });
+  }
+});
+
+app.post('/api/ai/clear-usage-stats', async (req, res) => {
+  try {
+    const userEmail = normalizeEmail((req.body.userEmail as string) || (req.headers['x-user-email'] as string) || '');
+    if (userEmail !== ADMIN_EMAIL) {
+      return res.status(403).json({ error: '只有系統管理員能清除統計次數。' });
+    }
+
+    const cfg = getFirestoreConfig();
+
+    // 1. Reset all users in ai_whitelist
+    const users = await getAllWhitelistUsers();
+    for (const u of users) {
+      u.todayUsage = 0;
+      u.totalUsage = 0;
+      u.totalTokensUsed = 0;
+      await saveWhitelistUserToFirestore(u);
+    }
+
+    // 2. Clear all documents in ai_daily_usage_history
+    const historyQueryUrl = `https://firestore.googleapis.com/v1/projects/${cfg.projectId}/databases/${cfg.databaseId}/documents:runQuery?key=${cfg.apiKey}`;
+    const runQueryResp = await fetch(historyQueryUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        structuredQuery: {
+          from: [{ collectionId: 'ai_daily_usage_history' }]
+        }
+      })
+    });
+
+    if (runQueryResp.ok) {
+      const rawData = await runQueryResp.json();
+      const docs = (rawData || [])
+        .map((item: any) => item.document)
+        .filter(Boolean);
+
+      for (const d of docs) {
+        const docName = d.name; 
+        if (!docName) continue;
+        const deleteUrl = `https://firestore.googleapis.com/v1/${docName}?key=${cfg.apiKey}`;
+        await fetch(deleteUrl, { method: 'DELETE' });
+      }
+    }
+
+    res.json({ success: true, message: '統計數據與每日歷史已成功清除。' });
+  } catch (error: any) {
+    console.error('Clear usage stats error:', error);
+    res.status(500).json({ error: error.message || '清除統計數據失敗' });
   }
 });
 
@@ -893,7 +1076,7 @@ app.all('/api/ai/test-connection', async (req, res) => {
     const apiKeySource = req.body?.apiKeySource || (req.query?.apiKeySource as string);
     const userUid = req.body?.userUid || (req.query?.userUid as string);
 
-    const authResult = await validateAndAuthoriseAiRequest(customKey, userEmail, apiKeySource, userUid);
+    const authResult = await validateAndAuthoriseAiRequest(customKey, userEmail, apiKeySource, userUid, 0);
     if (!authResult.allowed) {
       return res.status(authResult.statusCode || 403).json({
         ok: false,
@@ -912,6 +1095,13 @@ app.all('/api/ai/test-connection', async (req, res) => {
     );
 
     const latencyMs = Date.now() - startTime;
+    const totalTokens = usageMetadata?.totalTokenCount || 0;
+    if (userEmail) {
+      recordUsageAndHistory(userEmail, totalTokens).catch(err => {
+        console.warn('Error recording usage/history:', err);
+      });
+    }
+
     res.json({
       ok: true,
       message: 'Gemini AI API 通訊完全正常！',
@@ -923,7 +1113,7 @@ app.all('/api/ai/test-connection', async (req, res) => {
       _usage: {
         promptTokens: usageMetadata?.promptTokenCount || 0,
         candidatesTokens: usageMetadata?.candidatesTokenCount || 0,
-        totalTokens: usageMetadata?.totalTokenCount || 0,
+        totalTokens,
         model: modelUsed,
         feature: 'connection_test',
       },
@@ -946,7 +1136,7 @@ app.post('/api/ai/estimate-nutrition', async (req, res) => {
       return res.status(400).json({ error: '請輸入飲食名稱' });
     }
 
-    const authResult = await validateAndAuthoriseAiRequest(customApiKey, userEmail, apiKeySource, userUid);
+    const authResult = await validateAndAuthoriseAiRequest(customApiKey, userEmail, apiKeySource, userUid, 0);
     if (!authResult.allowed) {
       return res.status(authResult.statusCode || 403).json({
         error: authResult.errorMessage,
@@ -994,12 +1184,19 @@ app.post('/api/ai/estimate-nutrition', async (req, res) => {
     if (!parsed.brand || !String(parsed.brand).trim()) {
       parsed.brand = 'AI辨識';
     }
+    const totalTokens = usageMetadata?.totalTokenCount || 0;
+    if (userEmail) {
+      recordUsageAndHistory(userEmail, totalTokens).catch(err => {
+        console.warn('Error recording usage/history:', err);
+      });
+    }
+
     parsed._modelUsed = modelUsed;
     parsed._developerQuota = authResult.developerQuota;
     parsed._usage = {
       promptTokens: usageMetadata?.promptTokenCount || 0,
       candidatesTokens: usageMetadata?.candidatesTokenCount || 0,
-      totalTokens: usageMetadata?.totalTokenCount || 0,
+      totalTokens,
       model: modelUsed,
       feature: 'nutrition_estimate',
     };
@@ -1022,7 +1219,7 @@ app.post('/api/ai/estimate-image', async (req, res) => {
       return res.status(400).json({ error: '未提供圖片資料' });
     }
 
-    const authResult = await validateAndAuthoriseAiRequest(customApiKey, userEmail, apiKeySource, userUid);
+    const authResult = await validateAndAuthoriseAiRequest(customApiKey, userEmail, apiKeySource, userUid, 0);
     if (!authResult.allowed) {
       return res.status(authResult.statusCode || 403).json({
         error: authResult.errorMessage,
@@ -1086,12 +1283,19 @@ app.post('/api/ai/estimate-image', async (req, res) => {
     if (parsed.barcode) {
       parsed.barcode = String(parsed.barcode).trim();
     }
+    const totalTokens = usageMetadata?.totalTokenCount || 0;
+    if (userEmail) {
+      recordUsageAndHistory(userEmail, totalTokens).catch(err => {
+        console.warn('Error recording usage/history:', err);
+      });
+    }
+
     parsed._modelUsed = modelUsed;
     parsed._developerQuota = authResult.developerQuota;
     parsed._usage = {
       promptTokens: usageMetadata?.promptTokenCount || 0,
       candidatesTokens: usageMetadata?.candidatesTokenCount || 0,
-      totalTokens: usageMetadata?.totalTokenCount || 0,
+      totalTokens,
       model: modelUsed,
       feature: 'image_recognition',
     };
@@ -1114,7 +1318,7 @@ app.post('/api/ai/read-barcode', async (req, res) => {
       return res.status(400).json({ error: '未提供圖片資料' });
     }
 
-    const authResult = await validateAndAuthoriseAiRequest(customApiKey, userEmail, apiKeySource, userUid);
+    const authResult = await validateAndAuthoriseAiRequest(customApiKey, userEmail, apiKeySource, userUid, 0);
     if (!authResult.allowed) {
       return res.status(authResult.statusCode || 403).json({
         error: authResult.errorMessage,
@@ -1151,13 +1355,20 @@ If no readable barcode numbers are visible in the image, reply ONLY with 'NONE'.
 
     const cleaned = text.replace(/[^0-9a-zA-Z]/g, '').trim();
     const barcodeResult = (cleaned && cleaned !== 'NONE' && cleaned.length >= 6) ? cleaned : null;
+    const totalTokens = usageMetadata?.totalTokenCount || 0;
+    if (userEmail) {
+      recordUsageAndHistory(userEmail, totalTokens).catch(err => {
+        console.warn('Error recording usage/history:', err);
+      });
+    }
+
     res.json({
       barcode: barcodeResult,
       _developerQuota: authResult.developerQuota,
       _usage: {
         promptTokens: usageMetadata?.promptTokenCount || 0,
         candidatesTokens: usageMetadata?.candidatesTokenCount || 0,
-        totalTokens: usageMetadata?.totalTokenCount || 0,
+        totalTokens,
         model: modelUsed,
         feature: 'barcode_ocr',
       },
@@ -1291,7 +1502,7 @@ app.post('/api/family/search', async (req, res) => {
 app.post('/api/ai/workout-suggest', async (req, res) => {
   try {
     const { bodyPart, customApiKey, model, userEmail, apiKeySource, userUid } = req.body;
-    const authResult = await validateAndAuthoriseAiRequest(customApiKey, userEmail, apiKeySource, userUid);
+    const authResult = await validateAndAuthoriseAiRequest(customApiKey, userEmail, apiKeySource, userUid, 0);
 
     if (!authResult.allowed) {
       return res.json({
@@ -1321,13 +1532,20 @@ app.post('/api/ai/workout-suggest', async (req, res) => {
       exercises = ['慢跑', '棒式', '深蹲', '伏地挺身'];
     }
 
+    const totalTokens = usageMetadata?.totalTokenCount || 0;
+    if (userEmail) {
+      recordUsageAndHistory(userEmail, totalTokens).catch(err => {
+        console.warn('Error recording usage/history:', err);
+      });
+    }
+
     res.json({
       exercises,
       _developerQuota: authResult.developerQuota,
       _usage: {
         promptTokens: usageMetadata?.promptTokenCount || 0,
         candidatesTokens: usageMetadata?.candidatesTokenCount || 0,
-        totalTokens: usageMetadata?.totalTokenCount || 0,
+        totalTokens,
         model: modelUsed,
         feature: 'workout_suggest',
       },

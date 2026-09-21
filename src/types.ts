@@ -223,6 +223,7 @@ export interface AiWhitelistUser {
   requestedAt: number;
   approvedAt?: number | null;
   lastUsedAt?: number;
+  totalTokensUsed?: number;
   notes?: string;
 }
 
@@ -230,6 +231,7 @@ export interface DeveloperQuotaInfo {
   dailyLimit: number;
   todayUsage: number;
   remaining: number;
+  totalTokensUsed: number;
   quotaCycleDate: string;
   status: 'approved' | 'pending' | 'rejected' | 'not_requested';
   isAdmin?: boolean;
