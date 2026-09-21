@@ -594,9 +594,9 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
 
       const data = await res.json();
       if (data.products && Array.isArray(data.products)) {
-        setFamilyResults(data.products);
-        await FamilyCacheService.setCachedFamilySearch(query, data.products);
-        if (data.products.length === 0) {
+        const filtered = await FamilyCacheService.setCachedFamilySearch(query, data.products);
+        setFamilyResults(filtered);
+        if (filtered.length === 0) {
           setFamilyError('找不到符合的全家食品，請嘗試其他關鍵字（例如：飯糰、地瓜、茶、雞胸肉）。');
         }
       }

@@ -79,8 +79,8 @@ export const BatchCrawlModal: React.FC<BatchCrawlModalProps> = ({ onClose, onFin
               const data = await res.json();
               if (data.products && Array.isArray(data.products)) {
                 // 寫入快取 (Service 內部會處理三大營養素比對，避免重複寫入髒資料)
-                await FamilyCacheService.setCachedFamilySearch(kw, data.products);
-                totalFetched += data.products.length;
+                const filtered = await FamilyCacheService.setCachedFamilySearch(kw, data.products);
+                totalFetched += filtered.length;
               }
             } else {
               const errData = await res.json().catch(() => ({}));

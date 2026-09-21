@@ -79,21 +79,36 @@ export const FamilyCacheService = {
     return null;
   },
 
-  async setCachedFamilySearch(query: string, products: FoodSearchResult[]): Promise<void> {
+  async setCachedFamilySearch(query: string, products: FoodSearchResult[]): Promise<FoodSearchResult[]> {
     const cleanQuery = query.trim().toLowerCase();
-    if (!cleanQuery) return;
+    if (!cleanQuery) return products;
+
+    // 0. Filter products: skip those with carbs/protein/fat all 0 but calories != 0 (dirty data)
+    const filteredProducts = products.filter(product => {
+      const carbs = product.carbs || 0;
+      const protein = product.protein || 0;
+      const fat = product.fat || 0;
+      const calories = product.calories || 0;
+      
+      // If all three major nutrients are 0 but calories is NOT 0, it's considered dirty data from crawler
+      if (carbs === 0 && protein === 0 && fat === 0 && calories !== 0) {
+        console.warn(`[FamilyCache] Skipping dirty data for: ${product.name} (Cal: ${calories}, C/P/F: 0/0/0)`);
+        return false;
+      }
+      return true;
+    });
 
     // 1. Set LocalStorage
     try {
-      localStorage.setItem(`fitpocket_fam_cache_${cleanQuery}`, JSON.stringify(products));
+      localStorage.setItem(`fitpocket_fam_cache_${cleanQuery}`, JSON.stringify(filteredProducts));
     } catch {}
 
     // 2. Set Firestore (方案二：雲端共用快取)
     try {
       if (db) {
         // Write each product to family_foods first
-        console.log(`[FamilyCache] Writing ${products.length} products to family_foods...`);
-        const productPromises = products.map(async (product) => {
+        console.log(`[FamilyCache] Writing ${filteredProducts.length} products to family_foods...`);
+        const productPromises = filteredProducts.map(async (product) => {
           const cleanId = product.id.startsWith('family_') ? product.id : `family_${product.id}`;
           const prodRef = doc(db, 'family_foods', cleanId);
           const cleanProduct: FoodSearchResult = {
@@ -125,7 +140,7 @@ export const FamilyCacheService = {
         // Write the keyword to productIds mapping
         const docId = `kw_${safeStringHash(cleanQuery)}`;
         const docRef = doc(db, 'family_food_cache', docId);
-        const productIds = products.map(p => p.id.startsWith('family_') ? p.id : `family_${p.id}`);
+        const productIds = filteredProducts.map(p => p.id.startsWith('family_') ? p.id : `family_${p.id}`);
         
         console.log(`[FamilyCache] Writing keyword mapping to Firestore: ${cleanQuery}`);
         try {
@@ -142,6 +157,8 @@ export const FamilyCacheService = {
     } catch (err) {
       console.error('[FamilyCache] Firestore write error:', err);
     }
+    
+    return filteredProducts;
   },
   
   clearAllLocalCache(): void {
