@@ -157,9 +157,18 @@ export const SettingsScreen: React.FC = () => {
   // Shared Gemini Key Status
   const [sharedKeyStatus, setSharedKeyStatus] = useState<{
     hasKey: boolean;
+    firestoreSynced: boolean;
     source: string;
     maskedKey: string;
     lastTestedModel?: string;
+  } | null>(null);
+
+  const [testingSharedKey, setTestingSharedKey] = useState(false);
+  const [adminTestResult, setAdminTestResult] = useState<{
+    ok: boolean;
+    message: string;
+    latencyMs?: number;
+    modelUsed?: string;
   } | null>(null);
 
   const fetchSharedKeyStatus = useCallback(async () => {
@@ -170,6 +179,7 @@ export const SettingsScreen: React.FC = () => {
         if (data.ok) {
           setSharedKeyStatus({
             hasKey: data.hasKey,
+            firestoreSynced: data.firestoreSynced ?? (data.source === 'firestore'),
             source: data.source,
             maskedKey: data.maskedKey,
           });
@@ -179,6 +189,36 @@ export const SettingsScreen: React.FC = () => {
       console.error('Failed to fetch shared key status:', e);
     }
   }, []);
+
+  const handleTestSharedKey = async () => {
+    if (!user?.email || user.email.toLowerCase() !== 'kevin10611@gmail.com') return;
+    setTestingSharedKey(true);
+    setAdminTestResult(null);
+    try {
+      const res = await fetch('/api/admin/test-shared-gemini-key', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userEmail: user.email }),
+      });
+      const data = await res.json();
+      setAdminTestResult({
+        ok: data.ok,
+        message: data.ok ? data.message : (data.error || '連線測試失敗'),
+        latencyMs: data.latencyMs,
+        modelUsed: data.modelUsed,
+      });
+      if (data.ok) {
+        fetchSharedKeyStatus();
+      }
+    } catch (err: any) {
+      setAdminTestResult({
+        ok: false,
+        message: `連線異常：${err.message}`,
+      });
+    } finally {
+      setTestingSharedKey(false);
+    }
+  };
   const [adminSearch, setAdminSearch] = useState('');
   const [adminFilter, setAdminFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
   const [showAddWhitelistModal, setShowAddWhitelistModal] = useState(false);
@@ -940,6 +980,7 @@ export const SettingsScreen: React.FC = () => {
         const trimmed = keyToSync.trim();
         setSharedKeyStatus({
           hasKey: true,
+          firestoreSynced: true,
           source: 'firestore',
           maskedKey: `${trimmed.slice(0, 6)}...${trimmed.slice(-4)}`,
           lastTestedModel: data.modelUsed,
@@ -1842,53 +1883,98 @@ export const SettingsScreen: React.FC = () => {
 
                     {/* Admin Global Shared Key Sync Banner */}
                     {devQuota?.isAdmin && (
-                      <div className="mt-3 p-3.5 bg-purple-50/90 border border-purple-200/80 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-2 text-purple-950 font-bold">
-                            <Crown className="w-4 h-4 text-amber-600 shrink-0" />
-                            <span>全域共享 AI 金鑰狀態：</span>
-                            {sharedKeyStatus?.hasKey ? (
-                              <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-full text-[10px] font-bold flex items-center gap-1">
-                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                                已開通 (連線正常)
-                              </span>
-                            ) : (
-                              <span className="px-2 py-0.5 bg-rose-100 text-rose-800 border border-rose-200 rounded-full text-[10px] font-bold flex items-center gap-1">
-                                <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
-                                未同步金鑰
-                              </span>
-                            )}
+                      <div className="mt-3 p-3.5 bg-purple-50/90 border border-purple-200/80 rounded-2xl flex flex-col gap-3 text-xs">
+                        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2 text-purple-950 font-bold flex-wrap">
+                              <Crown className="w-4 h-4 text-amber-600 shrink-0" />
+                              <span>全域共享 AI 金鑰狀態：</span>
+                              {sharedKeyStatus?.firestoreSynced ? (
+                                <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-full text-[10px] font-bold flex items-center gap-1">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                                  雲端庫已就緒 (白名單可使用)
+                                </span>
+                              ) : sharedKeyStatus?.hasKey ? (
+                                <span className="px-2 py-0.5 bg-amber-100 text-amber-800 border border-amber-200 rounded-full text-[10px] font-bold flex items-center gap-1">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                                  僅伺服器環境 (請同步至雲端庫)
+                                </span>
+                              ) : (
+                                <span className="px-2 py-0.5 bg-rose-100 text-rose-800 border border-rose-200 rounded-full text-[10px] font-bold flex items-center gap-1">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                                  未同步金鑰
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-[11px] text-purple-800/80 font-medium">
+                              {sharedKeyStatus?.hasKey ? (
+                                <>
+                                  金鑰縮圖：<code className="bg-purple-100 px-1.5 py-0.5 rounded font-mono text-purple-900 font-bold">{sharedKeyStatus.maskedKey}</code>
+                                  {sharedKeyStatus.firestoreSynced ? ' · 雲端 Firestore 共享庫同步中' : ' · 尚未寫入雲端 Firestore'}
+                                </>
+                              ) : (
+                                '白名單使用者需依賴全域共享金鑰。請於下方設定個人 Key 後點擊「同步金鑰至雲端庫」。'
+                              )}
+                            </p>
                           </div>
-                          <p className="text-[11px] text-purple-800/80 font-medium">
-                            {sharedKeyStatus?.hasKey ? (
-                              <>
-                                共享縮圖：<code className="bg-purple-100 px-1.5 py-0.5 rounded font-mono text-purple-900 font-bold">{sharedKeyStatus.maskedKey}</code>
-                                {sharedKeyStatus.lastTestedModel ? ` · 測試模型：${sharedKeyStatus.lastTestedModel}` : ' · 雲端資料庫受保護'}
-                              </>
-                            ) : (
-                              '白名單使用者需依賴全域共享金鑰。請於個人 Key 處輸入後點擊右側同步。'
-                            )}
-                          </p>
+
+                          <div className="flex items-center gap-2 w-full sm:w-auto shrink-0 flex-wrap">
+                            <button
+                              type="button"
+                              onClick={() => handleTestSharedKey()}
+                              disabled={testingSharedKey || !sharedKeyStatus?.hasKey}
+                              className="flex-1 sm:flex-none px-3 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold rounded-xl text-xs transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs active:scale-98"
+                              title="執行端對端自動化測試"
+                            >
+                              {testingSharedKey ? (
+                                <>
+                                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                  <span>測試中...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Sparkles className="w-3.5 h-3.5" />
+                                  <span>自動化測試</span>
+                                </>
+                              )}
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleSyncSharedGeminiKey()}
+                              disabled={syncingSharedKey}
+                              className="flex-1 sm:flex-none px-3.5 py-2 bg-purple-700 hover:bg-purple-800 disabled:opacity-50 text-white font-bold rounded-xl text-xs transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs active:scale-98"
+                            >
+                              {syncingSharedKey ? (
+                                <>
+                                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                  <span>同步中...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Send className="w-3.5 h-3.5" />
+                                  <span>{sharedKeyStatus?.firestoreSynced ? '重新測試並同步' : '同步金鑰至雲端庫'}</span>
+                                </>
+                              )}
+                            </button>
+                          </div>
                         </div>
 
-                        <button
-                          type="button"
-                          onClick={() => handleSyncSharedGeminiKey()}
-                          disabled={syncingSharedKey}
-                          className="w-full sm:w-auto px-3.5 py-2 bg-purple-700 hover:bg-purple-800 disabled:opacity-50 text-white font-bold rounded-xl text-xs transition flex items-center justify-center gap-1.5 cursor-pointer shrink-0 shadow-xs active:scale-98"
-                        >
-                          {syncingSharedKey ? (
-                            <>
-                              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                              <span>連線測試與同步中...</span>
-                            </>
-                          ) : (
-                            <>
-                              <Send className="w-3.5 h-3.5" />
-                              <span>{sharedKeyStatus?.hasKey ? '重新測試並同步' : '同步金鑰至雲端庫'}</span>
-                            </>
-                          )}
-                        </button>
+                        {/* Automated Diagnostic Result Alert */}
+                        {adminTestResult && (
+                          <div
+                            className={`p-2.5 rounded-xl border text-[11px] flex items-start gap-2 ${
+                              adminTestResult.ok
+                                ? 'bg-emerald-50 text-emerald-900 border-emerald-200'
+                                : 'bg-rose-50 text-rose-900 border-rose-200'
+                            }`}
+                          >
+                            <span className="font-bold shrink-0">
+                              {adminTestResult.ok ? '✓ 自動化診斷通過：' : '✕ 自動化診斷失敗：'}
+                            </span>
+                            <span>{adminTestResult.message}</span>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>

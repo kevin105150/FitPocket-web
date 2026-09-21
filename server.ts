@@ -365,10 +365,9 @@ async function validateAndAuthoriseAiRequest(
   }
 
   // 2. Developer Key Mode (Backend-managed or Admin Firestore Shared)
-  let devKey = (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.trim()) || '';
-  if (!devKey) {
-    devKey = await getSharedDeveloperApiKeyFromFirestore();
-  }
+  const fsKey = await getSharedDeveloperApiKeyFromFirestore();
+  const envKey = (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.trim()) || '';
+  let devKey = fsKey || envKey;
 
   if (!devKey) {
     if (cleanCustomKey && cleanCustomKey.length > 10) {
@@ -783,20 +782,70 @@ app.post('/api/admin/save-shared-gemini-key', async (req, res) => {
 
 app.get('/api/admin/shared-gemini-key-status', async (req, res) => {
   try {
-    const envKey = (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.trim()) || '';
     const fsKey = await getSharedDeveloperApiKeyFromFirestore();
-    const activeKey = envKey || fsKey;
+    const envKey = (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.trim()) || '';
+    const activeKey = fsKey || envKey;
     const hasKey = Boolean(activeKey);
     const masked = activeKey ? `${activeKey.slice(0, 6)}...${activeKey.slice(-4)}` : '';
 
     res.json({
       ok: true,
       hasKey,
-      source: envKey ? 'env' : (fsKey ? 'firestore' : 'none'),
+      firestoreSynced: Boolean(fsKey),
+      source: fsKey ? 'firestore' : (envKey ? 'env' : 'none'),
       maskedKey: masked,
     });
   } catch (error: any) {
     res.status(500).json({ ok: false, hasKey: false, error: error.message });
+  }
+});
+
+// Automated end-to-end diagnostic test endpoint
+app.post('/api/admin/test-shared-gemini-key', async (req, res) => {
+  try {
+    const { userEmail } = req.body;
+    const normalized = normalizeEmail(userEmail || '');
+    if (normalized !== ADMIN_EMAIL) {
+      return res.status(403).json({ ok: false, error: '僅限系統管理員執行自動化連線測試' });
+    }
+
+    const fsKey = await getSharedDeveloperApiKeyFromFirestore();
+    const envKey = (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.trim()) || '';
+    const activeKey = fsKey || envKey;
+
+    if (!activeKey) {
+      return res.status(400).json({
+        ok: false,
+        step: 'key_lookup',
+        error: '雲端庫與系統環境均未找到任何 GEMINI_API_KEY。請先於下方輸入框儲存金鑰並點擊同步！',
+        diagnostics: { firestoreSynced: Boolean(fsKey), envKeyPresent: Boolean(envKey) },
+      });
+    }
+
+    // Test Gemini 3.x with a fast prompt
+    const ai = getGenAIClient(activeKey);
+    const startTime = Date.now();
+    const testResult = await generateWithFallback(ai, 'gemini-3.8-flash', '請回覆短字串：TEST_OK', false);
+    const latencyMs = Date.now() - startTime;
+
+    res.json({
+      ok: true,
+      step: 'completed',
+      modelUsed: testResult.modelUsed,
+      reply: testResult.text,
+      latencyMs,
+      source: fsKey ? 'firestore' : 'env',
+      firestoreSynced: Boolean(fsKey),
+      maskedKey: `${activeKey.slice(0, 6)}...${activeKey.slice(-4)}`,
+      message: `自動化測試通過！(延遲 ${latencyMs}ms，使用模型 ${testResult.modelUsed})。白名單使用者可正常使用 AI 功能！`,
+    });
+  } catch (error: any) {
+    console.error('Test shared gemini key error:', error);
+    res.status(500).json({
+      ok: false,
+      step: 'gemini_call',
+      error: error.message || '測試金鑰呼叫失敗',
+    });
   }
 });
 app.get('/api/ai/developer-quota', async (req, res) => {
@@ -2222,6 +2271,18 @@ async function start() {
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`FitPocket Server running on http://0.0.0.0:${PORT}`);
+    // Auto-seed Firestore shared key from environment if Firestore is not yet seeded
+    (async () => {
+      try {
+        const fsKey = await getSharedDeveloperApiKeyFromFirestore();
+        if (!fsKey && process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.trim().length > 10) {
+          console.log('Auto-seeding environment GEMINI_API_KEY into Firestore shared key library...');
+          await saveSharedDeveloperApiKeyToFirestore(process.env.GEMINI_API_KEY.trim(), 'system_init');
+        }
+      } catch (err) {
+        console.warn('Auto-seed shared developer key notice:', err);
+      }
+    })();
   });
 }
 
