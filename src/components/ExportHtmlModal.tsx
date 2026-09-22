@@ -17,11 +17,14 @@ export const ExportHtmlModal: React.FC<ExportHtmlModalProps> = ({
   const startDate = addDays(selectedDate, -6);
   const endDate = selectedDate;
 
-  const handleExecuteExport = () => {
+  const handleExecuteExport = async () => {
+    // Ensure storage is initialized
+    await StorageService.init();
+
     // 1. Get raw export data
     const rawDataJson = StorageService.exportData();
     const parsedData = JSON.parse(rawDataJson);
-
+    
     // 2. Filter records for the 7-day range [startDate, endDate]
     const filteredFoodRecords = (parsedData.foodRecords || []).filter(
       (r: any) => r.date >= startDate && r.date <= endDate

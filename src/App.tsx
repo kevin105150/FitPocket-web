@@ -259,7 +259,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] flex flex-col antialiased text-slate-800">
+    <div className="h-full h-[100dvh] bg-[#F8FAFC] flex flex-col antialiased text-slate-800 overflow-hidden">
       {/* Updating Credentials Loading Modal */}
       {isUpdatingCredentials && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300">
@@ -314,7 +314,7 @@ export default function App() {
       )}
 
       {/* Top App Bar */}
-      <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-xl border-b border-sky-950/5">
+      <header className="shrink-0 z-40 bg-white/80 backdrop-blur-xl border-b border-sky-950/5">
         <div className="max-w-2xl mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <img 
@@ -379,7 +379,7 @@ export default function App() {
       </header>
 
       {/* Main Tab Content */}
-      <main className="flex-1 max-w-2xl w-full mx-auto px-4 pb-4 pt-2 sm:px-6 sm:pb-6 sm:pt-4 overflow-x-clip">
+      <main className="flex-1 max-w-2xl w-full mx-auto px-4 pb-20 pt-2 sm:px-6 sm:pb-24 sm:pt-4 overflow-y-auto overscroll-contain">
         {activeTab === 'DIET' && (
           <DietTracker currentDate={currentDate} onDateChange={setCurrentDate} />
         )}

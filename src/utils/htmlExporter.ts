@@ -742,7 +742,7 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
       if (waterBarEl) waterBarEl.style.width = Math.min(100, Math.round((waterIntake / waterGoal) * 100)) + '%';
 
       // Meal Sections
-      const dateConfig = (APP_DATA.dailyConfigs || []).find(d => d.date === selectedDate);
+      const dateConfig = (APP_DATA.dailyConfigs || []).find(d => d.date === currentDate);
       let activeMeals = [...(dateConfig?.activeMeals || APP_DATA.activeMeals || [
         { mealType: 'BREAKFAST', customName: '早餐' },
         { mealType: 'LUNCH', customName: '午餐' },
@@ -773,43 +773,63 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
         const mF = Math.round(mRecords.reduce((s, r) => s + (Number(r.fat) || 0), 0));
 
         html += '<div class="bg-white rounded-3xl border border-slate-200/70 shadow-2xs overflow-hidden">' +
-          '<div class="px-5 py-3.5 flex items-center justify-between bg-white">' +
-            '<div class="flex flex-col gap-1 flex-1 min-w-0">' +
-              '<div class="font-black text-base text-slate-900 truncate">' + meal.customName + '</div>' +
-              '<div><span class="text-[11px] font-bold text-sky-800 bg-sky-50 px-2 py-0.5 rounded-full inline-block whitespace-nowrap">' + mCal + ' kcal</span></div>';
+          '<div class="px-5 py-3 flex items-start justify-between bg-white">' +
+            '<div class="flex items-start gap-2.5 flex-1 min-w-0">' +
+              '<div class="flex flex-col flex-1 min-w-0">' +
+                '<!-- Row 1: 餐別名稱 -->' +
+                '<div class="flex items-center gap-1.5 min-w-0 max-w-full h-8">' +
+                  '<span class="font-black text-base text-slate-900 truncate min-w-0 shrink">' + meal.customName + '</span>' +
+                '</div>' +
+                '<!-- Row 2: 大卡 與 CPF 放同一排 -->' +
+                '<div class="flex items-center gap-1 flex-wrap pt-0.5 pb-0.5">' +
+                  '<span class="text-[11px] font-bold text-sky-800 bg-sky-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">' + mCal + ' kcal</span>';
 
         if (mRecords.length > 0) {
-          html += '<div class="flex items-center gap-1.5 mt-0.5 flex-wrap">' +
-            '<span class="text-[10px] font-bold text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded-full">C: ' + mC + 'g</span>' +
-            '<span class="text-[10px] font-bold text-blue-800 bg-blue-50 px-1.5 py-0.5 rounded-full">P: ' + mP + 'g</span>' +
-            '<span class="text-[10px] font-bold text-rose-800 bg-rose-50 px-1.5 py-0.5 rounded-full">F: ' + mF + 'g</span>' +
-          '</div>';
+          html += '<span class="text-[11px] font-bold text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">C:' + mC + '</span>' +
+            '<span class="text-[11px] font-bold text-blue-800 bg-blue-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">P:' + mP + '</span>' +
+            '<span class="text-[11px] font-bold text-rose-800 bg-rose-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">F:' + mF + '</span>';
         }
 
-        html += '</div></div>';
+        html += '</div></div></div></div>';
 
         if (mRecords.length > 0) {
-          html += '<div class="px-5 pb-4 pt-1 border-t border-slate-100 divide-y divide-slate-100">';
+          html += '<div class="px-5 pb-4 pt-1 border-t border-slate-100"><div class="divide-y divide-slate-100">';
           mRecords.forEach(item => {
-            const unit = item.loggedUnit || '份';
-            html += '<div class="py-2.5 flex items-center justify-between gap-3">' +
-              '<div class="min-w-0 flex-1">' +
-                '<div class="flex items-center gap-1.5 font-bold text-sm text-slate-800">' +
-                  '<span class="truncate">' + item.name + '</span>' +
-                  (item.brand ? '<span class="text-xs font-medium text-slate-400 shrink-0">' + item.brand + '</span>' : '') +
-                '</div>' +
-                '<div class="font-semibold text-sky-800 text-xs mt-0.5">' + item.loggedAmount + unit + ' · ' + item.calories + ' kcal</div>' +
-                '<div class="flex items-center gap-1 mt-1">' +
-                  '<span class="text-[10px] font-bold text-amber-700 bg-amber-50 px-1.5 py-0.25 rounded-full">C: ' + item.carbs + 'g</span>' +
-                  '<span class="text-[10px] font-bold text-blue-700 bg-blue-50 px-1.5 py-0.25 rounded-full">P: ' + item.protein + 'g</span>' +
-                  '<span class="text-[10px] font-bold text-rose-700 bg-rose-50 px-1.5 py-0.25 rounded-full">F: ' + item.fat + 'g</span>' +
+            const unit = item.loggedUnit || 'g';
+            const brandOrSource = item.brand || (item.aiSource ? 'AI辨識' : '自訂');
+            const carbsVal = item.carbs !== undefined ? item.carbs : 0;
+            const proteinVal = item.protein !== undefined ? item.protein : 0;
+            const fatVal = item.fat !== undefined ? item.fat : 0;
+            const caloriesVal = item.calories !== undefined ? item.calories : 0;
+            const amountVal = item.loggedAmount !== undefined ? item.loggedAmount : '';
+
+            html += '<div class="py-1">' +
+              '<div class="relative z-10 bg-white py-1 flex items-start justify-between gap-3 w-full">' +
+                (item.imageUrl ? '<img src="' + item.imageUrl + '" class="w-12 h-12 rounded-2xl object-cover shrink-0 border border-slate-100 mt-1" />' : '') +
+                '<div class="min-w-0 flex-1">' +
+                  '<!-- 1. 名稱 -->' +
+                  '<div class="flex items-center gap-1.5 min-w-0 max-w-full h-8">' +
+                    '<span class="font-bold text-sm text-slate-800 truncate min-w-0 shrink">' + item.name + '</span>' +
+                  '</div>' +
+                  '<!-- 2. 品牌 -->' +
+                  '<div class="text-[11px] font-semibold text-slate-400 -mt-0.5 mb-1">' +
+                    brandOrSource +
+                  '</div>' +
+                  '<!-- 3. 重量 · 熱量 · CPF 一排 -->' +
+                  '<div class="flex flex-wrap items-center gap-1.5 mt-1.5 pb-0.5">' +
+                    '<span class="text-[11px] font-bold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded-full whitespace-nowrap">' + amountVal + unit + '</span>' +
+                    '<span class="text-[11px] font-bold text-sky-800 bg-sky-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">' + caloriesVal + ' kcal</span>' +
+                    '<span class="text-[10px] font-bold text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">C:' + carbsVal + '</span>' +
+                    '<span class="text-[10px] font-bold text-blue-800 bg-blue-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">P:' + proteinVal + '</span>' +
+                    '<span class="text-[10px] font-bold text-rose-800 bg-rose-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">F:' + fatVal + '</span>' +
+                  '</div>' +
                 '</div>' +
               '</div>' +
             '</div>';
           });
-          html += '</div>';
+          html += '</div></div>';
         } else {
-          html += '<div class="px-5 py-3 border-t border-slate-50 text-xs text-slate-400 font-semibold text-center">此餐次尚無紀錄</div>';
+          html += '<div class="px-5 py-4 border-t border-slate-100 text-xs text-slate-400 font-semibold text-center">此餐次尚無紀錄</div>';
         }
 
         html += '</div>';
@@ -1111,9 +1131,7 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
             : 'hover:bg-slate-50';
 
           return '<tr class="' + rowClass + '">' +
-            '<td class="p-3 font-semibold text-slate-800">' + 
-              w.date + (isSelected ? ' <span class="text-[10px] bg-sky-100 text-sky-800 px-1.5 py-0.5 rounded ml-1 font-bold">當前選擇</span>' : '') + 
-            '</td>' +
+            '<td class="p-3 font-semibold text-slate-800">' + w.date + '</td>' +
             '<td class="p-3 font-bold text-amber-800">' + mwStr + '</td>' +
             '<td class="p-3 font-bold text-indigo-800">' + ewStr + '</td>' +
             '<td class="p-3 text-slate-400 font-normal">' + (w.notes || '-') + '</td>' +
