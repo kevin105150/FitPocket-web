@@ -4,6 +4,7 @@ import { CloudFood, CustomFood } from '../types';
 import { MacroCalorieVerifier } from './MacroCalorieVerifier';
 import { CloudFoodService, isTfdaFood, normalizeBrandName, isFoodInfoModified } from '../services/cloudFoodService';
 import { BarcodeScannerModal } from './BarcodeScannerModal';
+import { useModalBackHandler } from '../hooks/useModalBackHandler';
 
 interface CustomFoodModalProps {
   onClose: () => void;
@@ -46,6 +47,8 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
   initialConsumedAmount,
   mode = "CUSTOM",
 }) => {
+  useModalBackHandler(true, onClose);
+
   const [name, setName] = useState(initialFood?.name || '');
   const [brand, setBrand] = useState(() => {
     if (initialFood?.brand) return initialFood.brand;

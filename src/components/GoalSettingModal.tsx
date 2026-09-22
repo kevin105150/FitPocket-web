@@ -3,6 +3,7 @@ import { X, Save, RotateCcw } from 'lucide-react';
 import { CarbCycleType, NutritionGoalPreset } from '../types';
 import { CARB_CYCLE_INFO, DEFAULT_PRESETS, getCarbCycleBadgeStyle } from '../data/defaults';
 import { MacroCalorieVerifier } from './MacroCalorieVerifier';
+import { useModalBackHandler } from '../hooks/useModalBackHandler';
 
 interface GoalSettingModalProps {
   currentCycle: CarbCycleType;
@@ -17,6 +18,8 @@ export const GoalSettingModal: React.FC<GoalSettingModalProps> = ({
   onClose,
   onSave,
 }) => {
+  useModalBackHandler(true, onClose);
+
   const [selectedCycle, setSelectedCycle] = useState<CarbCycleType>(currentCycle);
   const [editingPresets, setEditingPresets] = useState<Record<CarbCycleType, Record<keyof NutritionGoalPreset, number | string>>>(
     JSON.parse(JSON.stringify(presets))

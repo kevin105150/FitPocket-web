@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, Play, Pause, RotateCcw, Volume2, Bell, Clock } from 'lucide-react';
 import { StorageService } from '../services/storage';
+import { useModalBackHandler } from '../hooks/useModalBackHandler';
 
 interface WorkoutTimerModalProps {
   isOpen: boolean;
@@ -8,6 +9,8 @@ interface WorkoutTimerModalProps {
 }
 
 export const WorkoutTimerModal: React.FC<WorkoutTimerModalProps> = ({ isOpen, onClose }) => {
+  useModalBackHandler(isOpen, onClose);
+
   const [mode, setMode] = useState<'TIMER' | 'STOPWATCH'>('TIMER');
   const [timerDuration, setTimerDuration] = useState<number>(60);
   const [timeLeft, setTimeLeft] = useState<number>(60);

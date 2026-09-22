@@ -197,113 +197,144 @@ export const testFirebaseConnection = async (): Promise<{
 // Cache access token in memory and localStorage for persistent sessions
 let cachedAccessToken: string | null = localStorage.getItem('fitpocket_google_access_token');
 
+let activeRedirectPromise: Promise<string | null> | null = null;
+
 export const handleRedirectResult = async (): Promise<string | null> => {
-  try {
-    const result = await getRedirectResult(auth);
-    if (result) {
-      const credential = GAuthProvider.credentialFromResult(result);
-      if (credential?.accessToken) {
-        cachedAccessToken = credential.accessToken;
-        localStorage.setItem('fitpocket_google_access_token', credential.accessToken);
-        localStorage.setItem('fitpocket_google_token_time', Date.now().toString());
-        console.log("Successfully loaded redirected Google Access Token with timestamp.");
-        return credential.accessToken;
-      }
-    }
-  } catch (error) {
-    console.error("Redirect login resolution error:", error);
+  if (activeRedirectPromise) {
+    console.log("handleRedirectResult: Already waiting for redirect result, sharing the active promise.");
+    return activeRedirectPromise;
   }
-  return null;
-};
 
-export const loginWithGoogle = async (forceSelectAccount = false, forceMethod?: 'popup' | 'redirect') => {
-  const isInIframe = typeof window !== 'undefined' && window.self !== window.top;
-
-  try {
-    if (forceSelectAccount) {
-      googleProvider.setCustomParameters({ prompt: 'select_account' });
-    } else {
-      googleProvider.setCustomParameters({});
-    }
-    
-    const useRedirect = forceMethod === 'redirect';
-    
-    if (useRedirect) {
-      if (isInIframe) {
-        console.warn("Cannot perform redirect auth inside an iframe. Requesting popup login.");
-        throw new Error('預覽環境不支援重新導向登入，請使用彈跳視窗或點擊右上角「在新分頁中開啟」。');
-      }
-      console.log("Launching Google Sign-In with Redirect...");
-      await signInWithRedirect(auth, googleProvider);
-      return { user: null, accessToken: null, isRedirecting: true };
-    } else {
-      console.log("Launching Google Sign-In with Popup...");
-      try {
-        const result = await signInWithPopup(auth, googleProvider);
+  activeRedirectPromise = (async () => {
+    try {
+      const result = await getRedirectResult(auth);
+      if (result) {
         const credential = GAuthProvider.credentialFromResult(result);
         if (credential?.accessToken) {
           cachedAccessToken = credential.accessToken;
           localStorage.setItem('fitpocket_google_access_token', credential.accessToken);
           localStorage.setItem('fitpocket_google_token_time', Date.now().toString());
+          console.log("Successfully loaded redirected Google Access Token with timestamp.");
+          return credential.accessToken;
         }
-        return { user: result.user, accessToken: cachedAccessToken, isRedirecting: false };
-      } catch (popupErr: any) {
-        const errCode = popupErr?.code || '';
-        
-        // If user manually closed the popup, do not log warning or proceed with fallback
-        if (errCode === 'auth/popup-closed-by-user' || errCode === 'auth/cancelled-popup-request') {
-          console.log("User closed or cancelled the login popup. Staying on current view.");
-          throw popupErr;
+      }
+    } catch (error) {
+      console.error("Redirect login resolution error:", error);
+    }
+    return null;
+  })();
+
+  try {
+    return await activeRedirectPromise;
+  } finally {
+    activeRedirectPromise = null;
+  }
+};
+
+let activeLoginPromise: Promise<{ user: User | null; accessToken: string | null; isRedirecting: boolean }> | null = null;
+
+export const loginWithGoogle = async (forceSelectAccount = false, forceMethod?: 'popup' | 'redirect') => {
+  if (activeLoginPromise) {
+    console.log("loginWithGoogle: A login operation is already in progress, sharing the active promise.");
+    return activeLoginPromise;
+  }
+
+  const performLogin = async () => {
+    const isInIframe = typeof window !== 'undefined' && window.self !== window.top;
+
+    try {
+      if (forceSelectAccount) {
+        googleProvider.setCustomParameters({ prompt: 'select_account' });
+      } else {
+        googleProvider.setCustomParameters({});
+      }
+      
+      const useRedirect = forceMethod === 'redirect';
+      
+      if (useRedirect) {
+        if (isInIframe) {
+          console.warn("Cannot perform redirect auth inside an iframe. Requesting popup login.");
+          throw new Error('預覽環境不支援重新導向登入，請使用彈跳視窗或點擊右上角「在新分頁中開啟」。');
         }
-
-        console.warn("Firebase popup login encountered error, evaluating fallback:", popupErr);
-
-        // Attempt fallback via modern Google Identity Services (GIS) Token Client
+        console.log("Launching Google Sign-In with Redirect...");
+        await signInWithRedirect(auth, googleProvider);
+        return { user: null, accessToken: null, isRedirecting: true };
+      } else {
+        console.log("Launching Google Sign-In with Popup...");
         try {
-          console.log("Attempting fallback via Google Identity Services Token Client...");
-          const gsiToken = await requestTokenViaGsi(forceSelectAccount);
-          if (gsiToken) {
-            cachedAccessToken = gsiToken;
-            localStorage.setItem('fitpocket_google_access_token', gsiToken);
+          const result = await signInWithPopup(auth, googleProvider);
+          const credential = GAuthProvider.credentialFromResult(result);
+          if (credential?.accessToken) {
+            cachedAccessToken = credential.accessToken;
+            localStorage.setItem('fitpocket_google_access_token', credential.accessToken);
             localStorage.setItem('fitpocket_google_token_time', Date.now().toString());
+          }
+          return { user: result.user, accessToken: cachedAccessToken, isRedirecting: false };
+        } catch (popupErr: any) {
+          const errCode = popupErr?.code || '';
+          
+          // If user manually closed the popup, do not log warning or proceed with fallback
+          if (errCode === 'auth/popup-closed-by-user' || errCode === 'auth/cancelled-popup-request') {
+            console.log("User closed or cancelled the login popup. Staying on current view.");
+            throw popupErr;
+          }
 
-            // Link with Firebase Auth credential if possible
-            try {
-              const cred = GAuthProvider.credential(null, gsiToken);
-              const userCred = await signInWithCredential(auth, cred);
-              return { user: userCred.user, accessToken: gsiToken, isRedirecting: false };
-            } catch (credErr) {
-              console.warn("Firebase Auth credential link notice (Drive token is active):", credErr);
-              return { user: auth.currentUser, accessToken: gsiToken, isRedirecting: false };
+          console.warn("Firebase popup login encountered error, evaluating fallback:", popupErr);
+
+          // Attempt fallback via modern Google Identity Services (GIS) Token Client
+          try {
+            console.log("Attempting fallback via Google Identity Services Token Client...");
+            const gsiToken = await requestTokenViaGsi(forceSelectAccount);
+            if (gsiToken) {
+              cachedAccessToken = gsiToken;
+              localStorage.setItem('fitpocket_google_access_token', gsiToken);
+              localStorage.setItem('fitpocket_google_token_time', Date.now().toString());
+
+              // Link with Firebase Auth credential if possible
+              try {
+                const cred = GAuthProvider.credential(null, gsiToken);
+                const userCred = await signInWithCredential(auth, cred);
+                return { user: userCred.user, accessToken: gsiToken, isRedirecting: false };
+              } catch (credErr) {
+                console.warn("Firebase Auth credential link notice (Drive token is active):", credErr);
+                return { user: auth.currentUser, accessToken: gsiToken, isRedirecting: false };
+              }
+            }
+          } catch (gsiErr: any) {
+            console.warn("GSI fallback also encountered error:", gsiErr);
+          }
+
+          // If in iframe and network request failed, throw descriptive error
+          if (errCode === 'auth/network-request-failed' || errCode === 'auth/popup-blocked') {
+            if (isInIframe) {
+              throw new Error('預覽視窗安全性限制阻擋了 Google 登入視窗通訊。請點擊右上角「在新分頁中開啟」後進行登入，或確認瀏覽器未封鎖彈跳視窗。');
+            }
+            // If not in iframe, try redirect as fallback
+            if (!isInIframe) {
+              console.log("Automatically switching to signInWithRedirect due to:", errCode);
+              await signInWithRedirect(auth, googleProvider);
+              return { user: null, accessToken: null, isRedirecting: true };
             }
           }
-        } catch (gsiErr: any) {
-          console.warn("GSI fallback also encountered error:", gsiErr);
+          throw popupErr;
         }
-
-        // If in iframe and network request failed, throw descriptive error
-        if (errCode === 'auth/network-request-failed' || errCode === 'auth/popup-blocked') {
-          if (isInIframe) {
-            throw new Error('預覽視窗安全性限制阻擋了 Google 登入視窗通訊。請點擊右上角「在新分頁中開啟」後進行登入，或確認瀏覽器未封鎖彈跳視窗。');
-          }
-          // If not in iframe, try redirect as fallback
-          if (!isInIframe) {
-            console.log("Automatically switching to signInWithRedirect due to:", errCode);
-            await signInWithRedirect(auth, googleProvider);
-            return { user: null, accessToken: null, isRedirecting: true };
-          }
-        }
-        throw popupErr;
       }
+    } catch (error: any) {
+      const errCode = error?.code || '';
+      if (errCode === 'auth/popup-closed-by-user' || errCode === 'auth/cancelled-popup-request') {
+        console.log("Google Sign-In popup closed by user.");
+      } else {
+        console.error("Login failed:", error);
+      }
+      throw error;
     }
-  } catch (error: any) {
-    const errCode = error?.code || '';
-    if (errCode === 'auth/popup-closed-by-user' || errCode === 'auth/cancelled-popup-request') {
-      console.log("Google Sign-In popup closed by user.");
-    } else {
-      console.error("Login failed:", error);
-    }
-    throw error;
+  };
+
+  activeLoginPromise = performLogin();
+  try {
+    return await activeLoginPromise;
+  } finally {
+    activeLoginPromise = null;
   }
 };
 

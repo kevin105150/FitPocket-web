@@ -36,6 +36,7 @@ import { optimizeImageForAi } from '../utils/imageOptimizer';
 import { checkAiKeyOrWarn, getAiRequestParams } from '../utils/aiHelper';
 import { getTodayString } from '../utils/dateUtils';
 import { auth } from '../lib/firebase';
+import { useModalBackHandler } from '../hooks/useModalBackHandler';
 
 interface AddFoodModalProps {
   initialMealType: MealType;
@@ -60,6 +61,8 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
   onFastAddFood,
   onOpenCustomFoodModal,
 }) => {
+  useModalBackHandler(true, onClose);
+
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState<FoodTab>(initialTab);
   const [selectedMealType, setSelectedMealType] = useState<MealType>(initialMealType);

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { X, Check, Plus, Minus } from 'lucide-react';
 import { FoodRecord, FoodSearchResult, MealType } from '../types';
+import { useModalBackHandler } from '../hooks/useModalBackHandler';
 
 interface PortionModalProps {
   food: FoodSearchResult;
@@ -17,6 +18,8 @@ export const PortionModal: React.FC<PortionModalProps> = ({
   onClose,
   onConfirm,
 }) => {
+  useModalBackHandler(true, onClose);
+
   const [amount, setAmount] = useState<number | string>(food.servingAmount || 100);
   const [unit, setUnit] = useState<string>(food.servingUnit || 'g');
 
