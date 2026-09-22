@@ -14,6 +14,7 @@ export interface MealConfig {
   mealType: MealType;
   customName: string;
   isCustom: boolean;
+  updatedAt?: number;
 }
 
 export interface FoodRecord {
@@ -46,6 +47,7 @@ export interface FoodRecord {
   potassium: number;
   note?: string;
   createdAt: number;
+  updatedAt?: number;
   aiSource?: 'vision' | 'estimation';
   isOpenFood?: boolean;
 }
@@ -144,11 +146,18 @@ export interface NutritionGoalPreset {
   potassium: number;
 }
 
+export interface DeletedRecord {
+  id: string;
+  type: string;
+  deletedAt: number;
+}
+
 export interface WaterRecord {
   id: string;
   date: string; // YYYY-MM-DD
   amountMl: number;
   timestamp: number;
+  updatedAt?: number;
 }
 
 export interface WeightRecord {
@@ -159,6 +168,7 @@ export interface WeightRecord {
   eveningWeightKg?: number | null;
   eveningTime?: string | null;
   createdAt: number;
+  updatedAt?: number;
 }
 
 export interface ExerciseSet {

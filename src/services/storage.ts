@@ -5,6 +5,7 @@ import {
   CarbCycleType,
   CustomFood,
   DailyConfig,
+  DeletedRecord,
   FoodRecord,
   FoodSearchResult,
   MealConfig,
@@ -15,6 +16,7 @@ import {
   WeightRecord,
   WorkoutRecord,
 } from '../types';
+
 import presetFoodsData from '../data/presetFoods.json';
 import {
   DEFAULT_EXERCISES,
@@ -50,6 +52,7 @@ const STORAGE_KEYS = {
   AI_KEY_SOURCE: 'fitpocket_ai_key_source',
   WORKOUT_PRESETS: 'fitpocket_workout_presets',
   API_USAGE: 'fitpocket_api_usage',
+  DELETED_RECORD_IDS: 'fitpocket_deleted_record_ids',
   MIGRATED: 'fitpocket_idb_migrated',
 };
 
@@ -297,9 +300,40 @@ export const StorageService = {
     }
   },
 
+  // Deleted records tracker
+  getDeletedRecordIds(): DeletedRecord[] {
+    return getItem<DeletedRecord[]>(STORAGE_KEYS.DELETED_RECORD_IDS, []);
+  },
+
+  recordDeletion(id: string, type: string): void {
+    if (!id) return;
+    const list = this.getDeletedRecordIds();
+    const now = Date.now();
+    const existingIndex = list.findIndex((d) => d.id === id);
+    if (existingIndex >= 0) {
+      list[existingIndex] = { id, type, deletedAt: now };
+    } else {
+      list.push({ id, type, deletedAt: now });
+    }
+    // Keep max 2000 deleted entries to avoid unbounded file growth
+    if (list.length > 2000) {
+      list.sort((a, b) => b.deletedAt - a.deletedAt);
+      list.splice(2000);
+    }
+    setItem(STORAGE_KEYS.DELETED_RECORD_IDS, list);
+  },
+
   // Food records
   getAllFoodRecords(): FoodRecord[] {
-    return getItem<FoodRecord[]>(STORAGE_KEYS.FOOD_RECORDS, []);
+    const raw = getItem<FoodRecord[]>(STORAGE_KEYS.FOOD_RECORDS, []);
+    return raw.map((r) => {
+      const createdAt = r.createdAt || Date.now();
+      return {
+        ...r,
+        createdAt,
+        updatedAt: r.updatedAt || createdAt,
+      };
+    });
   },
   getRecentFoodHistory(mealType?: MealType, days: number = 7): FoodRecord[] {
     const all = this.getAllFoodRecords();
@@ -340,26 +374,39 @@ export const StorageService = {
   },
   saveFoodRecord(record: FoodRecord): FoodRecord {
     const all = this.getAllFoodRecords();
+    const now = Date.now();
+    const updatedRecord: FoodRecord = {
+      ...record,
+      createdAt: record.createdAt || now,
+      updatedAt: now,
+    };
     const index = all.findIndex((r) => r.id === record.id);
     if (index >= 0) {
-      all[index] = record;
+      all[index] = updatedRecord;
     } else {
-      all.push(record);
+      all.push(updatedRecord);
     }
     setItem(STORAGE_KEYS.FOOD_RECORDS, all);
     this.saveToCloud();
-    return record;
+    return updatedRecord;
   },
   deleteFoodRecord(id: string): void {
     const all = this.getAllFoodRecords().filter((r) => r.id !== id);
+    this.recordDeletion(id, 'foodRecord');
     setItem(STORAGE_KEYS.FOOD_RECORDS, all);
     this.saveToCloud();
   },
   deleteFoodRecordsByMeal(date: string, mealType: string): void {
-    const all = this.getAllFoodRecords().filter(
-      (r) => !(r.date === date && r.mealType === mealType)
-    );
-    setItem(STORAGE_KEYS.FOOD_RECORDS, all);
+    const all = this.getAllFoodRecords();
+    const remaining: FoodRecord[] = [];
+    for (const r of all) {
+      if (r.date === date && r.mealType === mealType) {
+        this.recordDeletion(r.id, 'foodRecord');
+      } else {
+        remaining.push(r);
+      }
+    }
+    setItem(STORAGE_KEYS.FOOD_RECORDS, remaining);
     this.saveToCloud();
   },
 
@@ -376,6 +423,7 @@ export const StorageService = {
       const sodium = cf.sodium !== undefined ? cf.sodium : (cf.sodiumPer100g !== undefined ? cf.sodiumPer100g : 0);
       const potassium = cf.potassium !== undefined ? cf.potassium : (cf.potassiumPer100g !== undefined ? cf.potassiumPer100g : 0);
       const servingAmount = cf.servingAmount !== undefined ? cf.servingAmount : (cf.defaultServingAmount !== undefined ? cf.defaultServingAmount : 100);
+      const now = Date.now();
 
       return {
         ...cf,
@@ -388,6 +436,7 @@ export const StorageService = {
         sodium,
         potassium,
         servingAmount,
+        updatedAt: cf.updatedAt || now,
         // Also keep deprecated keys so that old UI elements still get the values if accessed
         caloriesPer100g: calories,
         carbsPer100g: carbs,
@@ -417,6 +466,7 @@ export const StorageService = {
   },
   deleteCustomFood(id: string): void {
     const all = this.getCustomFoods().filter((f) => f.id !== id);
+    this.recordDeletion(id, 'customFood');
     setItem(STORAGE_KEYS.CUSTOM_FOODS, all);
     this.saveToCloud();
   },
@@ -470,20 +520,40 @@ export const StorageService = {
 
   // Water records
   getAllWaterRecords(): WaterRecord[] {
-    return getItem<WaterRecord[]>(STORAGE_KEYS.WATER_RECORDS, []);
+    const raw = getItem<WaterRecord[]>(STORAGE_KEYS.WATER_RECORDS, []);
+    return raw.map((r) => {
+      const timestamp = r.timestamp || Date.now();
+      return {
+        ...r,
+        timestamp,
+        updatedAt: r.updatedAt || timestamp,
+      };
+    });
   },
   getWaterRecordsByDate(date: string): WaterRecord[] {
     return this.getAllWaterRecords().filter((r) => r.date === date);
   },
   saveWaterRecord(record: WaterRecord): WaterRecord {
     const all = this.getAllWaterRecords();
-    all.push(record);
+    const now = Date.now();
+    const updatedRecord: WaterRecord = {
+      ...record,
+      timestamp: record.timestamp || now,
+      updatedAt: now,
+    };
+    const index = all.findIndex((r) => r.id === record.id);
+    if (index >= 0) {
+      all[index] = updatedRecord;
+    } else {
+      all.push(updatedRecord);
+    }
     setItem(STORAGE_KEYS.WATER_RECORDS, all);
     this.saveToCloud();
-    return record;
+    return updatedRecord;
   },
   deleteWaterRecord(id: string): void {
     const all = this.getAllWaterRecords().filter((r) => r.id !== id);
+    this.recordDeletion(id, 'waterRecord');
     setItem(STORAGE_KEYS.WATER_RECORDS, all);
     this.saveToCloud();
   },
@@ -509,7 +579,7 @@ export const StorageService = {
 
   // Weight records
   getAllWeightRecords(): WeightRecord[] {
-    return getItem<WeightRecord[]>(STORAGE_KEYS.WEIGHT_RECORDS, [
+    const raw = getItem<WeightRecord[]>(STORAGE_KEYS.WEIGHT_RECORDS, [
       {
         id: 'seed_weight_1',
         date: getTodayString(),
@@ -518,16 +588,30 @@ export const StorageService = {
         eveningWeightKg: 73.2,
         eveningTime: '21:30',
         createdAt: Date.now(),
+        updatedAt: Date.now(),
       },
     ]);
+    return raw.map((r) => {
+      const createdAt = r.createdAt || Date.now();
+      return {
+        ...r,
+        createdAt,
+        updatedAt: r.updatedAt || createdAt,
+      };
+    });
   },
   getWeightRecordByDate(date: string): WeightRecord | undefined {
     return this.getAllWeightRecords().find((r) => r.date === date);
   },
   saveWeightRecord(record: WeightRecord): WeightRecord {
     const all = this.getAllWeightRecords();
-    const updatedRecord = { ...record, createdAt: Date.now() };
-    const index = all.findIndex((r) => r.date === record.date);
+    const now = Date.now();
+    const updatedRecord: WeightRecord = {
+      ...record,
+      createdAt: record.createdAt || now,
+      updatedAt: now,
+    };
+    const index = all.findIndex((r) => r.id === record.id || r.date === record.date);
     if (index >= 0) {
       all[index] = updatedRecord;
     } else {
@@ -539,20 +623,26 @@ export const StorageService = {
   },
   deleteWeightRecord(id: string): void {
     const all = this.getAllWeightRecords().filter((r) => r.id !== id);
+    this.recordDeletion(id, 'weightRecord');
     setItem(STORAGE_KEYS.WEIGHT_RECORDS, all);
     this.saveToCloud();
   },
 
   // Workouts
   getAllWorkoutRecords(): WorkoutRecord[] {
-    return getItem<WorkoutRecord[]>(STORAGE_KEYS.WORKOUT_RECORDS, []);
+    const raw = getItem<WorkoutRecord[]>(STORAGE_KEYS.WORKOUT_RECORDS, []);
+    return raw.map((w) => ({
+      ...w,
+      updatedAt: w.updatedAt || Date.now(),
+    }));
   },
   getWorkoutsByDate(date: string): WorkoutRecord[] {
     return this.getAllWorkoutRecords().filter((w) => w.date === date);
   },
   saveWorkoutRecord(record: WorkoutRecord): WorkoutRecord {
     const all = this.getAllWorkoutRecords();
-    const updatedRecord = { ...record, updatedAt: Date.now() };
+    const now = Date.now();
+    const updatedRecord: WorkoutRecord = { ...record, updatedAt: now };
     const index = all.findIndex((w) => w.id === record.id);
     if (index >= 0) {
       all[index] = updatedRecord;
@@ -565,6 +655,7 @@ export const StorageService = {
   },
   deleteWorkoutRecord(id: string): void {
     const all = this.getAllWorkoutRecords().filter((w) => w.id !== id);
+    this.recordDeletion(id, 'workoutRecord');
     setItem(STORAGE_KEYS.WORKOUT_RECORDS, all);
     this.saveToCloud();
   },
@@ -923,6 +1014,7 @@ export const StorageService = {
     const data = {
       version: '1.0',
       exportedAt: new Date().toISOString(),
+      deletedRecordIds: this.getDeletedRecordIds(),
       foodRecords: this.getAllFoodRecords(),
       customFoods: this.getCustomFoods(),
       waterRecords: this.getAllWaterRecords(),
@@ -950,6 +1042,7 @@ export const StorageService = {
   importData(jsonString: string): boolean {
     try {
       const data = JSON.parse(jsonString);
+      if (data.deletedRecordIds) setItem(STORAGE_KEYS.DELETED_RECORD_IDS, data.deletedRecordIds);
       if (data.foodRecords) setItem(STORAGE_KEYS.FOOD_RECORDS, data.foodRecords);
       if (data.customFoods) setItem(STORAGE_KEYS.CUSTOM_FOODS, data.customFoods);
       if (data.waterRecords) setItem(STORAGE_KEYS.WATER_RECORDS, data.waterRecords);
@@ -988,10 +1081,59 @@ export const StorageService = {
       const incoming = JSON.parse(jsonString);
       let localChanged = false;
 
-      // 1. Food Records (Merge by id, newer createdAt wins)
+      // 0. Deleted Record IDs (Tombstone Merging)
+      const localDeleted = this.getDeletedRecordIds();
+      const incomingDeleted: DeletedRecord[] = incoming.deletedRecordIds || [];
+      const mergedDeletedMap = new Map<string, DeletedRecord>();
+
+      localDeleted.forEach((d) => {
+        if (d && d.id) mergedDeletedMap.set(d.id, d);
+      });
+      incomingDeleted.forEach((d) => {
+        if (d && d.id) {
+          const existing = mergedDeletedMap.get(d.id);
+          if (!existing || (d.deletedAt || 0) > (existing.deletedAt || 0)) {
+            mergedDeletedMap.set(d.id, d);
+          }
+        }
+      });
+
+      const mergedDeleted = Array.from(mergedDeletedMap.values());
+      if (JSON.stringify(mergedDeleted) !== JSON.stringify(localDeleted)) {
+        setItem(STORAGE_KEYS.DELETED_RECORD_IDS, mergedDeleted);
+        localChanged = true;
+      }
+
+      // Deletion timestamp map for quick lookup
+      const deletionMap = new Map<string, number>();
+      mergedDeleted.forEach((d) => deletionMap.set(d.id, d.deletedAt || 0));
+
+      const filterOutDeleted = <T extends any>(items: T[], idKey: string, timeKey: string): T[] => {
+        return items.filter((item) => {
+          const itemAny = item as any;
+          const id = itemAny[idKey];
+          if (!id) return true;
+          const deletedAt = deletionMap.get(id);
+          if (deletedAt !== undefined) {
+            const updatedAt = itemAny[timeKey] || itemAny.createdAt || itemAny.timestamp || 0;
+            // If item was deleted at or after its last update timestamp => filter out
+            if (deletedAt >= updatedAt) {
+              return false;
+            }
+          }
+          return true;
+        });
+      };
+
+      // 1. Food Records (Merge by id, newer updatedAt/createdAt wins)
       const localFood = this.getAllFoodRecords();
-      const incomingFood = incoming.foodRecords || [];
-      const mergedFood = this.mergeCollections(localFood, incomingFood, 'id', 'createdAt');
+      const incomingFood = (incoming.foodRecords || []).map((r: any) => ({
+        ...r,
+        createdAt: r.createdAt || Date.now(),
+        updatedAt: r.updatedAt || r.createdAt || Date.now(),
+      }));
+      let mergedFood = this.mergeCollections(localFood, incomingFood, 'id', 'updatedAt');
+      mergedFood = filterOutDeleted(mergedFood, 'id', 'updatedAt');
       if (JSON.stringify(mergedFood) !== JSON.stringify(localFood)) {
         setItem(STORAGE_KEYS.FOOD_RECORDS, mergedFood);
         localChanged = true;
@@ -999,26 +1141,40 @@ export const StorageService = {
 
       // 2. Custom Foods (Merge by id, newer updatedAt wins)
       const localCustom = this.getCustomFoods();
-      const incomingCustom = incoming.customFoods || [];
-      const mergedCustom = this.mergeCollections(localCustom, incomingCustom, 'id', 'updatedAt');
+      const incomingCustom = (incoming.customFoods || []).map((cf: any) => ({
+        ...cf,
+        updatedAt: cf.updatedAt || Date.now(),
+      }));
+      let mergedCustom = this.mergeCollections(localCustom, incomingCustom, 'id', 'updatedAt');
+      mergedCustom = filterOutDeleted(mergedCustom, 'id', 'updatedAt');
       if (JSON.stringify(mergedCustom) !== JSON.stringify(localCustom)) {
         setItem(STORAGE_KEYS.CUSTOM_FOODS, mergedCustom);
         localChanged = true;
       }
 
-      // 3. Water Records (Merge by id, newer timestamp wins)
+      // 3. Water Records (Merge by id, newer updatedAt/timestamp wins)
       const localWater = this.getAllWaterRecords();
-      const incomingWater = incoming.waterRecords || [];
-      const mergedWater = this.mergeCollections(localWater, incomingWater, 'id', 'timestamp');
+      const incomingWater = (incoming.waterRecords || []).map((w: any) => ({
+        ...w,
+        timestamp: w.timestamp || Date.now(),
+        updatedAt: w.updatedAt || w.timestamp || Date.now(),
+      }));
+      let mergedWater = this.mergeCollections(localWater, incomingWater, 'id', 'updatedAt');
+      mergedWater = filterOutDeleted(mergedWater, 'id', 'updatedAt');
       if (JSON.stringify(mergedWater) !== JSON.stringify(localWater)) {
         setItem(STORAGE_KEYS.WATER_RECORDS, mergedWater);
         localChanged = true;
       }
 
-      // 4. Weight Records (Merge by date, newer createdAt wins)
+      // 4. Weight Records (Merge by date or id, newer updatedAt/createdAt wins)
       const localWeight = this.getAllWeightRecords();
-      const incomingWeight = incoming.weightRecords || [];
-      const mergedWeight = this.mergeCollections(localWeight, incomingWeight, 'date', 'createdAt');
+      const incomingWeight = (incoming.weightRecords || []).map((w: any) => ({
+        ...w,
+        createdAt: w.createdAt || Date.now(),
+        updatedAt: w.updatedAt || w.createdAt || Date.now(),
+      }));
+      let mergedWeight = this.mergeCollections(localWeight, incomingWeight, 'date', 'updatedAt');
+      mergedWeight = filterOutDeleted(mergedWeight, 'id', 'updatedAt');
       if (JSON.stringify(mergedWeight) !== JSON.stringify(localWeight)) {
         setItem(STORAGE_KEYS.WEIGHT_RECORDS, mergedWeight);
         localChanged = true;
@@ -1026,8 +1182,12 @@ export const StorageService = {
 
       // 5. Workout Records (Merge by id, newer updatedAt wins)
       const localWorkout = this.getAllWorkoutRecords();
-      const incomingWorkout = incoming.workoutRecords || [];
-      const mergedWorkout = this.mergeCollections(localWorkout, incomingWorkout, 'id', 'updatedAt');
+      const incomingWorkout = (incoming.workoutRecords || []).map((w: any) => ({
+        ...w,
+        updatedAt: w.updatedAt || Date.now(),
+      }));
+      let mergedWorkout = this.mergeCollections(localWorkout, incomingWorkout, 'id', 'updatedAt');
+      mergedWorkout = filterOutDeleted(mergedWorkout, 'id', 'updatedAt');
       if (JSON.stringify(mergedWorkout) !== JSON.stringify(localWorkout)) {
         setItem(STORAGE_KEYS.WORKOUT_RECORDS, mergedWorkout);
         localChanged = true;
@@ -1116,20 +1276,23 @@ export const StorageService = {
     const map = new Map<string, T>();
     local.forEach(item => {
       const itemAny = item as any;
-      map.set(itemAny[key], item);
+      if (itemAny[key] !== undefined && itemAny[key] !== null) {
+        map.set(String(itemAny[key]), item);
+      }
     });
     
     incoming.forEach(item => {
       const itemAny = item as any;
-      const existing = map.get(itemAny[key]);
+      const keyValue = String(itemAny[key]);
+      const existing = map.get(keyValue);
       if (!existing) {
-        map.set(itemAny[key], item);
+        map.set(keyValue, item);
       } else {
         const existingAny = existing as any;
-        const localTime = existingAny[timeKey] || 0;
-        const incomingTime = itemAny[timeKey] || 0;
+        const localTime = existingAny[timeKey] || existingAny.createdAt || existingAny.timestamp || 0;
+        const incomingTime = itemAny[timeKey] || itemAny.createdAt || itemAny.timestamp || 0;
         if (incomingTime > localTime) {
-          map.set(itemAny[key], item);
+          map.set(keyValue, item);
         }
       }
     });
