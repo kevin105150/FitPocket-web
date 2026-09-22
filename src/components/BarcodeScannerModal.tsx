@@ -3,6 +3,7 @@ import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 import { Camera, Image, X, Flashlight, RefreshCw, AlertCircle, Loader2, Sparkles, CheckCircle2, ChevronDown, Check } from 'lucide-react';
 import { StorageService } from '../services/storage';
 import { getAiRequestParams } from '../utils/aiHelper';
+import { useModalBackHandler } from '../hooks/useModalBackHandler';
 
 interface BarcodeScannerModalProps {
   isOpen: boolean;
@@ -113,6 +114,8 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
     await stopCamera();
     onClose();
   };
+
+  useModalBackHandler(isOpen, handleClose);
 
   // Synchronize isOpen with shouldRender and handle automatic exit cleanup
   useEffect(() => {

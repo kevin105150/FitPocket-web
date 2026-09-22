@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { X, Sparkles, Plus, Check, Loader2, Store } from 'lucide-react';
 import { FamilyCacheService } from '../services/familyCacheService';
+import { useModalBackHandler } from '../hooks/useModalBackHandler';
 
 interface BatchCrawlModalProps {
   onClose: () => void;
@@ -15,6 +16,8 @@ const DEFAULT_20_ITEMS = [
 ];
 
 export const BatchCrawlModal: React.FC<BatchCrawlModalProps> = ({ onClose, onFinished }) => {
+  useModalBackHandler(true, onClose);
+
   const [selectedKeywords, setSelectedKeywords] = useState<string[]>(['飯糰', '茶葉蛋', '地瓜', '雞胸肉', '沙拉']);
   const [customKeywords, setCustomKeywords] = useState<string[]>([]);
   const [customInput, setCustomInput] = useState('');

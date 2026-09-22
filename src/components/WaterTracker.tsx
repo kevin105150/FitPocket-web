@@ -4,6 +4,7 @@ import { WaterRecord } from '../types';
 import { StorageService } from '../services/storage';
 import { DateNavigator } from './DateNavigator';
 import { motion } from 'motion/react';
+import { useModalBackHandler } from '../hooks/useModalBackHandler';
 
 interface WaterTrackerProps {
   currentDate: string;
@@ -24,6 +25,8 @@ export const WaterTracker: React.FC<WaterTrackerProps> = ({
 
   // Safe delete state
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
+  useModalBackHandler(showGoalModal, () => setShowGoalModal(false));
 
   const refreshWater = () => {
     setWaterRecords(StorageService.getWaterRecordsByDate(currentDate));

@@ -75,6 +75,7 @@ import { checkAiKeyOrWarn, getAiRequestParams } from '../utils/aiHelper';
 import { auth, loginWithGoogle, logout, testFirebaseConnection, getAccessToken } from '../lib/firebase';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { motion } from 'motion/react';
+import { useModalBackHandler } from '../hooks/useModalBackHandler';
 
 export const SettingsScreen: React.FC = () => {
   const [user, setUser] = useState<FirebaseUser | null>(auth.currentUser);
@@ -536,6 +537,17 @@ export const SettingsScreen: React.FC = () => {
   // Save feedback state
   const [savedMessage, setSavedMessage] = useState('');
   const [apiKeyStatus, setApiKeyStatus] = useState<'none' | 'saved' | 'deleted'>('none');
+
+  useModalBackHandler(showCustomFoodsListModal, () => setShowCustomFoodsListModal(false));
+  useModalBackHandler(showExportHtmlModal, () => setShowExportHtmlModal(false));
+  useModalBackHandler(showApiKeyModal, () => setShowApiKeyModal(false));
+  useModalBackHandler(showAdminSyncModal, () => setShowAdminSyncModal(false));
+  useModalBackHandler(showLimitModal, () => setShowLimitModal(false));
+  useModalBackHandler(showDatabaseFoodModal, () => setShowDatabaseFoodModal(false));
+  useModalBackHandler(showEditAdminFoodModal, () => {
+    setShowEditAdminFoodModal(false);
+    setEditingAdminFood(null);
+  });
 
   const flashMessage = (msg: string) => {
     setSavedMessage(msg);

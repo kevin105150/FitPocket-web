@@ -3,6 +3,7 @@ import { Calendar, FileText, Download, X, Info, Check } from 'lucide-react';
 import { getTodayString, addDays, formatChineseDisplayDate } from '../utils/dateUtils';
 import { StorageService } from '../services/storage';
 import { generateFullAppExportHtml } from '../utils/htmlExporter';
+import { useModalBackHandler } from '../hooks/useModalBackHandler';
 
 interface ExportHtmlModalProps {
   onClose: () => void;
@@ -13,6 +14,8 @@ export const ExportHtmlModal: React.FC<ExportHtmlModalProps> = ({
   onClose,
   onSuccessMessage,
 }) => {
+  useModalBackHandler(true, onClose);
+
   const [selectedDate, setSelectedDate] = useState<string>(getTodayString());
   const startDate = addDays(selectedDate, -6);
   const endDate = selectedDate;

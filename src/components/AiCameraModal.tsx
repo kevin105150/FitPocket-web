@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Camera, Image, X, Flashlight, RefreshCw, Sparkles, Check, ArrowLeft, AlertCircle, ChevronDown } from 'lucide-react';
+import { useModalBackHandler } from '../hooks/useModalBackHandler';
 
 interface AiCameraModalProps {
   isOpen: boolean;
@@ -93,6 +94,8 @@ export const AiCameraModal: React.FC<AiCameraModalProps> = ({
     await stopStream();
     onClose();
   };
+
+  useModalBackHandler(isOpen, handleClose);
 
   // Synchronize isOpen with shouldRender and handle automatic exit cleanup
   useEffect(() => {

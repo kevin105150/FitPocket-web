@@ -24,6 +24,7 @@ import { DateNavigator } from './DateNavigator';
 import { WorkoutTimerModal } from './WorkoutTimerModal';
 import { checkAiKeyOrWarn, getAiRequestParams } from '../utils/aiHelper';
 import { motion } from 'motion/react';
+import { useModalBackHandler } from '../hooks/useModalBackHandler';
 
 export const getSupersetLetter = (groupId: number): string => {
   if (!groupId || groupId <= 0) return 'A';
@@ -139,6 +140,13 @@ export const TrainingTracker: React.FC<TrainingTrackerProps> = ({
   // Safe delete inline state
   const [confirmDeleteWorkoutId, setConfirmDeleteWorkoutId] = useState<string | null>(null);
   const [confirmDeleteBodyPart, setConfirmDeleteBodyPart] = useState<string | null>(null);
+
+  useModalBackHandler(showAddWorkoutModal, () => setShowAddWorkoutModal(false));
+  useModalBackHandler(showAddExerciseModal, () => {
+    setShowAddExerciseModal(false);
+    setReplacingExerciseId(null);
+  });
+  useModalBackHandler(showCustomBodyPartModal, () => setShowCustomBodyPartModal(false));
 
   const muscleGroups = StorageService.getMuscleGroups();
   const allDictionaryExercises = StorageService.getExercises();
