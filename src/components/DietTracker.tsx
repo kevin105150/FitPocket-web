@@ -36,6 +36,7 @@ import { checkAiKeyOrWarn, getAiRequestParams } from '../utils/aiHelper';
 import { PortionModal } from './PortionModal';
 import { CustomFoodModal } from './CustomFoodModal';
 import { GoalSettingModal } from './GoalSettingModal';
+import { useModalBackHandler } from '../hooks/useModalBackHandler';
 
 interface DietTrackerProps {
   currentDate: string;
@@ -560,6 +561,13 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
   const [mealOptionsTarget, setMealOptionsTarget] = useState<{ mealType: string; customName: string; itemCount: number } | null>(null);
   const [mealCategoryToDelete, setMealCategoryToDelete] = useState<{ mealType: string; customName: string } | null>(null);
   const [recordToDelete, setRecordToDelete] = useState<FoodRecord | null>(null);
+
+  useModalBackHandler(showAddMealModal, () => setShowAddMealModal(false));
+  useModalBackHandler(editingMealState !== null, () => setEditingMealState(null));
+  useModalBackHandler(mealOptionsTarget !== null, () => setMealOptionsTarget(null));
+  useModalBackHandler(mealCategoryToDelete !== null, () => setMealCategoryToDelete(null));
+  useModalBackHandler(recordToDelete !== null, () => setRecordToDelete(null));
+  useModalBackHandler(mealTypeToClear !== null, () => setMealTypeToClear(null));
 
   const handleOpenAddMealModal = () => {
     if (activeMeals.length >= 10) return;
