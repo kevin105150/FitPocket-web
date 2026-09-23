@@ -2,7 +2,6 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 import { Camera, Image, X, Flashlight, RefreshCw, AlertCircle, Loader2, Sparkles, CheckCircle2, ChevronDown, Check } from 'lucide-react';
 import { StorageService } from '../services/storage';
-import { getAiRequestParams } from '../utils/aiHelper';
 import { useModalBackHandler } from '../hooks/useModalBackHandler';
 
 interface BarcodeScannerModalProps {
@@ -469,93 +468,8 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
         }
       }
 
-      // 3. Fallback to Gemini AI Vision Barcode Reader
-      const reader = new FileReader();
-      reader.onload = async (evt) => {
-        const base64 = evt.target?.result as string;
-        if (!base64) {
-          setScanError('無法讀取照片資料');
-          setIsProcessingFile(false);
-          return;
-        }
-
-        try {
-          const aiParams = getAiRequestParams();
-          const ALLOWED_3X_MODELS = [
-            'gemini-3.1-flash-lite',
-            'gemini-3.8-flash',
-            'gemini-3.6-flash',
-            'gemini-3.5-flash',
-          ];
-          
-          let lastResultRes: Response | null = null;
-          for (let i = 0; i < ALLOWED_3X_MODELS.length; i++) {
-            const currentModel = ALLOWED_3X_MODELS[i];
-            try {
-              const res = await fetch('/api/ai/read-barcode', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  imageBase64: base64,
-                  mimeType: file.type || 'image/jpeg',
-                  customApiKey: aiParams.customApiKey,
-                  apiKeySource: aiParams.apiKeySource,
-                  userEmail: aiParams.userEmail,
-                  userUid: aiParams.userUid,
-                  model: currentModel,
-                  disableFallback: true
-                }),
-              });
-
-              if (res.ok) {
-                lastResultRes = res;
-                break;
-              }
-
-              // Robust transient error detection
-              const errData = await res.json().catch(() => ({}));
-              const errStatus = res.status;
-              const errMsg = String(errData.error || '');
-              const isTransient = errStatus === 503 || errStatus === 429 || 
-                                 errMsg.includes('503') || errMsg.includes('429') || 
-                                 errMsg.includes('high demand') || errMsg.includes('Busy') ||
-                                 errMsg.includes('RESOURCE_EXHAUSTED');
-
-              if (isTransient) {
-                console.warn(`[Barcode Fallback] ${currentModel} returned transient error (${errStatus}), trying next...`);
-                continue;
-              }
-              
-              throw new Error(errMsg || '條碼分析失敗');
-            } catch (err: any) {
-              if (i === ALLOWED_3X_MODELS.length - 1) throw err;
-              const errMsg = String(err.message || '');
-              if (errMsg.includes('Busy') || errMsg.includes('503') || errMsg.includes('429') || errMsg.includes('high demand')) {
-                 continue;
-              }
-              continue;
-            }
-          }
-
-          if (lastResultRes && lastResultRes.ok) {
-            const data = await lastResultRes.json();
-            if (data._usage) {
-              StorageService.recordApiUsage(data._usage);
-            }
-            if (data.barcode) {
-              handleSuccess(data.barcode);
-              setIsProcessingFile(false);
-              return;
-            }
-          }
-          setScanError('相片中未偵測到清晰的條碼，請調整角度拍攝包裝上的國際條碼（13碼數字）。');
-        } catch (err: any) {
-          setScanError('條碼分析失敗，請重試或改用語音/文字搜尋。');
-        } finally {
-          setIsProcessingFile(false);
-        }
-      };
-      reader.readAsDataURL(file);
+      setScanError('相片中未偵測到清晰的條碼，請調整角度拍攝或手動輸入。');
+      setIsProcessingFile(false);
     } catch (err: any) {
       setScanError('處理照片失敗，請重試');
       setIsProcessingFile(false);
@@ -823,14 +737,14 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
 
               <div className="flex items-center justify-center gap-1.5 text-xs font-bold text-blue-700 bg-blue-50 px-3 py-2 rounded-xl border border-blue-100">
                 <Sparkles className="w-3.5 h-3.5 text-blue-600" />
-                自動執行條碼解碼，未讀取時自動啟動 AI 辨識
+                自動執行條碼解碼，請確保條碼清晰且無反光
               </div>
 
               {isProcessingFile && (
                 <div className="py-6 text-center space-y-2 bg-slate-50 rounded-2xl border border-slate-100">
                   <Loader2 className="w-8 h-8 animate-spin text-blue-600 mx-auto" />
                   <p className="text-xs font-bold text-blue-900">正在解析相片條碼數據...</p>
-                  <p className="text-[11px] text-slate-400">正在執行條碼解碼與 AI 視覺辨識...</p>
+                  <p className="text-[11px] text-slate-400">正在執行條碼解碼程序...</p>
                 </div>
               )}
             </div>
