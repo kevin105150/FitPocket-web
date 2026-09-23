@@ -21,8 +21,10 @@ import {
   Store,
   Flame,
   Database,
+  ScanText,
 } from 'lucide-react';
 import { CustomFood, FoodSearchResult, MealType, FoodRecord } from '../types';
+import { performOcr } from '../lib/ocrService';
 import { StorageService } from '../services/storage';
 import { CloudFoodService } from '../services/cloudFoodService';
 import { OpenFoodService } from '../services/openFoodService';
@@ -46,10 +48,10 @@ interface AddFoodModalProps {
   onClose: () => void;
   onSelectFood: (food: FoodSearchResult, mealType?: MealType) => void;
   onFastAddFood?: (food: FoodSearchResult, mealType?: MealType) => void;
-  onOpenCustomFoodModal: (prefilledBarcode?: string) => void;
+  onOpenCustomFoodModal: (prefilledData?: string | CustomFood) => void;
 }
 
-export type FoodTab = 'ALL' | 'OPEN_FOOD' | 'OFFICIAL' | 'CUSTOM' | 'CLOUD' | 'AI_SCAN' | 'BARCODE' | 'FAMILY';
+export type FoodTab = 'ALL' | 'OPEN_FOOD' | 'OFFICIAL' | 'CUSTOM' | 'CLOUD' | 'AI_SCAN' | 'BARCODE' | 'FAMILY' | 'OCR_SCAN';
 
 export const AddFoodModal: React.FC<AddFoodModalProps> = ({
   initialMealType,
@@ -297,12 +299,67 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
   // AI Scanner state
   const [aiPrompt, setAiPrompt] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
+  const [ocrLoading, setOcrLoading] = useState(false);
+  const [ocrProgress, setOcrProgress] = useState(0);
   const [aiProgress, setAiProgress] = useState(0);
   const [aiStatus, setAiStatus] = useState('');
   const [aiError, setAiError] = useState('');
   const [selectedImageBase64, setSelectedImageBase64] = useState<string | null>(null);
   const [lastImageMimeType, setLastImageMimeType] = useState<string>('image/jpeg');
   const [retryAction, setRetryAction] = useState<(() => void) | null>(null);
+
+  const handleOcrAnalyze = async () => {
+    console.log('[OCR] handleOcrAnalyze triggered. Image length:', selectedImageBase64?.length);
+    if (!selectedImageBase64) {
+      // If no image, open camera modal instead of just showing error
+      setIsAiCameraModalOpen(true);
+      return;
+    }
+
+    // If AI is currently loading, "cancel" it visually to focus on OCR
+    if (aiLoading) {
+      console.log('[OCR] AI is loading, overriding with OCR');
+      setAiLoading(false);
+      setAiStatus('');
+    }
+
+    setOcrLoading(true);
+    setAiError('');
+    setOcrProgress(0);
+
+    try {
+      console.log('[OCR] Starting performOcr...');
+      const result = await performOcr(selectedImageBase64, (p) => {
+        setOcrProgress(p);
+      });
+      console.log('[OCR] OCR result obtained:', result);
+      
+      // Convert OCR result to CustomFood object
+      const foodItem: CustomFood = {
+        id: 'ocr_item_' + Date.now(),
+        name: 'OCR 辨識結果 (請修改)',
+        brand: '標籤 OCR (本地)',
+        calories: result.calories || 0,
+        protein: result.protein || 0,
+        fat: result.fat || 0,
+        carbs: result.carbs || 0,
+        sugars: result.sugars || 0,
+        sodium: result.sodium || 0,
+        servingAmount: result.servingSize ? (parseFloat(result.servingSize) || 100) : 100,
+        servingUnit: result.servingSize?.replace(/[\d\.]/g, '') || 'g',
+        fiber: 0,
+        potassium: 0
+      };
+
+      console.log('[OCR] Opening CustomFoodModal with:', foodItem);
+      onOpenCustomFoodModal(foodItem);
+    } catch (err: any) {
+      console.error('[OCR] OCR Error:', err);
+      setAiError('OCR 演算法辨識失敗：' + (err.message || '請確認圖片清晰度或切換回 AI 模式'));
+    } finally {
+      setOcrLoading(false);
+    }
+  };
   const [isAiCameraModalOpen, setIsAiCameraModalOpen] = useState(false);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
@@ -872,80 +929,113 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
     setAiStatus('正在初始化 AI 辨識系統...');
 
     try {
-      setAiProgress(25);
+      setAiProgress(20);
       setAiStatus('正在優化圖片以加快辨識速度...');
 
-      // 核心優化：在前端先壓縮圖片，大幅縮減上傳時間 (最佳化為 768x768，Gemini 視覺識別最速甜點尺寸)
+      // 核心優化：在前端先壓縮圖片
       const optimizedBase64 = await optimizeImageForAi(base64, 768, 768, 0.7);
 
       const aiParams = getAiRequestParams();
-      const model = StorageService.getSelectedAiModel();
+      const preferredModel = StorageService.getSelectedAiModel();
       
-      setAiProgress(40);
-      setAiStatus(`[${model}] 資料上傳中...`);
+      const ALLOWED_3X_MODELS = [
+        'gemini-3.8-flash',
+        'gemini-3.6-flash',
+        'gemini-3.5-flash',
+        'gemini-3.1-flash-lite',
+      ];
+      
+      const targetModel = ALLOWED_3X_MODELS.includes(preferredModel) ? preferredModel : 'gemini-3.8-flash';
+      const modelsToTry = [
+        targetModel,
+        ...ALLOWED_3X_MODELS.filter(m => m !== targetModel),
+      ];
 
-      // Smooth progression timer during active network fetch
-      let currentProgress = 40;
-      const progressInterval = setInterval(() => {
-        if (currentProgress < 85) {
-          currentProgress += 3; // Slightly faster incremental animation
-          const roundedProgress = Math.min(Math.round(currentProgress), 85);
-          setAiProgress(roundedProgress);
-          
-          if (roundedProgress >= 40 && roundedProgress < 58) {
-            setAiStatus(`[${model}] 資料上傳中...`);
-          } else {
-            setAiStatus(`[${model}] AI分析中...`);
+      let lastResultRes: Response | null = null;
+      let finalModelUsed = targetModel;
+
+      for (let i = 0; i < modelsToTry.length; i++) {
+        const currentModel = modelsToTry[i];
+        finalModelUsed = currentModel;
+        
+        setAiProgress(30 + (i * 15));
+        const retryMsg = i > 0 ? `(正在自動切換後援第 ${i} 次) ` : '';
+        setAiStatus(`${retryMsg}[${currentModel}] 正在進行 AI 影像分析...`);
+
+        // Smooth progression timer
+        let currentProgress = 30 + (i * 15);
+        const maxSubProgress = 30 + ((i + 1) * 15);
+        const progressInterval = setInterval(() => {
+          if (currentProgress < maxSubProgress - 2) {
+            currentProgress += 1;
+            setAiProgress(Math.min(Math.round(currentProgress), 85));
           }
-        }
-      }, 200);
+        }, 300);
 
-      let res;
-      try {
-        res = await fetch('/api/ai/estimate-image', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            imageBase64: optimizedBase64, // 使用優化後的 base64
-            mimeType: 'image/jpeg', // 壓縮後已統一格式為 jpeg
-            customApiKey: aiParams.customApiKey,
-            apiKeySource: aiParams.apiKeySource,
-            userEmail: aiParams.userEmail,
-            userUid: aiParams.userUid,
-            model,
-          }),
-        });
-      } finally {
-        clearInterval(progressInterval);
+        try {
+          const res = await fetch('/api/ai/estimate-image', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              imageBase64: optimizedBase64,
+              mimeType: 'image/jpeg',
+              customApiKey: aiParams.customApiKey,
+              apiKeySource: aiParams.apiKeySource,
+              userEmail: aiParams.userEmail,
+              userUid: aiParams.userUid,
+              model: currentModel,
+              disableFallback: true // 讓前端掌握 Fallback 視覺顯示
+            }),
+          });
+
+          clearInterval(progressInterval);
+          
+          if (res.ok) {
+            lastResultRes = res;
+            break; // Success!
+          }
+
+          // Robust transient error detection
+          const errData = await res.json().catch(() => ({}));
+          const errStatus = res.status;
+          const errMsg = String(errData.error || '');
+          const isTransient = errStatus === 503 || errStatus === 429 || 
+                             errMsg.includes('503') || errMsg.includes('429') || 
+                             errMsg.includes('high demand') || errMsg.includes('Busy') ||
+                             errMsg.includes('RESOURCE_EXHAUSTED');
+
+          if (isTransient) {
+            console.warn(`[AI Fallback] ${currentModel} returned transient error (${errStatus}), trying next...`);
+            continue;
+          }
+
+          throw new Error(errMsg || '照片辨識失敗');
+        } catch (err: any) {
+          clearInterval(progressInterval);
+          if (i === modelsToTry.length - 1) throw err;
+          const errMsg = String(err.message || '');
+          if (errMsg.includes('Busy') || errMsg.includes('503') || errMsg.includes('429') || errMsg.includes('high demand')) {
+             continue;
+          }
+          throw err;
+        }
+      }
+
+      if (!lastResultRes) {
+        throw new Error('AI 伺服器目前忙碌中，請稍後重試。');
       }
 
       setAiProgress(88);
       setAiStatus('分析完成！');
 
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        const isBusy = res.status === 503 || res.status === 429;
-        const msg = isBusy 
-          ? 'AI 伺服器目前較為繁忙，請稍候重試或再點擊一次「再試一次」按鈕。' 
-          : (errData.error || '照片辨識失敗');
-        throw new Error(msg);
-      }
-
-      // Download and parse JSON stream first (blisteringly fast now without Google Search Grounding)
-      const result = await res.json();
+      const result = await lastResultRes.json();
       if (result._usage) {
         StorageService.recordApiUsage(result._usage);
       }
 
-      const usedModel = result._modelUsed || model;
-      const isFallback = usedModel !== model;
-
+      const usedModel = result._modelUsed || finalModelUsed;
       setAiProgress(96);
-      if (isFallback) {
-        setAiStatus(`[${usedModel}] 資料擷取中... (由 ${model} 自動切換後援)`);
-      } else {
-        setAiStatus(`[${usedModel}] 資料擷取中...`);
-      }
+      setAiStatus(`[${usedModel}] 資料擷取中...`);
 
       const parseNum = (val: any, fallback: number) => {
         const n = Number(val);
@@ -1007,48 +1097,92 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
     setAiProgress(20);
     setAiStatus('正在解析您的文字描述...');
     setRetryAction(() => handleAiTextAnalyze);
+    
     try {
       const aiParams = getAiRequestParams();
-      const model = StorageService.getSelectedAiModel();
+      const preferredModel = StorageService.getSelectedAiModel();
       
-      setAiProgress(50);
-      setAiStatus(`[${model}] 正在由 AI 營養師估算熱量與三大營養素...`);
+      const ALLOWED_3X_MODELS = [
+        'gemini-3.8-flash',
+        'gemini-3.6-flash',
+        'gemini-3.5-flash',
+        'gemini-3.1-flash-lite',
+      ];
       
-      const res = await fetch('/api/ai/estimate-nutrition', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          query: aiPrompt.trim(), 
-          customApiKey: aiParams.customApiKey,
-          apiKeySource: aiParams.apiKeySource,
-          userEmail: aiParams.userEmail,
-          userUid: aiParams.userUid,
-          model 
-        }),
-      });
+      const targetModel = ALLOWED_3X_MODELS.includes(preferredModel) ? preferredModel : 'gemini-3.1-flash-lite';
+      const modelsToTry = [
+        targetModel,
+        ...ALLOWED_3X_MODELS.filter(m => m !== targetModel),
+      ];
 
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        const isBusy = res.status === 503 || res.status === 429;
-        const msg = isBusy 
-          ? 'AI 伺服器目前較為繁忙，請稍候重試或點擊「再試一次」。' 
-          : (errData.error || '估算失敗');
-        throw new Error(msg);
+      let lastResultRes: Response | null = null;
+      let finalModelUsed = targetModel;
+
+      for (let i = 0; i < modelsToTry.length; i++) {
+        const currentModel = modelsToTry[i];
+        finalModelUsed = currentModel;
+        
+        setAiProgress(40 + (i * 10));
+        const retryMsg = i > 0 ? `(正在自動切換後援第 ${i} 次) ` : '';
+        setAiStatus(`${retryMsg}[${currentModel}] 正在由 AI 營養師估算中...`);
+
+        try {
+          const res = await fetch('/api/ai/estimate-nutrition', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+              query: aiPrompt.trim(), 
+              customApiKey: aiParams.customApiKey,
+              apiKeySource: aiParams.apiKeySource,
+              userEmail: aiParams.userEmail,
+              userUid: aiParams.userUid,
+              model: currentModel,
+              disableFallback: true
+            }),
+          });
+
+          if (res.ok) {
+            lastResultRes = res;
+            break;
+          }
+
+          // Robust transient error detection
+          const errData = await res.json().catch(() => ({}));
+          const errStatus = res.status;
+          const errMsg = String(errData.error || '');
+          const isTransient = errStatus === 503 || errStatus === 429 || 
+                             errMsg.includes('503') || errMsg.includes('429') || 
+                             errMsg.includes('high demand') || errMsg.includes('Busy') ||
+                             errMsg.includes('RESOURCE_EXHAUSTED');
+
+          if (isTransient) {
+            console.warn(`[AI Fallback] ${currentModel} returned transient error (${errStatus}), trying next...`);
+            continue;
+          }
+
+          throw new Error(errMsg || '估算失敗');
+        } catch (err: any) {
+          if (i === modelsToTry.length - 1) throw err;
+          const errMsg = String(err.message || '');
+          if (errMsg.includes('Busy') || errMsg.includes('503') || errMsg.includes('429') || errMsg.includes('high demand')) {
+             continue;
+          }
+          throw err;
+        }
       }
 
-      const result = await res.json();
+      if (!lastResultRes) {
+        throw new Error('AI 伺服器目前忙碌中，請稍後重試。');
+      }
+
+      const result = await lastResultRes.json();
       if (result._usage) {
         StorageService.recordApiUsage(result._usage);
       }
-      const usedModel = result._modelUsed || model;
-      const isFallback = usedModel !== model;
+      const usedModel = result._modelUsed || finalModelUsed;
 
       setAiProgress(85);
-      if (isFallback) {
-        setAiStatus(`[${usedModel}] 正在生成營養成分清單... (由 ${model} 自動切換後援)`);
-      } else {
-        setAiStatus(`[${usedModel}] 正在生成營養成分清單...`);
-      }
+      setAiStatus(`[${usedModel}] 正在生成營養成分清單...`);
 
       const parseNum = (val: any, fallback: number) => {
         const n = Number(val);
@@ -1171,42 +1305,65 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
         </div>
 
         {/* Search Mode Toggle */}
-        <div className="p-4 border-b border-slate-100 flex gap-2">
+        <div className="p-3 border-b border-slate-100 flex gap-1.5 overflow-x-auto no-scrollbar">
           <button
             onClick={() => setActiveTab('ALL')}
-            className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition cursor-pointer flex items-center justify-center gap-1.5 ${
+            className={`min-w-[70px] flex-1 py-2.5 rounded-xl text-[11px] font-black transition-all cursor-pointer flex items-center justify-center gap-1 ${
               activeTab === 'ALL' || activeTab === 'OPEN_FOOD' || activeTab === 'OFFICIAL' || activeTab === 'CUSTOM' || activeTab === 'CLOUD'
-                ? 'bg-sky-600 text-white'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                ? 'bg-sky-600 text-white shadow-md shadow-sky-100'
+                : 'bg-slate-50 text-slate-500 hover:bg-slate-100'
             }`}
           >
-            <Search className="w-4 h-4" />
-            一般搜尋
+            <Search className="w-3.5 h-3.5" />
+            一般
           </button>
+          
           <button
-            onClick={() => {
-              if (!checkAiKeyOrWarn()) return;
-              setActiveTab('AI_SCAN');
-            }}
-            className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition cursor-pointer flex items-center justify-center gap-1.5 ${
-              activeTab === 'AI_SCAN' || activeTab === 'BARCODE'
-                ? 'bg-purple-700 text-white'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            onClick={() => setActiveTab('OCR_SCAN')}
+            className={`min-w-[70px] flex-1 py-2.5 rounded-xl text-[11px] font-black transition-all cursor-pointer flex items-center justify-center gap-1 ${
+              activeTab === 'OCR_SCAN'
+                ? 'bg-emerald-600 text-white shadow-md shadow-emerald-100'
+                : 'bg-slate-50 text-slate-500 hover:bg-slate-100'
             }`}
           >
-            <Sparkles className="w-4 h-4" />
-            AI搜尋
+            <ScanText className="w-3.5 h-3.5" />
+            OCR
           </button>
+
+          <button
+            onClick={() => setActiveTab('AI_SCAN')}
+            className={`min-w-[70px] flex-1 py-2.5 rounded-xl text-[11px] font-black transition-all cursor-pointer flex items-center justify-center gap-1 ${
+              activeTab === 'AI_SCAN'
+                ? 'bg-purple-600 text-white shadow-md shadow-purple-100'
+                : 'bg-slate-50 text-slate-500 hover:bg-slate-100'
+            }`}
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            AI
+          </button>
+
+          <button
+            onClick={() => setActiveTab('BARCODE')}
+            className={`min-w-[70px] flex-1 py-2.5 rounded-xl text-[11px] font-black transition-all cursor-pointer flex items-center justify-center gap-1 ${
+              activeTab === 'BARCODE'
+                ? 'bg-blue-600 text-white shadow-md shadow-blue-100'
+                : 'bg-slate-50 text-slate-500 hover:bg-slate-100'
+            }`}
+          >
+            <Barcode className="w-3.5 h-3.5" />
+            條碼
+          </button>
+
           <button
             onClick={() => setActiveTab('FAMILY')}
-            className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition cursor-pointer flex items-center justify-center gap-1.5 ${
+            className={`min-w-[70px] flex-1 py-2.5 rounded-xl text-[11px] font-black transition-all cursor-pointer flex items-center justify-center gap-1 ${
               activeTab === 'FAMILY'
-                ? 'bg-emerald-600 text-white'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                ? 'bg-orange-500 text-white shadow-md shadow-orange-100'
+                : 'bg-slate-50 text-slate-500 hover:bg-slate-100'
             }`}
           >
-            <Store className="w-4 h-4" />
-            進階搜尋
+            <Store className="w-3.5 h-3.5" />
+            品牌
           </button>
         </div>
 
@@ -1256,23 +1413,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
           </div>
         )}
 
-        {/* Smart Tool Switcher (Only in AI mode) */}
-        {(activeTab === 'AI_SCAN' || activeTab === 'BARCODE') && (
-          <div className="p-4 border-b border-slate-100 flex gap-2">
-            <button
-              onClick={() => setActiveTab('AI_SCAN')}
-              className={`flex-1 py-2 rounded-lg text-xs font-bold transition cursor-pointer ${activeTab === 'AI_SCAN' ? 'bg-purple-100 text-purple-800' : 'text-slate-500'}`}
-            >
-              AI 影像/文字分析
-            </button>
-            <button
-              onClick={() => setActiveTab('BARCODE')}
-              className={`flex-1 py-2 rounded-lg text-xs font-bold transition cursor-pointer ${activeTab === 'BARCODE' ? 'bg-blue-100 text-blue-800' : 'text-slate-500'}`}
-            >
-              條碼搜尋
-            </button>
-          </div>
-        )}
+        {/* Smart Tool Switcher (Removed as tabs are now in main header) */}
 
         {/* Content Body */}
         <div ref={contentBodyRef} className="flex-1 overflow-y-auto p-4">
@@ -1886,6 +2027,89 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
           )}
 
           {/* TAB: AI SCAN */}
+          {/* TAB: OCR_SCAN */}
+          {activeTab === 'OCR_SCAN' && (
+            <div className="space-y-6 max-w-md mx-auto py-8 text-center">
+              <div className="relative inline-block">
+                {selectedImageBase64 ? (
+                  <div className="relative group">
+                    <img
+                      src={selectedImageBase64}
+                      alt="標示照片預覽"
+                      className="w-56 h-56 object-cover rounded-[32px] border-4 border-emerald-100 shadow-xl mx-auto transition group-hover:scale-105"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setIsAiCameraModalOpen(true)}
+                      className="absolute -bottom-3 -right-3 p-3 bg-emerald-600 text-white rounded-2xl shadow-xl hover:bg-emerald-700 transition cursor-pointer active:scale-90"
+                    >
+                      <Camera className="w-5 h-5" />
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setIsAiCameraModalOpen(true)}
+                    className="w-56 h-56 rounded-[48px] bg-emerald-50 border-4 border-dashed border-emerald-200 flex flex-col items-center justify-center gap-4 group hover:bg-emerald-100 transition cursor-pointer"
+                  >
+                    <div className="w-20 h-20 rounded-3xl bg-white shadow-sm flex items-center justify-center text-emerald-600 group-hover:scale-110 transition">
+                      <ScanText className="w-10 h-10" />
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-sm font-black text-emerald-800">點擊拍攝營養標示</p>
+                      <p className="text-[10px] text-emerald-600/70 font-bold">演算法本地辨識，不耗 AI 額度</p>
+                    </div>
+                  </button>
+                )}
+              </div>
+
+              <div className="space-y-4 px-4">
+                <div className="space-y-1.5">
+                  <h3 className="text-base font-black text-slate-800">獨立演算法 OCR 辨識</h3>
+                  <p className="text-xs text-slate-500 font-medium leading-relaxed">
+                    專為包裝背面的「營養標示表格」優化。<br />
+                    請確保照片清晰、無陰影，演算法會自動擷取熱量與各項營養數值。
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleOcrAnalyze}
+                  disabled={ocrLoading}
+                  className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-black rounded-3xl shadow-lg shadow-emerald-200/50 transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 active:scale-95"
+                >
+                  {ocrLoading ? (
+                    <>
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      <span>正在本地辨識 ({ocrProgress}%)</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-5 h-5" />
+                      <span>{selectedImageBase64 ? '立即開始辨識標示' : '請先拍下標示照片'}</span>
+                    </>
+                  )}
+                </button>
+
+                {ocrLoading && (
+                  <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+                    <motion.div 
+                      className="h-full bg-emerald-500"
+                      initial={{ width: 0 }}
+                      animate={{ width: `${ocrProgress}%` }}
+                    />
+                  </div>
+                )}
+              </div>
+
+              {aiError && (
+                <div className="mx-4 p-4 bg-rose-50 border border-rose-100 rounded-2xl text-xs font-bold text-rose-600 flex items-start gap-3 text-left">
+                  <AlertCircle className="w-5 h-5 shrink-0" />
+                  <span>{aiError}</span>
+                </div>
+              )}
+            </div>
+          )}
+
           {activeTab === 'AI_SCAN' && (
             <div className="space-y-4 max-w-md mx-auto py-2">
               <div className="bg-purple-50 border border-purple-200/80 rounded-2xl p-4 text-purple-900">
@@ -1953,14 +2177,55 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                       if (!checkAiKeyOrWarn()) return;
                       setIsAiCameraModalOpen(true);
                     }}
-                    disabled={aiLoading}
-                    className="w-full py-3 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-2xl shadow-sm transition inline-flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 active:scale-98"
+                    disabled={aiLoading || ocrLoading}
+                    className="flex-1 py-3 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-2xl shadow-sm transition inline-flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 active:scale-98"
                   >
                     <Camera className="w-4 h-4" />
-                    開啟 AI 拍照對話框 (相機鏡頭 / 相簿)
+                    AI 影像辨識
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleOcrAnalyze}
+                    disabled={ocrLoading || !selectedImageBase64}
+                    className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-2xl shadow-sm transition inline-flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 active:scale-98"
+                  >
+                    {ocrLoading ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <ScanText className="w-4 h-4" />
+                    )}
+                    演算法 OCR (不經 AI)
                   </button>
                 </div>
               </div>
+
+              {ocrLoading && (
+                <div className="py-6 px-4 bg-emerald-50/50 rounded-2xl border border-emerald-100 text-center space-y-4">
+                  <div className="relative">
+                    <Loader2 className="w-10 h-10 animate-spin text-emerald-600 mx-auto opacity-20" />
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <ScanText className="w-5 h-5 text-emerald-600 animate-pulse" />
+                    </div>
+                  </div>
+                  
+                  <div className="space-y-3">
+                    <div className="flex justify-between text-[10px] font-black text-emerald-700 uppercase tracking-wider px-1">
+                      <span>演算法辨識中 (本地執行)...</span>
+                      <span>{ocrProgress}%</span>
+                    </div>
+                    <div className="w-full h-2.5 bg-emerald-100 rounded-full overflow-hidden shadow-inner">
+                      <div 
+                        className="h-full bg-emerald-600 transition-all duration-500 ease-out shadow-sm"
+                        style={{ width: `${ocrProgress}%` }}
+                      ></div>
+                    </div>
+                    <p className="text-[10px] text-slate-500 font-medium">
+                      首次啟動可能需下載約 10MB 數據，隨後將快速辨識
+                    </p>
+                  </div>
+                </div>
+              )}
 
               {/* Or text describe */}
               <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4">

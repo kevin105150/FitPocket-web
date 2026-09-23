@@ -481,21 +481,64 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
 
         try {
           const aiParams = getAiRequestParams();
-          const res = await fetch('/api/ai/read-barcode', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              imageBase64: base64,
-              mimeType: file.type || 'image/jpeg',
-              customApiKey: aiParams.customApiKey,
-              apiKeySource: aiParams.apiKeySource,
-              userEmail: aiParams.userEmail,
-              userUid: aiParams.userUid,
-            }),
-          });
+          const ALLOWED_3X_MODELS = [
+            'gemini-3.1-flash-lite',
+            'gemini-3.8-flash',
+            'gemini-3.6-flash',
+            'gemini-3.5-flash',
+          ];
+          
+          let lastResultRes: Response | null = null;
+          for (let i = 0; i < ALLOWED_3X_MODELS.length; i++) {
+            const currentModel = ALLOWED_3X_MODELS[i];
+            try {
+              const res = await fetch('/api/ai/read-barcode', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  imageBase64: base64,
+                  mimeType: file.type || 'image/jpeg',
+                  customApiKey: aiParams.customApiKey,
+                  apiKeySource: aiParams.apiKeySource,
+                  userEmail: aiParams.userEmail,
+                  userUid: aiParams.userUid,
+                  model: currentModel,
+                  disableFallback: true
+                }),
+              });
 
-          if (res.ok) {
-            const data = await res.json();
+              if (res.ok) {
+                lastResultRes = res;
+                break;
+              }
+
+              // Robust transient error detection
+              const errData = await res.json().catch(() => ({}));
+              const errStatus = res.status;
+              const errMsg = String(errData.error || '');
+              const isTransient = errStatus === 503 || errStatus === 429 || 
+                                 errMsg.includes('503') || errMsg.includes('429') || 
+                                 errMsg.includes('high demand') || errMsg.includes('Busy') ||
+                                 errMsg.includes('RESOURCE_EXHAUSTED');
+
+              if (isTransient) {
+                console.warn(`[Barcode Fallback] ${currentModel} returned transient error (${errStatus}), trying next...`);
+                continue;
+              }
+              
+              throw new Error(errMsg || '條碼分析失敗');
+            } catch (err: any) {
+              if (i === ALLOWED_3X_MODELS.length - 1) throw err;
+              const errMsg = String(err.message || '');
+              if (errMsg.includes('Busy') || errMsg.includes('503') || errMsg.includes('429') || errMsg.includes('high demand')) {
+                 continue;
+              }
+              continue;
+            }
+          }
+
+          if (lastResultRes && lastResultRes.ok) {
+            const data = await lastResultRes.json();
             if (data._usage) {
               StorageService.recordApiUsage(data._usage);
             }

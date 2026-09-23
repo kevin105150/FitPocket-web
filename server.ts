@@ -549,7 +549,8 @@ async function generateWithFallback(
   ai: GoogleGenAI,
   preferredModel: string,
   contents: any,
-  useSearch = false
+  useSearch = false,
+  disableInternalFallback = false
 ): Promise<{
   text: string;
   modelUsed: string;
@@ -568,10 +569,12 @@ async function generateWithFallback(
     'gemini-3.1-flash-lite',
   ];
   const targetModel = ALLOWED_3X_MODELS.includes(preferredModel) ? preferredModel : 'gemini-3.8-flash';
-  const candidateModels = [
-    targetModel,
-    ...ALLOWED_3X_MODELS.filter(m => m !== targetModel),
-  ];
+  const candidateModels = disableInternalFallback 
+    ? [targetModel]
+    : [
+        targetModel,
+        ...ALLOWED_3X_MODELS.filter(m => m !== targetModel),
+      ];
 
   let lastError: any = null;
 
@@ -656,18 +659,32 @@ async function generateWithFallback(
 
   if (lastError) {
     const msg = lastError.message || '';
-    if (msg.includes('RESOURCE_EXHAUSTED') || msg.includes('exceeded your current quota') || lastError.status === 429) {
-      throw new Error('Gemini API 額度已達上限 (Quota Exceeded)，請稍後再試或至「設定」改用個人 API Key。');
+    let status = lastError.status || 0;
+    if (!status && msg) {
+      const match = msg.match(/503|429|500|400|401|403/);
+      if (match) status = parseInt(match[0], 10);
     }
-    if (msg.includes('PERMISSION_DENIED') || msg.includes('denied access') || lastError.status === 403) {
-      throw new Error('Gemini API 存取遭受拒絕 (Permission Denied)。請前往 Google AI Studio (https://aistudio.google.com/app/apikey) 申請具備 API 存取權限的 Gemini API Key。');
+
+    if (msg.includes('RESOURCE_EXHAUSTED') || msg.includes('exceeded your current quota') || status === 429) {
+      const err = new Error('Gemini API 額度已達上限 (Quota Exceeded)，請稍後再試或至「設定」改用個人 API Key。') as any;
+      err.status = 429;
+      throw err;
+    }
+    if (msg.includes('PERMISSION_DENIED') || msg.includes('denied access') || status === 403) {
+      const err = new Error('Gemini API 存取遭受拒絕 (Permission Denied)。請前往 Google AI Studio (https://aistudio.google.com/app/apikey) 申請具備 API 存取權限的 Gemini API Key。') as any;
+      err.status = 403;
+      throw err;
     }
     if (msg) {
-      throw new Error(`AI 服務暫時無法回應 (${msg.slice(0, 100)})`);
+      const err = new Error(`AI 服務暫時無法回應 (${msg.slice(0, 100)})`) as any;
+      err.status = status || 500;
+      throw err;
     }
   }
 
-  throw new Error('AI 伺服器目前忙碌中，請稍後重試。');
+  const finalErr = new Error('AI 伺服器目前忙碌中，請稍後重試。') as any;
+  finalErr.status = 503;
+  throw finalErr;
 }
 
 // Helper to extract JSON from AI response text
@@ -1397,7 +1414,8 @@ app.post('/api/ai/estimate-nutrition', async (req, res) => {
       ai,
       model || 'gemini-3.1-flash-lite',
       prompt,
-      true // Enable Search Grounding
+      true, // Enable Search Grounding
+      req.body.disableFallback === true
     );
 
     // In JSON mode, text is a pure JSON string
@@ -1493,7 +1511,8 @@ app.post('/api/ai/estimate-image', async (req, res) => {
       ai,
       model || 'gemini-3.8-flash',
       contents,
-      false
+      false,
+      req.body.disableFallback === true
     );
 
     // In JSON mode, text is a pure JSON string
@@ -1574,7 +1593,8 @@ If no readable barcode numbers are visible in the image, reply ONLY with 'NONE'.
       ai,
       model || 'gemini-3.1-flash-lite',
       contents,
-      false
+      false,
+      req.body.disableFallback === true
     );
 
     const cleaned = text.replace(/[^0-9a-zA-Z]/g, '').trim();

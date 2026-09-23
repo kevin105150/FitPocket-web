@@ -379,6 +379,7 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
   const [foodForPortion, setFoodForPortion] = useState<FoodSearchResult | null>(null);
   const [showCustomFoodModal, setShowCustomFoodModal] = useState(false);
   const [prefilledBarcodeForCustom, setPrefilledBarcodeForCustom] = useState<string>('');
+  const [prefilledFoodForCustom, setPrefilledFoodForCustom] = useState<CustomFood | null>(null);
   const [showGoalModal, setShowGoalModal] = useState(false);
   const [editingRecord, setEditingRecord] = useState<FoodRecord | null>(null);
   const [aiReviewFood, setAiReviewFood] = useState<FoodSearchResult | null>(null);
@@ -1231,11 +1232,16 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
           onClose={() => setShowAddFood(false)}
           onSelectFood={(food, mealType) => handleSelectFood(food, mealType)}
           onFastAddFood={(food, mealType) => handleFastAddFood(food, mealType)}
-          onOpenCustomFoodModal={(barcode) => {
-            if (barcode) {
-              setPrefilledBarcodeForCustom(barcode);
+          onOpenCustomFoodModal={(prefilledData) => {
+            if (typeof prefilledData === 'string') {
+              setPrefilledBarcodeForCustom(prefilledData);
+              setPrefilledFoodForCustom(null);
+            } else if (prefilledData && typeof prefilledData === 'object') {
+              setPrefilledFoodForCustom(prefilledData as CustomFood);
+              setPrefilledBarcodeForCustom('');
             } else {
               setPrefilledBarcodeForCustom('');
+              setPrefilledFoodForCustom(null);
             }
             setShowCustomFoodModal(true);
           }}
@@ -1357,10 +1363,11 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
 
       {showCustomFoodModal && (
         <CustomFoodModal
-          initialFood={prefilledBarcodeForCustom ? { name: '', calories: 0, carbs: 0, protein: 0, fat: 0, barcode: prefilledBarcodeForCustom } as any : undefined}
+          initialFood={prefilledFoodForCustom ? prefilledFoodForCustom : (prefilledBarcodeForCustom ? { name: '', calories: 0, carbs: 0, protein: 0, fat: 0, barcode: prefilledBarcodeForCustom } as any : undefined)}
           onClose={() => {
             setShowCustomFoodModal(false);
             setPrefilledBarcodeForCustom('');
+            setPrefilledFoodForCustom(null);
           }}
           onSave={handleSaveCustomFood}
         />

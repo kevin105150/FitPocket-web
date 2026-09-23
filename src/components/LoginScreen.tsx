@@ -100,12 +100,26 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="mb-6 p-4 bg-rose-50 border border-rose-100 rounded-2xl flex items-center gap-3 text-left"
+            className="mb-6 p-5 bg-rose-50 border border-rose-100 rounded-3xl flex flex-col gap-3 text-left"
           >
-            <AlertCircle className="w-5 h-5 text-rose-500 flex-shrink-0" />
-            <span className="text-[11px] font-bold text-rose-600 leading-tight">
-              {errorMsg}
-            </span>
+            <div className="flex items-center gap-3">
+              <AlertCircle className="w-5 h-5 text-rose-500 flex-shrink-0" />
+              <span className="text-[11px] font-bold text-rose-600 leading-tight">
+                {errorMsg}
+              </span>
+            </div>
+            {errorMsg.includes('預覽視窗安全性限制') && (
+              <div className="mt-2 p-3 bg-white/60 rounded-xl border border-rose-200/50 space-y-2">
+                <p className="text-[10px] font-black text-rose-700 flex items-center gap-1.5 uppercase tracking-wider">
+                  <Sparkles className="w-3 h-3" /> 解決方案
+                </p>
+                <ol className="text-[10px] text-slate-600 font-bold space-y-1.5 list-decimal pl-4">
+                  <li>點擊右上方「在新分頁中開啟 (Open in new tab)」按鈕</li>
+                  <li>在彈出的獨立分頁中，重新點擊下方「Google 登入」</li>
+                  <li>若仍失敗，請確認瀏覽器未封鎖「彈出式視窗」</li>
+                </ol>
+              </div>
+            )}
           </motion.div>
         )}
 

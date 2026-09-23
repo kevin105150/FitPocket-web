@@ -83,6 +83,7 @@ export const requestTokenViaGsi = async (forceSelectAccount = false): Promise<st
   }
   const clientId =
     firebaseConfig.oAuthClientId ||
+    (typeof rawFirebaseConfig === 'object' && (rawFirebaseConfig as any).oAuthClientId) ||
     '870931923285-98213jfk7pp6nsrfuvdd52stodij2mqb.apps.googleusercontent.com';
 
   return new Promise((resolve, reject) => {
@@ -94,7 +95,13 @@ export const requestTokenViaGsi = async (forceSelectAccount = false): Promise<st
         callback: (resp: any) => {
           if (resp.error) {
             console.warn('GSI Auth notice:', resp);
-            reject(new Error(resp.error_description || resp.error));
+            const errorMsg = resp.error_description || resp.error;
+            // Detect if this is likely a popup block or security restriction in iframe
+            if (errorMsg.includes('popup') || errorMsg.includes('blocked') || errorMsg.includes('closed')) {
+              reject(new Error('POPUP_BLOCKED'));
+            } else {
+              reject(new Error(errorMsg));
+            }
           } else if (resp.access_token) {
             resolve(resp.access_token);
           } else {
@@ -103,10 +110,17 @@ export const requestTokenViaGsi = async (forceSelectAccount = false): Promise<st
         },
         error_callback: (err: any) => {
           console.warn('GSI token client notice:', err);
-          reject(err);
+          reject(new Error('POPUP_BLOCKED'));
         },
       });
+
+      // Attempt to request token - this will trigger a popup
       client.requestAccessToken();
+      
+      // Safety timeout: If no response in 60s, assume it's stuck or blocked
+      setTimeout(() => {
+        reject(new Error('AUTH_TIMEOUT'));
+      }, 60000);
     } catch (e) {
       reject(e);
     }
@@ -241,6 +255,7 @@ export const loginWithGoogle = async (forceSelectAccount = false, forceMethod?: 
 
   const performLogin = async () => {
     const isInIframe = typeof window !== 'undefined' && window.self !== window.top;
+    const isStudioEnv = typeof window !== 'undefined' && window.location.hostname.includes('run.app');
 
     try {
       if (forceSelectAccount) {
@@ -253,8 +268,8 @@ export const loginWithGoogle = async (forceSelectAccount = false, forceMethod?: 
       
       if (useRedirect) {
         if (isInIframe) {
-          console.warn("Cannot perform redirect auth inside an iframe. Requesting popup login.");
-          throw new Error('預覽環境不支援重新導向登入，請使用彈跳視窗或點擊右上角「在新分頁中開啟」。');
+          console.warn("Cannot perform redirect auth inside an iframe.");
+          throw new Error('PREVIEW_IFRAME_RESTRICTION');
         }
         console.log("Launching Google Sign-In with Redirect...");
         await signInWithRedirect(auth, googleProvider);
@@ -273,9 +288,8 @@ export const loginWithGoogle = async (forceSelectAccount = false, forceMethod?: 
         } catch (popupErr: any) {
           const errCode = popupErr?.code || '';
           
-          // If user manually closed the popup, do not log warning or proceed with fallback
           if (errCode === 'auth/popup-closed-by-user' || errCode === 'auth/cancelled-popup-request') {
-            console.log("User closed or cancelled the login popup. Staying on current view.");
+            console.log("User closed or cancelled the login popup.");
             throw popupErr;
           }
 
@@ -290,28 +304,28 @@ export const loginWithGoogle = async (forceSelectAccount = false, forceMethod?: 
               localStorage.setItem('fitpocket_google_access_token', gsiToken);
               localStorage.setItem('fitpocket_google_token_time', Date.now().toString());
 
-              // Link with Firebase Auth credential if possible
               try {
                 const cred = GAuthProvider.credential(null, gsiToken);
                 const userCred = await signInWithCredential(auth, cred);
                 return { user: userCred.user, accessToken: gsiToken, isRedirecting: false };
               } catch (credErr) {
-                console.warn("Firebase Auth credential link notice (Drive token is active):", credErr);
+                console.warn("Firebase Auth credential link notice:", credErr);
                 return { user: auth.currentUser, accessToken: gsiToken, isRedirecting: false };
               }
             }
           } catch (gsiErr: any) {
-            console.warn("GSI fallback also encountered error:", gsiErr);
+            console.warn("GSI fallback encountered error:", gsiErr);
+            if (gsiErr.message === 'POPUP_BLOCKED') {
+               throw new Error('PREVIEW_IFRAME_RESTRICTION');
+            }
           }
 
-          // If in iframe and network request failed, throw descriptive error
           if (errCode === 'auth/network-request-failed' || errCode === 'auth/popup-blocked') {
-            if (isInIframe) {
-              throw new Error('預覽視窗安全性限制阻擋了 Google 登入視窗通訊。請點擊右上角「在新分頁中開啟」後進行登入，或確認瀏覽器未封鎖彈跳視窗。');
+            if (isInIframe || isStudioEnv) {
+              throw new Error('PREVIEW_IFRAME_RESTRICTION');
             }
-            // If not in iframe, try redirect as fallback
             if (!isInIframe) {
-              console.log("Automatically switching to signInWithRedirect due to:", errCode);
+              console.log("Automatically switching to signInWithRedirect...");
               await signInWithRedirect(auth, googleProvider);
               return { user: null, accessToken: null, isRedirecting: true };
             }
@@ -320,15 +334,13 @@ export const loginWithGoogle = async (forceSelectAccount = false, forceMethod?: 
         }
       }
     } catch (error: any) {
-      const errCode = error?.code || '';
-      if (errCode === 'auth/popup-closed-by-user' || errCode === 'auth/cancelled-popup-request') {
-        console.log("Google Sign-In popup closed by user.");
-      } else {
-        console.error("Login failed:", error);
+      if (error.message === 'PREVIEW_IFRAME_RESTRICTION') {
+        throw new Error('預覽視窗安全性限制阻擋了 Google 登入。請點擊右上角「在新分頁中開啟 (Open in new tab)」後重新進行登入。');
       }
       throw error;
     }
   };
+
 
   activeLoginPromise = performLogin();
   try {

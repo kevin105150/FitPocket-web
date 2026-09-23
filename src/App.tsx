@@ -291,6 +291,16 @@ export default function App() {
               <p className="text-xs text-slate-500 leading-relaxed px-4">
                 為了確保您的飲食與運動數據能安全地備份至 Google Drive，請重新建立連線以進行同步。
               </p>
+              {(typeof window !== 'undefined' && window.self !== window.top) && (
+                <div className="mx-4 p-3 bg-amber-50 border border-amber-100 rounded-xl">
+                  <p className="text-[10px] font-black text-amber-700 flex items-center justify-center gap-1.5 uppercase tracking-wider">
+                    <AlertCircle className="w-3 h-3" /> 預覽環境提示
+                  </p>
+                  <p className="text-[10px] text-amber-600 font-bold mt-1">
+                    由於預覽視窗限制，請點擊右上方「在新分頁中開啟 (Open in new tab)」後再進行登入。
+                  </p>
+                </div>
+              )}
             </div>
 
             <div className="w-full pt-2">
