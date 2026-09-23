@@ -504,10 +504,32 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
     // Carb Cycle Information
     const CARB_CYCLE_INFO = {
       HIGH: { name: '高碳日', shortName: '高碳', emoji: '🔥' },
-      MEDIUM: { name: '中碳日', shortName: '中碳', emoji: '🥗' },
-      LOW: { name: '低碳日', shortName: '低碳', emoji: '🥬' },
-      CUSTOM: { name: '自訂目標', shortName: '自訂', emoji: '⚙️' },
+      MEDIUM: { name: '中碳日', shortName: '中碳', emoji: '⚖️' },
+      LOW: { name: '低碳日', shortName: '低碳', emoji: '🥗' },
+      CUSTOM: { name: '自訂日', shortName: '自訂', emoji: '⚙️' },
     };
+
+    function getCarbCycleBadgeStyle(type, isSelected) {
+      switch (type) {
+        case 'HIGH':
+          return isSelected
+            ? 'bg-rose-500 text-white shadow-xs border-rose-500'
+            : 'bg-rose-50 text-rose-700 border border-rose-200/80 hover:bg-rose-100/80';
+        case 'MEDIUM':
+          return isSelected
+            ? 'bg-amber-500 text-white shadow-xs border-amber-500'
+            : 'bg-amber-50 text-amber-700 border border-amber-200/80 hover:bg-amber-100/80';
+        case 'LOW':
+          return isSelected
+            ? 'bg-emerald-600 text-white shadow-xs border-emerald-600'
+            : 'bg-emerald-50 text-emerald-700 border border-emerald-200/80 hover:bg-emerald-100/80';
+        case 'CUSTOM':
+        default:
+          return isSelected
+            ? 'bg-indigo-600 text-white shadow-xs border-indigo-600'
+            : 'bg-indigo-50 text-indigo-700 border border-indigo-200/80 hover:bg-indigo-100/80';
+      }
+    }
 
     let activeCycle = APP_DATA.activeCarbCycle || 'MEDIUM';
     let useNetCarbsMode = Boolean(APP_DATA.useNetCarbsMode);
@@ -622,10 +644,8 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
       container.innerHTML = cycles.map(c => {
         const info = CARB_CYCLE_INFO[c];
         const isSelected = activeCycle === c;
-        const cls = isSelected
-          ? 'bg-sky-800 text-white shadow-2xs'
-          : 'bg-slate-100 text-slate-600 hover:bg-slate-200';
-        return '<button type="button" onclick="selectCycle(\\'' + c + '\\')" class="px-3 py-1 rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer whitespace-nowrap ' + cls + '">' +
+        const cls = getCarbCycleBadgeStyle(c, isSelected);
+        return '<button type="button" onclick="selectCycle(\\'' + c + '\\')" class="px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer whitespace-nowrap active:scale-95 border ' + cls + '">' +
           '<span>' + info.emoji + '</span>' +
           '<span>' + info.shortName + '</span>' +
         '</button>';
