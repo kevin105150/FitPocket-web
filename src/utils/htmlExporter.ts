@@ -174,11 +174,21 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
       <!-- Macro Summary Card -->
       <div class="bg-white rounded-3xl border border-sky-950/5 shadow-sm p-5 space-y-4">
         
-        <!-- Carb Cycle Pills -->
+        <!-- Carb Cycle Pills & Net Carbs Toggle -->
         <div class="flex items-center justify-between gap-2 pb-2 border-b border-slate-100">
           <div class="flex items-center gap-1.5 overflow-x-auto scrollbar-none py-0.5" id="carb-cycle-container">
             <!-- JS Rendered -->
           </div>
+          <button
+            type="button"
+            id="btn-toggle-net-carbs"
+            onclick="toggleNetCarbs()"
+            class="px-2.5 py-1 rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer border shrink-0 bg-slate-100 text-slate-600 hover:bg-slate-200 border-slate-200"
+            title="切換計算總碳水或扣除膳食纖維淨碳水"
+          >
+            <span>🌿</span>
+            <span id="btn-net-carbs-text">扣除纖維</span>
+          </button>
         </div>
 
         <!-- Calorie Big Numbers -->
@@ -213,47 +223,102 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
         <!-- 3 Main Macros Grid -->
         <div class="grid grid-cols-3 gap-2.5 pt-1">
           <!-- Carbs -->
-          <div class="bg-amber-50/60 border border-amber-200/50 p-2.5 rounded-2xl">
-            <div class="flex items-center justify-between text-xs font-bold text-amber-800 mb-1">
-              <span>碳水 (C)</span>
-              <span id="pct-carbs" class="text-[10px] text-amber-600 font-semibold">0%</span>
+          <div class="relative bg-amber-50/60 border border-amber-200/50 p-2.5 rounded-2xl flex flex-col justify-between">
+            <div>
+              <div class="flex items-center justify-between text-xs font-bold text-amber-800 mb-1">
+                <span class="flex items-center gap-1">
+                  <span>碳水 (C)</span>
+                  <button
+                    type="button"
+                    id="btn-leaf-net-carbs"
+                    onclick="toggleNetCarbsTooltip()"
+                    class="p-0.5 rounded hover:bg-amber-100 text-amber-700 transition cursor-pointer shrink-0 hidden"
+                    title="點擊查看淨碳水計算明細"
+                  >
+                    <svg class="w-3.5 h-3.5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/></svg>
+                  </button>
+                </span>
+              </div>
+
+              <!-- Net Carbs Popover Hint -->
+              <div id="net-carbs-popover" class="hidden absolute top-9 left-0 z-50 p-3 bg-white text-slate-800 rounded-2xl shadow-xl border border-amber-200/90 text-xs space-y-1.5 min-w-[165px] animate-in fade-in zoom-in-95 duration-150">
+                <div class="font-bold text-amber-900 border-b border-amber-100 pb-1 text-[11px] flex items-center justify-between">
+                  <span class="flex items-center gap-1">
+                    <span>🌿 淨碳水明細</span>
+                  </span>
+                  <span class="text-[10px] text-amber-600 font-normal">已扣纖維</span>
+                </div>
+                <div class="flex justify-between text-[11px] pt-0.5 text-slate-600">
+                  <span>總碳水：</span>
+                  <span id="pop-total-carbs" class="font-bold text-slate-900">0 g</span>
+                </div>
+                <div class="flex justify-between text-[11px] text-amber-700">
+                  <span>膳食纖維：</span>
+                  <span id="pop-total-fiber" class="font-bold">-0 g</span>
+                </div>
+                <div class="flex justify-between text-xs font-black text-amber-950 pt-1 border-t border-amber-100">
+                  <span>淨碳水：</span>
+                  <span id="pop-net-carbs" class="text-amber-700">0 g</span>
+                </div>
+              </div>
+
+              <div class="flex items-baseline gap-1 mt-0.5">
+                <span id="val-carbs" class="text-lg font-black text-slate-900">0</span>
+                <span class="text-xs font-medium text-slate-400">/ <span id="target-carbs">250</span>g</span>
+              </div>
             </div>
-            <div class="flex items-baseline gap-1">
-              <span id="val-carbs" class="text-lg font-black text-slate-900">0</span>
-              <span class="text-xs font-medium text-slate-400">/ <span id="target-carbs">250</span>g</span>
-            </div>
-            <div class="w-full h-1.5 bg-amber-100 rounded-full mt-1.5 overflow-hidden">
-              <div id="bar-carbs" class="h-full bg-amber-500 rounded-full" style="width: 0%"></div>
+
+            <div class="mt-2">
+              <div class="w-full h-1.5 bg-amber-100 rounded-full overflow-hidden">
+                <div id="bar-carbs" class="h-full bg-amber-500 rounded-full transition-all duration-300" style="width: 0%"></div>
+              </div>
+              <div id="pct-carbs" class="text-right text-[10px] font-bold text-amber-600 mt-1">
+                0%
+              </div>
             </div>
           </div>
 
           <!-- Protein -->
-          <div class="bg-blue-50/60 border border-blue-200/50 p-2.5 rounded-2xl">
-            <div class="flex items-center justify-between text-xs font-bold text-blue-800 mb-1">
-              <span>蛋白質 (P)</span>
-              <span id="pct-protein" class="text-[10px] text-blue-600 font-semibold">0%</span>
+          <div class="bg-blue-50/60 border border-blue-200/50 p-2.5 rounded-2xl flex flex-col justify-between">
+            <div>
+              <div class="text-xs font-bold text-blue-800 mb-1">
+                <span>蛋白質 (P)</span>
+              </div>
+              <div class="flex items-baseline gap-1 mt-0.5">
+                <span id="val-protein" class="text-lg font-black text-slate-900">0</span>
+                <span class="text-xs font-medium text-slate-400">/ <span id="target-protein">120</span>g</span>
+              </div>
             </div>
-            <div class="flex items-baseline gap-1">
-              <span id="val-protein" class="text-lg font-black text-slate-900">0</span>
-              <span class="text-xs font-medium text-slate-400">/ <span id="target-protein">120</span>g</span>
-            </div>
-            <div class="w-full h-1.5 bg-blue-100 rounded-full mt-1.5 overflow-hidden">
-              <div id="bar-protein" class="h-full bg-blue-500 rounded-full" style="width: 0%"></div>
+
+            <div class="mt-2">
+              <div class="w-full h-1.5 bg-blue-100 rounded-full overflow-hidden">
+                <div id="bar-protein" class="h-full bg-blue-500 rounded-full transition-all duration-300" style="width: 0%"></div>
+              </div>
+              <div id="pct-protein" class="text-right text-[10px] font-bold text-blue-600 mt-1">
+                0%
+              </div>
             </div>
           </div>
 
           <!-- Fat -->
-          <div class="bg-rose-50/60 border border-rose-200/50 p-2.5 rounded-2xl">
-            <div class="flex items-center justify-between text-xs font-bold text-rose-800 mb-1">
-              <span>脂肪 (F)</span>
-              <span id="pct-fat" class="text-[10px] text-rose-600 font-semibold">0%</span>
+          <div class="bg-rose-50/60 border border-rose-200/50 p-2.5 rounded-2xl flex flex-col justify-between">
+            <div>
+              <div class="text-xs font-bold text-rose-800 mb-1">
+                <span>脂肪 (F)</span>
+              </div>
+              <div class="flex items-baseline gap-1 mt-0.5">
+                <span id="val-fat" class="text-lg font-black text-slate-900">0</span>
+                <span class="text-xs font-medium text-slate-400">/ <span id="target-fat">50</span>g</span>
+              </div>
             </div>
-            <div class="flex items-baseline gap-1">
-              <span id="val-fat" class="text-lg font-black text-slate-900">0</span>
-              <span class="text-xs font-medium text-slate-400">/ <span id="target-fat">50</span>g</span>
-            </div>
-            <div class="w-full h-1.5 bg-rose-100 rounded-full mt-1.5 overflow-hidden">
-              <div id="bar-fat" class="h-full bg-rose-500 rounded-full" style="width: 0%"></div>
+
+            <div class="mt-2">
+              <div class="w-full h-1.5 bg-rose-100 rounded-full overflow-hidden">
+                <div id="bar-fat" class="h-full bg-rose-500 rounded-full transition-all duration-300" style="width: 0%"></div>
+              </div>
+              <div id="pct-fat" class="text-right text-[10px] font-bold text-rose-600 mt-1">
+                0%
+              </div>
             </div>
           </div>
         </div>
@@ -444,7 +509,32 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
       CUSTOM: { name: '自訂目標', shortName: '自訂', emoji: '⚙️' },
     };
 
-    const activeCycle = APP_DATA.activeCarbCycle || 'MEDIUM';
+    let activeCycle = APP_DATA.activeCarbCycle || 'MEDIUM';
+    let useNetCarbsMode = Boolean(APP_DATA.useNetCarbsMode);
+    let showNetCarbsTooltip = false;
+
+    function updateActiveCycleForCurrentDate() {
+      const dateConfig = (APP_DATA.dailyConfigs || []).find(d => d.date === currentDate);
+      if (dateConfig && dateConfig.carbCycle) {
+        activeCycle = dateConfig.carbCycle;
+      } else {
+        activeCycle = APP_DATA.activeCarbCycle || 'MEDIUM';
+      }
+    }
+
+    function toggleNetCarbs() {
+      useNetCarbsMode = !useNetCarbsMode;
+      renderDiet();
+    }
+
+    function toggleNetCarbsTooltip() {
+      showNetCarbsTooltip = !showNetCarbsTooltip;
+      const pop = document.getElementById('net-carbs-popover');
+      if (pop) {
+        if (showNetCarbsTooltip) pop.classList.remove('hidden');
+        else pop.classList.add('hidden');
+      }
+    }
 
     function formatWeight(val) {
       if (val === null || val === undefined || isNaN(Number(val))) return '--';
@@ -491,6 +581,7 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
       try {
         if (currentDate < MIN_DATE) currentDate = MIN_DATE;
         if (currentDate > MAX_DATE) currentDate = MAX_DATE;
+        updateActiveCycleForCurrentDate();
         renderWeekPills();
         renderCarbCyclePills();
         renderAll();
@@ -543,6 +634,15 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
 
     function selectCycle(c) {
       activeCycle = c;
+      // Also temporarily update APP_DATA.dailyConfigs so navigating away and back to this date retains the manual change
+      let dateConfig = (APP_DATA.dailyConfigs || []).find(d => d.date === currentDate);
+      if (!dateConfig) {
+        dateConfig = { date: currentDate, carbCycle: c };
+        if (!APP_DATA.dailyConfigs) APP_DATA.dailyConfigs = [];
+        APP_DATA.dailyConfigs.push(dateConfig);
+      } else {
+        dateConfig.carbCycle = c;
+      }
       renderCarbCyclePills();
       renderDiet();
     }
@@ -553,6 +653,7 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
       if (val < MIN_DATE) val = MIN_DATE;
       if (val > MAX_DATE) val = MAX_DATE;
       currentDate = val;
+      updateActiveCycleForCurrentDate();
       renderWeekPills();
       renderAll();
     }
@@ -635,6 +736,7 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
         nextBtn.disabled = currentDate >= MAX_DATE;
       }
 
+      try { renderCarbCyclePills(); } catch (err) { console.error('Error rendering carb cycle pills:', err); }
       try { renderDiet(); } catch (err) { console.error('Error rendering diet:', err); }
       try { renderWorkouts(); } catch (err) { console.error('Error rendering workouts:', err); }
       try { renderWeight(); } catch (err) { console.error('Error rendering weight:', err); }
@@ -689,12 +791,40 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
         calProgressBar.style.width = calPercent + '%';
       }
 
+      // Render Net Carbs Toggle button state & leaf icon
+      const btnNetCarbs = document.getElementById('btn-toggle-net-carbs');
+      const btnNetCarbsText = document.getElementById('btn-net-carbs-text');
+      const btnLeaf = document.getElementById('btn-leaf-net-carbs');
+      if (btnNetCarbs && btnNetCarbsText) {
+        if (useNetCarbsMode) {
+          btnNetCarbs.className = 'px-2.5 py-1 rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer border shrink-0 bg-emerald-50 text-emerald-800 border-emerald-200 shadow-2xs';
+          btnNetCarbsText.textContent = '扣纖維中';
+          if (btnLeaf) btnLeaf.classList.remove('hidden');
+        } else {
+          btnNetCarbs.className = 'px-2.5 py-1 rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer border shrink-0 bg-slate-100 text-slate-600 hover:bg-slate-200 border-slate-200';
+          btnNetCarbsText.textContent = '總碳水';
+          if (btnLeaf) btnLeaf.classList.add('hidden');
+        }
+      }
+
+      const displayedCarbs = useNetCarbsMode
+        ? Math.max(0, Math.round((totalCarbs - totalFiber) * 10) / 10)
+        : Math.round(totalCarbs);
+
+      // Update Popover values
+      const popTotalCarbs = document.getElementById('pop-total-carbs');
+      if (popTotalCarbs) popTotalCarbs.textContent = (Math.round(totalCarbs * 10) / 10) + ' g';
+      const popTotalFiber = document.getElementById('pop-total-fiber');
+      if (popTotalFiber) popTotalFiber.textContent = '-' + (Math.round(totalFiber * 10) / 10) + ' g';
+      const popNetCarbs = document.getElementById('pop-net-carbs');
+      if (popNetCarbs) popNetCarbs.textContent = displayedCarbs + ' g';
+
       // 3 Macros
       const valCarbsEl = document.getElementById('val-carbs');
-      if (valCarbsEl) valCarbsEl.textContent = Math.round(totalCarbs);
+      if (valCarbsEl) valCarbsEl.textContent = displayedCarbs;
       const targetCarbsEl = document.getElementById('target-carbs');
       if (targetCarbsEl) targetCarbsEl.textContent = goal.carbs;
-      const pctC = Math.round((totalCarbs / (goal.carbs || 1)) * 100);
+      const pctC = Math.round((displayedCarbs / (goal.carbs || 1)) * 100);
       const pctCarbsEl = document.getElementById('pct-carbs');
       if (pctCarbsEl) pctCarbsEl.textContent = pctC + '%';
       const barCarbsEl = document.getElementById('bar-carbs');

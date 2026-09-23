@@ -8,6 +8,8 @@ import { useModalBackHandler } from '../hooks/useModalBackHandler';
 interface GoalSettingModalProps {
   currentCycle: CarbCycleType;
   presets: Record<CarbCycleType, NutritionGoalPreset>;
+  useNetCarbsMode?: boolean;
+  onToggleNetCarbsMode?: (enabled: boolean) => void;
   onClose: () => void;
   onSave: (presets: Record<CarbCycleType, NutritionGoalPreset>) => void;
 }
@@ -15,6 +17,8 @@ interface GoalSettingModalProps {
 export const GoalSettingModal: React.FC<GoalSettingModalProps> = ({
   currentCycle,
   presets,
+  useNetCarbsMode = false,
+  onToggleNetCarbsMode,
   onClose,
   onSave,
 }) => {
@@ -199,6 +203,40 @@ export const GoalSettingModal: React.FC<GoalSettingModalProps> = ({
                 onChange={(e) => updateField('potassium', e.target.value)}
                 className="w-full px-3.5 py-2 rounded-xl border border-slate-200 font-semibold text-slate-800"
               />
+            </div>
+          </div>
+
+          {/* 碳水顯示模式切換 */}
+          <div className="p-3.5 bg-amber-50/60 border border-amber-200/60 rounded-2xl flex items-center justify-between gap-3">
+            <div>
+              <div className="text-xs font-bold text-amber-950">碳水卡片計算模式</div>
+              <div className="text-[11px] text-amber-800/80 font-medium mt-0.5">
+                選擇主頁卡片顯示「總碳水」或「扣除膳食纖維 (扣纖)」
+              </div>
+            </div>
+            <div className="flex items-center gap-1 bg-white p-1 rounded-xl border border-amber-200/80 shrink-0">
+              <button
+                type="button"
+                onClick={() => onToggleNetCarbsMode?.(false)}
+                className={`px-2.5 py-1 text-xs font-bold rounded-lg transition cursor-pointer ${
+                  !useNetCarbsMode
+                    ? 'bg-amber-600 text-white shadow-2xs'
+                    : 'text-amber-800/70 hover:text-amber-900'
+                }`}
+              >
+                總碳
+              </button>
+              <button
+                type="button"
+                onClick={() => onToggleNetCarbsMode?.(true)}
+                className={`px-2.5 py-1 text-xs font-bold rounded-lg transition cursor-pointer ${
+                  useNetCarbsMode
+                    ? 'bg-amber-600 text-white shadow-2xs'
+                    : 'text-amber-800/70 hover:text-amber-900'
+                }`}
+              >
+                扣纖
+              </button>
             </div>
           </div>
         </div>

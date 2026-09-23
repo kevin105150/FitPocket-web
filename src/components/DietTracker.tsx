@@ -14,6 +14,7 @@ import {
   GripVertical,
   RotateCcw,
   AlertTriangle,
+  Leaf,
 } from 'lucide-react';
 import { Reorder, useDragControls, motion, AnimatePresence } from 'motion/react';
 import {
@@ -363,6 +364,22 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
   const [presets, setPresets] = useState<Record<CarbCycleType, NutritionGoalPreset>>(
     StorageService.getPresets()
   );
+
+  // Net Carbs (扣除膳食纖維) mode state
+  const [useNetCarbsMode, setUseNetCarbsMode] = useState<boolean>(() => {
+    return StorageService.getNetCarbsMode();
+  });
+  const [showNetCarbsTooltip, setShowNetCarbsTooltip] = useState(false);
+
+  const handleUpdateNetCarbsMode = (enabled: boolean) => {
+    setUseNetCarbsMode(enabled);
+    StorageService.setNetCarbsMode(enabled);
+  };
+
+  const toggleNetCarbsMode = () => {
+    const next = !useNetCarbsMode;
+    handleUpdateNetCarbsMode(next);
+  };
 
   // Direct AI Photo upload state
   const [isAiPhotoLoading, setIsAiPhotoLoading] = useState(false);
@@ -1092,70 +1109,148 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
         {/* 3 Main Macros (Carbs, Protein, Fat) */}
         <div className="grid grid-cols-3 gap-2.5 pt-1">
           {/* Carbs */}
-          <div className="bg-amber-50/60 border border-amber-200/50 p-2.5 rounded-2xl">
-            <div className="flex items-center justify-between text-xs font-bold text-amber-800 mb-1">
-              <span>碳水 (C)</span>
-              <span className="text-[10px] text-amber-600 font-semibold">
-                {Math.round((totalCarbs / (currentGoal.carbs || 1)) * 100)}%
-              </span>
-            </div>
-            <div className="flex items-baseline gap-1">
-              <span className="text-lg font-black text-slate-900">{Math.round(totalCarbs)}</span>
-              <span className="text-xs font-medium text-slate-400">/ {currentGoal.carbs}g</span>
-            </div>
-            <div className="w-full h-1.5 bg-amber-100 rounded-full mt-1.5 overflow-hidden">
-              <div
-                className="h-full bg-amber-500 rounded-full"
-                style={{
-                  width: `${Math.min(100, (totalCarbs / (currentGoal.carbs || 1)) * 100)}%`,
-                }}
-              />
-            </div>
-          </div>
+          {(() => {
+            const displayedCarbs = useNetCarbsMode
+              ? Math.max(0, Math.round((totalCarbs - totalFiber) * 10) / 10)
+              : Math.round(totalCarbs);
+            const carbPercent = Math.round((displayedCarbs / (currentGoal.carbs || 1)) * 100);
+
+            return (
+              <div className="relative bg-amber-50/60 border border-amber-200/50 p-2.5 rounded-2xl flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center text-xs font-bold text-amber-800 mb-1">
+                    <span className="flex items-center gap-1">
+                      <span>碳水 (C)</span>
+                      {useNetCarbsMode && (
+                        <button
+                          type="button"
+                          onClick={() => setShowNetCarbsTooltip((prev) => !prev)}
+                          className="p-0.5 rounded hover:bg-amber-100 text-amber-700 transition cursor-pointer shrink-0"
+                          title="點擊查看淨碳水計算明細"
+                        >
+                          <Leaf className="w-3.5 h-3.5 text-emerald-600" />
+                        </button>
+                      )}
+                    </span>
+                  </div>
+
+                  {/* Net Carbs White Popover Hint */}
+                  {useNetCarbsMode && showNetCarbsTooltip && (
+                    <>
+                      <div
+                        className="fixed inset-0 z-40"
+                        onClick={() => setShowNetCarbsTooltip(false)}
+                      />
+                      <div className="absolute top-9 left-0 z-50 p-3 bg-white text-slate-800 rounded-2xl shadow-xl border border-amber-200/90 text-xs space-y-1.5 min-w-[165px] animate-in fade-in zoom-in-95 duration-150">
+                        <div className="font-bold text-amber-900 border-b border-amber-100 pb-1 text-[11px] flex items-center justify-between">
+                          <span className="flex items-center gap-1">
+                            <Leaf className="w-3 h-3 text-emerald-600" />
+                            <span>淨碳水明細</span>
+                          </span>
+                          <span className="text-[10px] text-amber-600 font-normal">已扣纖維</span>
+                        </div>
+                        <div className="flex justify-between text-[11px] pt-0.5 text-slate-600">
+                          <span>總碳水：</span>
+                          <span className="font-bold text-slate-900">{Math.round(totalCarbs * 10) / 10} g</span>
+                        </div>
+                        <div className="flex justify-between text-[11px] text-amber-700">
+                          <span>膳食纖維：</span>
+                          <span className="font-bold">-{Math.round(totalFiber * 10) / 10} g</span>
+                        </div>
+                        <div className="flex justify-between text-xs font-black text-amber-950 pt-1 border-t border-amber-100">
+                          <span>淨碳水：</span>
+                          <span className="text-amber-700">{displayedCarbs} g</span>
+                        </div>
+                      </div>
+                    </>
+                  )}
+
+                  <div className="flex items-baseline gap-1 mt-0.5">
+                    <span className="text-lg font-black text-slate-900">{displayedCarbs}</span>
+                    <span className="text-xs font-medium text-slate-400">/ {currentGoal.carbs}g</span>
+                  </div>
+                </div>
+
+                <div className="mt-2">
+                  <div className="w-full h-1.5 bg-amber-100 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-amber-500 rounded-full transition-all duration-300"
+                      style={{
+                        width: `${Math.min(100, carbPercent)}%`,
+                      }}
+                    />
+                  </div>
+                  <div className="text-right text-[10px] font-bold text-amber-600 mt-1">
+                    {carbPercent}%
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
 
           {/* Protein */}
-          <div className="bg-blue-50/60 border border-blue-200/50 p-2.5 rounded-2xl">
-            <div className="flex items-center justify-between text-xs font-bold text-blue-800 mb-1">
-              <span>蛋白質 (P)</span>
-              <span className="text-[10px] text-blue-600 font-semibold">
-                {Math.round((totalProtein / (currentGoal.protein || 1)) * 100)}%
-              </span>
-            </div>
-            <div className="flex items-baseline gap-1">
-              <span className="text-lg font-black text-slate-900">{Math.round(totalProtein)}</span>
-              <span className="text-xs font-medium text-slate-400">/ {currentGoal.protein}g</span>
-            </div>
-            <div className="w-full h-1.5 bg-blue-100 rounded-full mt-1.5 overflow-hidden">
-              <div
-                className="h-full bg-blue-500 rounded-full"
-                style={{
-                  width: `${Math.min(100, (totalProtein / (currentGoal.protein || 1)) * 100)}%`,
-                }}
-              />
-            </div>
-          </div>
+          {(() => {
+            const proteinPercent = Math.round((totalProtein / (currentGoal.protein || 1)) * 100);
+            return (
+              <div className="bg-blue-50/60 border border-blue-200/50 p-2.5 rounded-2xl flex flex-col justify-between">
+                <div>
+                  <div className="text-xs font-bold text-blue-800 mb-1">
+                    <span>蛋白質 (P)</span>
+                  </div>
+                  <div className="flex items-baseline gap-1 mt-0.5">
+                    <span className="text-lg font-black text-slate-900">{Math.round(totalProtein)}</span>
+                    <span className="text-xs font-medium text-slate-400">/ {currentGoal.protein}g</span>
+                  </div>
+                </div>
+
+                <div className="mt-2">
+                  <div className="w-full h-1.5 bg-blue-100 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-blue-500 rounded-full transition-all duration-300"
+                      style={{
+                        width: `${Math.min(100, proteinPercent)}%`,
+                      }}
+                    />
+                  </div>
+                  <div className="text-right text-[10px] font-bold text-blue-600 mt-1">
+                    {proteinPercent}%
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
 
           {/* Fat */}
-          <div className="bg-rose-50/60 border border-rose-200/50 p-2.5 rounded-2xl">
-            <div className="flex items-center justify-between text-xs font-bold text-rose-800 mb-1">
-              <span>脂肪 (F)</span>
-              <span className="text-[10px] text-rose-600 font-semibold">
-                {Math.round((totalFat / (currentGoal.fat || 1)) * 100)}%
-              </span>
-            </div>
-            <div className="flex items-baseline gap-1">
-              <span className="text-lg font-black text-slate-900">{Math.round(totalFat)}</span>
-              <span className="text-xs font-medium text-slate-400">/ {currentGoal.fat}g</span>
-            </div>
-            <div className="w-full h-1.5 bg-rose-100 rounded-full mt-1.5 overflow-hidden">
-              <div
-                className="h-full bg-rose-500 rounded-full"
-                style={{
-                  width: `${Math.min(100, (totalFat / (currentGoal.fat || 1)) * 100)}%`,
-                }}
-              />
-            </div>
-          </div>
+          {(() => {
+            const fatPercent = Math.round((totalFat / (currentGoal.fat || 1)) * 100);
+            return (
+              <div className="bg-rose-50/60 border border-rose-200/50 p-2.5 rounded-2xl flex flex-col justify-between">
+                <div>
+                  <div className="text-xs font-bold text-rose-800 mb-1">
+                    <span>脂肪 (F)</span>
+                  </div>
+                  <div className="flex items-baseline gap-1 mt-0.5">
+                    <span className="text-lg font-black text-slate-900">{Math.round(totalFat)}</span>
+                    <span className="text-xs font-medium text-slate-400">/ {currentGoal.fat}g</span>
+                  </div>
+                </div>
+
+                <div className="mt-2">
+                  <div className="w-full h-1.5 bg-rose-100 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-rose-500 rounded-full transition-all duration-300"
+                      style={{
+                        width: `${Math.min(100, fatPercent)}%`,
+                      }}
+                    />
+                  </div>
+                  <div className="text-right text-[10px] font-bold text-rose-600 mt-1">
+                    {fatPercent}%
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
         </div>
 
         {/* 4 Micro Nutrients (Sugars, Fiber, Sodium, Potassium) */}
@@ -1377,6 +1472,8 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
         <GoalSettingModal
           currentCycle={activeCycle}
           presets={presets}
+          useNetCarbsMode={useNetCarbsMode}
+          onToggleNetCarbsMode={handleUpdateNetCarbsMode}
           onClose={() => setShowGoalModal(false)}
           onSave={handleSaveGoals}
         />

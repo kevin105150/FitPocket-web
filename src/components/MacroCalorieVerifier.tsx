@@ -6,6 +6,7 @@ interface MacroCalorieVerifierProps {
   carbs: number;
   protein: number;
   fat: number;
+  fiber?: number;
   onApplyCalculated?: (val: number) => void;
 }
 
@@ -14,9 +15,16 @@ export const MacroCalorieVerifier: React.FC<MacroCalorieVerifierProps> = ({
   carbs,
   protein,
   fat,
+  fiber = 0,
   onApplyCalculated,
 }) => {
-  const calculated = Math.round((carbs * 4 + protein * 4 + fat * 9) * 10) / 10;
+  const fiberVal = Math.max(0, Math.round((Number(fiber) || 0) * 10) / 10);
+  const netCarbs = Math.max(0, Math.round((carbs - fiberVal) * 10) / 10);
+
+  const calculated = fiberVal > 0
+    ? Math.round((netCarbs * 4 + fiberVal * 2 + protein * 4 + fat * 9) * 10) / 10
+    : Math.round((carbs * 4 + protein * 4 + fat * 9) * 10) / 10;
+
   const diff = Math.round(Math.abs(calories - calculated) * 10) / 10;
   const isMatch = diff <= 2; // tight tolerance for precise matching
 
@@ -38,12 +46,20 @@ export const MacroCalorieVerifier: React.FC<MacroCalorieVerifierProps> = ({
         )}
         <div className="leading-relaxed">
           <div className="font-semibold">
-            熱量三大營養素換算：4×碳({carbs}g) + 4×蛋({protein}g) + 9×脂({fat}g) ={' '}
+            {fiberVal > 0 ? (
+              <>
+                換算：4×淨碳({netCarbs}g) + 2×纖維({fiberVal}g) + 4×蛋({protein}g) + 9×脂({fat}g) ={' '}
+              </>
+            ) : (
+              <>
+                換算：4×碳({carbs}g) + 4×蛋({protein}g) + 9×脂({fat}g) ={' '}
+              </>
+            )}
             <span className="font-bold">{calculated} kcal</span>
           </div>
           {!isMatch ? (
             <div className="text-[11px] opacity-90 mt-0.5">
-              標示熱量 ({calories} kcal) 與宏量換算差值約 {diff} kcal。
+              標示熱量 ({calories} kcal) 與換算值差約 {diff} kcal。
             </div>
           ) : (
             <div className="text-[11px] opacity-90 mt-0.5">

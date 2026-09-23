@@ -53,6 +53,7 @@ const STORAGE_KEYS = {
   WORKOUT_PRESETS: 'fitpocket_workout_presets',
   API_USAGE: 'fitpocket_api_usage',
   DELETED_RECORD_IDS: 'fitpocket_deleted_record_ids',
+  NET_CARBS_MODE: 'fitpocket_use_net_carbs',
   MIGRATED: 'fitpocket_idb_migrated',
 };
 
@@ -576,6 +577,16 @@ export const StorageService = {
     setItem(STORAGE_KEYS.WATER_PRESETS, presets);
     this.saveToCloud();
   },
+  getNetCarbsMode(): boolean {
+    return getItem<boolean>(STORAGE_KEYS.NET_CARBS_MODE, false);
+  },
+  setNetCarbsMode(enabled: boolean): void {
+    setItem(STORAGE_KEYS.NET_CARBS_MODE, enabled);
+    try {
+      localStorage.setItem(STORAGE_KEYS.NET_CARBS_MODE, String(enabled));
+    } catch {}
+    this.saveToCloud();
+  },
 
   // Weight records
   getAllWeightRecords(): WeightRecord[] {
@@ -1033,6 +1044,7 @@ export const StorageService = {
       geminiApiKey: rawKey, // already encrypted in storage
       geminiModel: this.getSelectedAiModel(),
       dailyConfigs: this.getDailyConfigs(),
+      useNetCarbsMode: this.getNetCarbsMode(),
       apiUsage: this.getApiUsageStats(),
     };
     return JSON.stringify(data, null, 2);
@@ -1061,6 +1073,7 @@ export const StorageService = {
       if (data.geminiApiKey) setItem(STORAGE_KEYS.GEMINI_KEY, data.geminiApiKey);
       if (data.geminiModel) setItem(STORAGE_KEYS.GEMINI_MODEL, data.geminiModel);
       if (data.dailyConfigs) setItem(STORAGE_KEYS.DAILY_CONFIGS, data.dailyConfigs);
+      if (data.useNetCarbsMode !== undefined) setItem(STORAGE_KEYS.NET_CARBS_MODE, data.useNetCarbsMode);
       if (data.apiUsage) {
         setItem(STORAGE_KEYS.API_USAGE, data.apiUsage);
         notifyApiUsageListeners(data.apiUsage);

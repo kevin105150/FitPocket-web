@@ -681,6 +681,7 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
         carbs={Number(carbs)||0}
         protein={Number(protein)||0}
         fat={Number(fat)||0}
+        fiber={Number(fiber)||0}
         onApplyCalculated={(val) => setCalories(val)}
       />
 
