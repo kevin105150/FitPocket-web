@@ -15,6 +15,14 @@ const globalPopStateHandler = (event: PopStateEvent) => {
     return;
   }
 
+  // Defend against accidental closes when the window is not focused (e.g. camera intent opening)
+  // Some browsers fire popstate when a system activity starts/resumes.
+  // We only want to close the modal if the user actually intended to go "back" while interacting with the app.
+  if (document.visibilityState === 'hidden' || !document.hasFocus()) {
+    console.log('[useModalBackHandler] Ignoring popstate while app is hidden or blurred');
+    return;
+  }
+
   // If we have active modals, close the top-most one
   if (activeModalsStack.length > 0) {
     const topModal = activeModalsStack[activeModalsStack.length - 1];

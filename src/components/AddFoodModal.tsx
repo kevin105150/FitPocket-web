@@ -1115,9 +1115,18 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
     reader.readAsDataURL(file);
   };
 
+  useEffect(() => {
+    // Body scroll lock
+    const originalStyle = window.getComputedStyle(document.body).overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = originalStyle;
+    };
+  }, []);
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/40 backdrop-blur-xs">
-      <div className="bg-white w-full max-w-2xl h-[92vh] sm:h-[85vh] rounded-3xl shadow-2xl overflow-hidden flex flex-col">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+      <div className="bg-white w-full max-w-2xl h-[94dvh] sm:h-[85vh] rounded-t-[32px] sm:rounded-[32px] shadow-2xl overflow-hidden flex flex-col animate-in slide-in-from-bottom-10 sm:slide-in-from-bottom-0 duration-300">
         {/* Header */}
         <div className="p-4 border-b border-slate-100 flex items-center justify-between">
           <div className="relative">

@@ -51,7 +51,7 @@ export const PortionModal: React.FC<PortionModalProps> = ({
   const handleAdjust = (delta: number) => {
     setAmount((prev) => {
       const current = typeof prev === 'number' ? prev : (parseFloat(prev) || 0);
-      return Math.max(5, Math.round((current + delta) * 10) / 10);
+      return Math.round((current + delta) * 10) / 10;
     });
   };
 
@@ -117,10 +117,10 @@ export const PortionModal: React.FC<PortionModalProps> = ({
               <div className="flex-1 flex items-center justify-center gap-1.5 bg-white border border-slate-200 rounded-xl py-1.5 px-3 shadow-2xs">
                 <input
                   type="number"
+                  step="any"
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
                   className="w-24 text-center text-xl font-black text-slate-900 focus:outline-none"
-                  min="1"
                 />
                 <select
                   value={unit}
@@ -151,7 +151,7 @@ export const PortionModal: React.FC<PortionModalProps> = ({
                   key={quick}
                   onClick={() => setAmount(quick)}
                   className={`text-xs px-2.5 py-1 rounded-lg font-medium transition cursor-pointer ${
-                    amount === quick
+                    Number(amount) === quick
                       ? 'bg-sky-600 text-white font-bold'
                       : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'
                   }`}
@@ -174,31 +174,31 @@ export const PortionModal: React.FC<PortionModalProps> = ({
             <div className="grid grid-cols-4 gap-2 text-center">
               <div className="bg-white p-2 rounded-xl border border-slate-100 shadow-2xs">
                 <div className="text-[10px] text-amber-600 mb-0.5 font-bold">碳水</div>
-                <div className="text-sm font-black text-slate-800">{carbs}g</div>
+                <div className="text-[11px] font-black text-slate-900">{carbs}g</div>
               </div>
               <div className="bg-white p-2 rounded-xl border border-slate-100 shadow-2xs">
                 <div className="text-[10px] text-blue-600 mb-0.5 font-bold">蛋白質</div>
-                <div className="text-sm font-black text-slate-800">{pro}g</div>
+                <div className="text-[11px] font-black text-slate-900">{pro}g</div>
               </div>
               <div className="bg-white p-2 rounded-xl border border-slate-100 shadow-2xs">
                 <div className="text-[10px] text-rose-600 mb-0.5 font-bold">脂肪</div>
-                <div className="text-sm font-black text-slate-800">{fat}g</div>
+                <div className="text-[11px] font-black text-slate-900">{fat}g</div>
               </div>
               <div className="bg-white p-2 rounded-xl border border-slate-100 shadow-2xs">
                 <div className="text-[10px] text-orange-500 mb-0.5 font-bold">糖</div>
-                <div className="text-sm font-black text-slate-800">{sugars}g</div>
+                <div className="text-[11px] font-black text-slate-900">{sugars}g</div>
               </div>
               <div className="bg-white p-2 rounded-xl border border-slate-100 shadow-2xs">
                 <div className="text-[10px] text-slate-400 mb-0.5 font-bold">纖維</div>
-                <div className="text-sm font-black text-slate-800">{fiber}g</div>
+                <div className="text-[11px] font-black text-slate-900">{fiber}g</div>
               </div>
               <div className="bg-white p-2 rounded-xl border border-slate-100 shadow-2xs">
                 <div className="text-[10px] text-indigo-500 mb-0.5 font-bold">鈉</div>
-                <div className="text-[10px] font-black text-slate-800">{sodium}mg</div>
+                <div className="text-[11px] font-black text-slate-900">{sodium}mg</div>
               </div>
               <div className="bg-white p-2 rounded-xl border border-slate-100 shadow-2xs">
                 <div className="text-[10px] text-cyan-500 mb-0.5 font-bold">鉀</div>
-                <div className="text-[10px] font-black text-slate-800">{potassium}mg</div>
+                <div className="text-[11px] font-black text-slate-900">{potassium}mg</div>
               </div>
               <div className="bg-white p-2 rounded-xl border border-slate-100 shadow-2xs flex flex-col justify-center">
                 <div className="text-[9px] text-slate-400 leading-tight">即時<br/>換算</div>

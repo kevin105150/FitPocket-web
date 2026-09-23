@@ -227,8 +227,8 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
       return;
     }
     
-    const parsedDefault = Number(servingAmount) || 100;
-    const parsedConsumed = Number(consumedAmount) || 100;
+    const parsedDefault = Number(servingAmount) || 0;
+    const parsedConsumed = Number(consumedAmount) || 0;
 
     // Normalize brand (e.g. 7-11, 全家, 萊爾富, OK)
     // If empty: in AI_REVIEW mode default to 'AI辨識', otherwise default to '自訂'
@@ -377,12 +377,11 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
             <div className="relative flex-1">
               <input
                 type="number"
-                step="0.1"
-                min="0"
-                value={portionInput === 0 ? '' : portionInput}
+                step="any"
+                value={portionInput}
                 onChange={(e) => {
                   const val = e.target.value;
-                  updateFromPortionInput(val === '' ? 0 : Number(val));
+                  updateFromPortionInput(val);
                 }}
                 placeholder="1"
                 className="w-full text-center px-3 py-2 rounded-xl border border-slate-200 font-bold text-slate-800 bg-white focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500 transition-colors"
@@ -437,11 +436,10 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
             <input
               type="number"
               step="any"
-              min="0"
-              value={consumedAmount === 0 ? '' : consumedAmount}
+              value={consumedAmount}
               onChange={(e) => {
                 const val = e.target.value;
-                updateFromConsumedAmount(val === '' ? 0 : Number(val));
+                updateFromConsumedAmount(val);
               }}
               className="w-full px-3 py-2 rounded-xl border border-sky-300 font-bold text-sky-900 bg-white focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500 transition-colors shadow-2xs"
               placeholder="0"
@@ -499,49 +497,49 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
       <div className="grid grid-cols-4 gap-2 text-center text-xs">
         <div className="bg-white p-2 rounded-lg border border-slate-200 shadow-sm">
           <div className="text-[10px] text-slate-500 mb-0.5 font-bold">熱量</div>
-          <div className="font-bold text-slate-800">
+          <div className="font-black text-slate-900 text-[11px]">
             {Math.round((Number(calories) || 0) * ((Number(consumedAmount) || 0) / (Number(servingAmount) || 1)) * 10) / 10}
           </div>
         </div>
         <div className="bg-white p-2 rounded-lg border border-slate-200 shadow-sm">
           <div className="text-[10px] text-amber-600 mb-0.5 font-bold">碳水</div>
-          <div className="font-bold text-slate-800">
+          <div className="font-black text-slate-900 text-[11px]">
             {Math.round((Number(carbs) || 0) * ((Number(consumedAmount) || 0) / (Number(servingAmount) || 1)) * 10) / 10}
           </div>
         </div>
         <div className="bg-white p-2 rounded-lg border border-slate-200 shadow-sm">
           <div className="text-[10px] text-blue-600 mb-0.5 font-bold">蛋白質</div>
-          <div className="font-bold text-slate-800">
+          <div className="font-black text-slate-900 text-[11px]">
             {Math.round((Number(protein) || 0) * ((Number(consumedAmount) || 0) / (Number(servingAmount) || 1)) * 10) / 10}
           </div>
         </div>
         <div className="bg-white p-2 rounded-lg border border-slate-200 shadow-sm">
           <div className="text-[10px] text-rose-600 mb-0.5 font-bold">脂肪</div>
-          <div className="font-bold text-slate-800">
+          <div className="font-black text-slate-900 text-[11px]">
             {Math.round((Number(fat) || 0) * ((Number(consumedAmount) || 0) / (Number(servingAmount) || 1)) * 10) / 10}
           </div>
         </div>
         <div className="bg-white p-2 rounded-lg border border-slate-200 shadow-sm">
           <div className="text-[10px] text-orange-500 mb-0.5 font-bold">糖</div>
-          <div className="font-bold text-slate-800">
+          <div className="font-black text-slate-900 text-[11px]">
             {Math.round((Number(sugars) || 0) * ((Number(consumedAmount) || 0) / (Number(servingAmount) || 1)) * 10) / 10}
           </div>
         </div>
         <div className="bg-white p-2 rounded-lg border border-slate-200 shadow-sm">
           <div className="text-[10px] text-slate-400 mb-0.5 font-bold">纖維</div>
-          <div className="font-bold text-slate-800">
+          <div className="font-black text-slate-900 text-[11px]">
             {Math.round((Number(fiber) || 0) * ((Number(consumedAmount) || 0) / (Number(servingAmount) || 1)) * 10) / 10}
           </div>
         </div>
         <div className="bg-white p-2 rounded-lg border border-slate-200 shadow-sm">
           <div className="text-[10px] text-indigo-500 mb-0.5 font-bold">鈉</div>
-          <div className="font-bold text-slate-800 text-[10px]">
+          <div className="font-black text-slate-900 text-[11px]">
             {Math.round((Number(sodium) || 0) * ((Number(consumedAmount) || 0) / (Number(servingAmount) || 1)) * 10) / 10}
           </div>
         </div>
         <div className="bg-white p-2 rounded-lg border border-slate-200 shadow-sm">
           <div className="text-[10px] text-cyan-500 mb-0.5 font-bold">鉀</div>
-          <div className="font-bold text-slate-800 text-[10px]">
+          <div className="font-black text-slate-900 text-[11px]">
             {Math.round((Number(potassium) || 0) * ((Number(consumedAmount) || 0) / (Number(servingAmount) || 1)) * 10) / 10}
           </div>
         </div>
@@ -557,7 +555,8 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
       <div className="grid grid-cols-2 gap-3">
         <input
           type="number"
-          value={servingAmount === 0 ? '' : servingAmount}
+          step="any"
+          value={servingAmount}
           onChange={(e) => {
             const val = e.target.value;
             handleServingAmountChange(val);
@@ -623,11 +622,11 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
           <label className="block text-[11px] font-bold text-sky-800 mb-1">熱量 (kcal)</label>
           <input
             type="number"
-            step="0.1"
-            value={calories === 0 ? '' : calories}
+            step="any"
+            value={calories}
             onChange={(e) => {
               const val = e.target.value;
-              setCalories(val === '' ? 0 : Number(val));
+              setCalories(val);
             }}
             className="w-full p-2 text-center rounded-xl border border-sky-300 bg-white font-bold text-slate-800"
             placeholder="0"
@@ -637,11 +636,11 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
           <label className="block text-[11px] font-bold text-amber-700 mb-1">碳水 (g)</label>
           <input
             type="number"
-            step="0.1"
-            value={carbs === 0 ? '' : carbs}
+            step="any"
+            value={carbs}
             onChange={(e) => {
               const val = e.target.value;
-              setCarbs(val === '' ? 0 : Number(val));
+              setCarbs(val);
             }}
             className="w-full p-2 text-center rounded-xl border border-amber-300 bg-white font-bold text-slate-800"
             placeholder="0"
@@ -651,11 +650,11 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
           <label className="block text-[11px] font-bold text-blue-700 mb-1">蛋白質 (g)</label>
           <input
             type="number"
-            step="0.1"
-            value={protein === 0 ? '' : protein}
+            step="any"
+            value={protein}
             onChange={(e) => {
               const val = e.target.value;
-              setProtein(val === '' ? 0 : Number(val));
+              setProtein(val);
             }}
             className="w-full p-2 text-center rounded-xl border border-blue-300 bg-white font-bold text-slate-800"
             placeholder="0"
@@ -665,11 +664,11 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
           <label className="block text-[11px] font-bold text-rose-700 mb-1">脂肪 (g)</label>
           <input
             type="number"
-            step="0.1"
-            value={fat === 0 ? '' : fat}
+            step="any"
+            value={fat}
             onChange={(e) => {
               const val = e.target.value;
-              setFat(val === '' ? 0 : Number(val));
+              setFat(val);
             }}
             className="w-full p-2 text-center rounded-xl border border-rose-300 bg-white font-bold text-slate-800"
             placeholder="0"
@@ -690,11 +689,11 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
           <label className="block text-[11px] text-slate-500 mb-1">糖 (g)</label>
           <input
             type="number"
-            step="0.1"
-            value={sugars === 0 ? '' : sugars}
+            step="any"
+            value={sugars}
             onChange={(e) => {
               const val = e.target.value;
-              setSugars(val === '' ? 0 : Number(val));
+              setSugars(val);
             }}
             className="w-full p-1.5 rounded-lg border border-slate-200 bg-white text-slate-800 text-center"
           />
@@ -703,11 +702,11 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
           <label className="block text-[11px] text-slate-500 mb-1">纖維 (g)</label>
           <input
             type="number"
-            step="0.1"
-            value={fiber === 0 ? '' : fiber}
+            step="any"
+            value={fiber}
             onChange={(e) => {
               const val = e.target.value;
-              setFiber(val === '' ? 0 : Number(val));
+              setFiber(val);
             }}
             className="w-full p-1.5 rounded-lg border border-slate-200 bg-white text-slate-800 text-center"
           />
@@ -716,11 +715,11 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
           <label className="block text-[11px] text-slate-500 mb-1">鈉 (mg)</label>
           <input
             type="number"
-            step="1"
-            value={sodium === 0 ? '' : sodium}
+            step="any"
+            value={sodium}
             onChange={(e) => {
               const val = e.target.value;
-              setSodium(val === '' ? 0 : Number(val));
+              setSodium(val);
             }}
             className="w-full p-1.5 rounded-lg border border-slate-200 bg-white text-slate-800 text-center"
           />
@@ -729,11 +728,11 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
           <label className="block text-[11px] text-slate-500 mb-1">鉀 (mg)</label>
           <input
             type="number"
-            step="1"
-            value={potassium === 0 ? '' : potassium}
+            step="any"
+            value={potassium}
             onChange={(e) => {
               const val = e.target.value;
-              setPotassium(val === '' ? 0 : Number(val));
+              setPotassium(val);
             }}
             className="w-full p-1.5 rounded-lg border border-slate-200 bg-white text-slate-800 text-center"
           />
@@ -742,9 +741,18 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
     </div>
   );
 
+  useEffect(() => {
+    // Body scroll lock
+    const originalStyle = window.getComputedStyle(document.body).overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = originalStyle;
+    };
+  }, []);
+
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs">
-      <div className="bg-white w-full max-w-lg rounded-3xl shadow-xl overflow-hidden flex flex-col max-h-[90vh]">
+    <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+      <div className="bg-white w-full max-w-lg rounded-t-[32px] sm:rounded-[32px] shadow-xl overflow-hidden flex flex-col h-[90dvh] sm:h-auto sm:max-h-[90vh] animate-in slide-in-from-bottom-10 sm:slide-in-from-bottom-0 duration-300">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
           <div>

@@ -388,11 +388,21 @@ export const AiCameraModal: React.FC<AiCameraModalProps> = ({
     }
   }, [isOpen, activeMode, capturedImageBase64]);
 
+  useEffect(() => {
+    if (!isOpen) return;
+    // Body scroll lock
+    const originalStyle = window.getComputedStyle(document.body).overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = originalStyle;
+    };
+  }, [isOpen]);
+
   if (!shouldRender) return null;
 
   return (
-    <div className={`fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-md transition-opacity duration-300 ${isExiting ? 'opacity-0 pointer-events-none' : 'animate-in fade-in'}`}>
-      <div className={`bg-white rounded-3xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-100 flex flex-col max-h-[90vh] transition-transform duration-300 ${isExiting ? 'scale-95' : ''}`}>
+    <div className={`fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-slate-900/80 backdrop-blur-md transition-opacity duration-300 ${isExiting ? 'opacity-0 pointer-events-none' : 'animate-in fade-in'}`}>
+      <div className={`bg-white rounded-t-[32px] sm:rounded-[32px] shadow-2xl max-w-md w-full overflow-hidden border border-slate-100 flex flex-col h-[94dvh] sm:h-auto sm:max-h-[90vh] transition-transform duration-300 ${isExiting ? 'scale-95 translate-y-10' : 'animate-in slide-in-from-bottom-10 sm:slide-in-from-bottom-0'}`}>
         {/* Header */}
         <div className="p-4 bg-slate-900 text-white flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2">

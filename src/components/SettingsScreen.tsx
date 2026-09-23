@@ -263,19 +263,19 @@ export const SettingsScreen: React.FC = () => {
   const [showEditAdminFoodModal, setShowEditAdminFoodModal] = useState(false);
   const [editingAdminFood, setEditingAdminFood] = useState<any | null>(null);
 
-  // Editing form states
+  // Editing form states (Allowing number | string for better input control)
   const [editFoodName, setEditFoodName] = useState('');
   const [editFoodBrand, setEditFoodBrand] = useState('');
-  const [editFoodCalories, setEditFoodCalories] = useState(0);
-  const [editFoodCarbs, setEditFoodCarbs] = useState(0);
-  const [editFoodProtein, setEditFoodProtein] = useState(0);
-  const [editFoodFat, setEditFoodFat] = useState(0);
-  const [editFoodSugars, setEditFoodSugars] = useState(0);
-  const [editFoodFiber, setEditFoodFiber] = useState(0);
-  const [editFoodSodium, setEditFoodSodium] = useState(0);
-  const [editFoodPotassium, setEditFoodPotassium] = useState(0);
-  const [editFoodServingAmount, setEditFoodServingAmount] = useState(100);
-  const [editFoodServingUnit, setEditFoodServingUnit] = useState('g');
+  const [editFoodCalories, setEditFoodCalories] = useState<number | string>(0);
+  const [editFoodCarbs, setEditFoodCarbs] = useState<number | string>(0);
+  const [editFoodProtein, setEditFoodProtein] = useState<number | string>(0);
+  const [editFoodFat, setEditFoodFat] = useState<number | string>(0);
+  const [editFoodSugars, setEditFoodSugars] = useState<number | string>(0);
+  const [editFoodFiber, setEditFoodFiber] = useState<number | string>(0);
+  const [editFoodSodium, setEditFoodSodium] = useState<number | string>(0);
+  const [editFoodPotassium, setEditFoodPotassium] = useState<number | string>(0);
+  const [editFoodServingAmount, setEditFoodServingAmount] = useState<number | string>(100);
+  const [editFoodServingUnit, setEditFoodServingUnit] = useState('');
   const [editFoodImageUrl, setEditFoodImageUrl] = useState('');
   const [editFoodBarcode, setEditFoodBarcode] = useState('');
 
@@ -4416,13 +4416,9 @@ export const SettingsScreen: React.FC = () => {
                   <label className="text-xs font-bold text-slate-700">基準份量數值</label>
                   <input
                     type="number"
-                    min="0.1"
                     step="any"
-                    value={editFoodServingAmount === 0 ? '' : editFoodServingAmount}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      setEditFoodServingAmount(val === '' ? 0 : Number(val));
-                    }}
+                    value={editFoodServingAmount}
+                    onChange={(e) => setEditFoodServingAmount(e.target.value)}
                     className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-sky-500/30"
                   />
                 </div>
@@ -4462,13 +4458,9 @@ export const SettingsScreen: React.FC = () => {
                     <label className="text-xs font-bold text-slate-600">熱量 (kcal)</label>
                     <input
                       type="number"
-                      min="0"
                       step="any"
-                      value={editFoodCalories === 0 ? '' : editFoodCalories}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        setEditFoodCalories(val === '' ? 0 : Number(val));
-                      }}
+                      value={editFoodCalories}
+                      onChange={(e) => setEditFoodCalories(e.target.value)}
                       className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-amber-600 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/30"
                     />
                   </div>
@@ -4477,13 +4469,9 @@ export const SettingsScreen: React.FC = () => {
                     <label className="text-xs font-bold text-slate-600">碳水 (g)</label>
                     <input
                       type="number"
-                      min="0"
                       step="any"
-                      value={editFoodCarbs === 0 ? '' : editFoodCarbs}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        setEditFoodCarbs(val === '' ? 0 : Number(val));
-                      }}
+                      value={editFoodCarbs}
+                      onChange={(e) => setEditFoodCarbs(e.target.value)}
                       className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-500/30"
                     />
                   </div>
@@ -4492,13 +4480,9 @@ export const SettingsScreen: React.FC = () => {
                     <label className="text-xs font-bold text-slate-600">蛋白質 (g)</label>
                     <input
                       type="number"
-                      min="0"
                       step="any"
-                      value={editFoodProtein === 0 ? '' : editFoodProtein}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        setEditFoodProtein(val === '' ? 0 : Number(val));
-                      }}
+                      value={editFoodProtein}
+                      onChange={(e) => setEditFoodProtein(e.target.value)}
                       className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-emerald-600 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
                     />
                   </div>
@@ -4507,13 +4491,9 @@ export const SettingsScreen: React.FC = () => {
                     <label className="text-xs font-bold text-slate-600">脂肪 (g)</label>
                     <input
                       type="number"
-                      min="0"
                       step="any"
-                      value={editFoodFat === 0 ? '' : editFoodFat}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        setEditFoodFat(val === '' ? 0 : Number(val));
-                      }}
+                      value={editFoodFat}
+                      onChange={(e) => setEditFoodFat(e.target.value)}
                       className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-blue-600 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/30"
                     />
                   </div>
@@ -4537,13 +4517,9 @@ export const SettingsScreen: React.FC = () => {
                     <label className="text-xs font-bold text-slate-600">糖 (g)</label>
                     <input
                       type="number"
-                      min="0"
                       step="any"
-                      value={editFoodSugars === 0 ? '' : editFoodSugars}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        setEditFoodSugars(val === '' ? 0 : Number(val));
-                      }}
+                      value={editFoodSugars}
+                      onChange={(e) => setEditFoodSugars(e.target.value)}
                       className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-500/30"
                     />
                   </div>
@@ -4552,13 +4528,9 @@ export const SettingsScreen: React.FC = () => {
                     <label className="text-xs font-bold text-slate-600">膳食纖維 (g)</label>
                     <input
                       type="number"
-                      min="0"
                       step="any"
-                      value={editFoodFiber === 0 ? '' : editFoodFiber}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        setEditFoodFiber(val === '' ? 0 : Number(val));
-                      }}
+                      value={editFoodFiber}
+                      onChange={(e) => setEditFoodFiber(e.target.value)}
                       className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-500/30"
                     />
                   </div>
@@ -4567,13 +4539,9 @@ export const SettingsScreen: React.FC = () => {
                     <label className="text-xs font-bold text-slate-600">鈉 (mg)</label>
                     <input
                       type="number"
-                      min="0"
                       step="any"
-                      value={editFoodSodium === 0 ? '' : editFoodSodium}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        setEditFoodSodium(val === '' ? 0 : Number(val));
-                      }}
+                      value={editFoodSodium}
+                      onChange={(e) => setEditFoodSodium(e.target.value)}
                       className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-500/30"
                     />
                   </div>
@@ -4582,13 +4550,9 @@ export const SettingsScreen: React.FC = () => {
                     <label className="text-xs font-bold text-slate-600">鉀 (mg)</label>
                     <input
                       type="number"
-                      min="0"
                       step="any"
-                      value={editFoodPotassium === 0 ? '' : editFoodPotassium}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        setEditFoodPotassium(val === '' ? 0 : Number(val));
-                      }}
+                      value={editFoodPotassium}
+                      onChange={(e) => setEditFoodPotassium(e.target.value)}
                       className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-500/30"
                     />
                   </div>
@@ -4654,6 +4618,44 @@ export const SettingsScreen: React.FC = () => {
             handleAdminAiImageCaptured(base64, mimeType);
           }}
         />
+      )}
+
+      {/* AI Analysis Progress Modal for Admin */}
+      {isAiAnalyzingAdminFood && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl border border-slate-100 flex flex-col items-center text-center space-y-4 animate-in zoom-in-95">
+            <div className="w-16 h-16 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center relative">
+              <Loader2 className="w-8 h-8 animate-spin" />
+              <div className="absolute -top-1 -right-1">
+                <Sparkles className="w-5 h-5 text-indigo-400" />
+              </div>
+            </div>
+            
+            <div className="space-y-1.5">
+              <h3 className="font-black text-slate-900">AI 智慧辨識中</h3>
+              <p className="text-xs text-slate-500 font-medium leading-relaxed">
+                正在分析照片中的營養標示與食物...<br />這可能需要幾秒鐘的時間。
+              </p>
+            </div>
+
+            <div className="w-full space-y-2">
+              <div className="flex justify-between text-[11px] font-bold text-indigo-900">
+                <span className="truncate pr-4">{aiAnalysisAdminStatus}</span>
+                <span>{aiAnalysisAdminProgress}%</span>
+              </div>
+              <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden border border-slate-200/50">
+                <div
+                  className="bg-indigo-600 h-full transition-all duration-500 ease-out rounded-full shadow-[0_0_8px_rgba(79,70,229,0.4)]"
+                  style={{ width: `${aiAnalysisAdminProgress}%` }}
+                />
+              </div>
+            </div>
+            
+            <p className="text-[10px] text-slate-400 italic">
+              提示：保持光線充足且對焦清晰可提升辨識準確率
+            </p>
+          </div>
+        </div>
       )}
     </div>
   );
