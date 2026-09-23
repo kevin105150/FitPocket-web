@@ -895,6 +895,16 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
       potassium: Math.round((customFood.potassium || 0) * ratio * 10) / 10,
       loggedAmount: consumedAmount,
       loggedUnit: customFood.servingUnit,
+      baseServingAmount: customFood.servingAmount,
+      baseServingUnit: customFood.servingUnit,
+      baseCalories: customFood.calories,
+      baseCarbs: customFood.carbs,
+      baseProtein: customFood.protein,
+      baseFat: customFood.fat,
+      baseSugars: customFood.sugars || 0,
+      baseFiber: customFood.fiber || 0,
+      baseSodium: customFood.sodium || 0,
+      basePotassium: customFood.potassium || 0,
       createdAt: Date.now(),
     };
     StorageService.saveFoodRecord(record);
@@ -1498,6 +1508,22 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
           onClose={() => setEditingRecord(null)}
           onSave={(food, consumedAmount) => {
              const ratio = consumedAmount / (food.servingAmount || 1);
+
+             // 如果這筆紀錄有 sourceFoodId 且是自訂食品，同步更新自訂食品庫的基準數值
+             if (editingRecord.sourceFoodId && editingRecord.sourceFoodId.startsWith('custom_')) {
+                const updatedCustom: CustomFood = {
+                   ...food,
+                   id: editingRecord.sourceFoodId,
+                   updatedAt: Date.now(),
+                };
+                StorageService.saveCustomFood(updatedCustom);
+                
+                // 如果有勾選同步，也上傳至雲端
+                if (food.isSharedToCloud) {
+                   CloudFoodService.uploadInBackground(updatedCustom);
+                }
+             }
+
              const record: FoodRecord = {
                 ...editingRecord,
                 name: food.name,
@@ -1512,7 +1538,18 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
                 potassium: Math.round((food.potassium || 0) * ratio * 10) / 10,
                 loggedAmount: consumedAmount,
                 loggedUnit: food.servingUnit,
+                baseServingAmount: food.servingAmount,
+                baseServingUnit: food.servingUnit,
+                baseCalories: food.calories,
+                baseCarbs: food.carbs,
+                baseProtein: food.protein,
+                baseFat: food.fat,
+                baseSugars: food.sugars || 0,
+                baseFiber: food.fiber || 0,
+                baseSodium: food.sodium || 0,
+                basePotassium: food.potassium || 0,
                 barcode: food.barcode,
+                updatedAt: Date.now(),
              };
              StorageService.saveFoodRecord(record);
              setEditingRecord(null);
