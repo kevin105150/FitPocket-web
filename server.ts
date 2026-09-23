@@ -16,7 +16,8 @@ app.use('/__/auth', createProxyMiddleware({
   changeOrigin: true,
 }));
 
-app.use(express.json({ limit: '15mb' }));
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 const ADMIN_EMAIL = 'kevin10611@gmail.com';
 
@@ -584,74 +585,85 @@ async function generateWithFallback(
     const searchOptions = useSearch ? [true, false] : [false];
 
     for (const searchFlag of searchOptions) {
-      try {
-        console.log(`[Gemini Request] Attempting model: ${modelName} (Search: ${searchFlag})...`);
-        const config: any = {
-          model: modelName,
-          contents: Array.isArray(contents) ? contents : [{ role: 'user', parts: [{ text: contents }] }],
-          generationConfig: {
-            responseMimeType: 'application/json',
-            temperature: isLite ? 0.4 : 0.7,
-          }
-        };
-
-        if (searchFlag) {
-          config.tools = [{ googleSearch: {} }];
-        }
-
-        const response = await ai.models.generateContent(config);
-        const text = response.text;
-        if (text && text.trim().length > 0) {
-          console.log(`[Gemini Success] Successfully generated with ${modelName} (Search: ${searchFlag})`);
-          const promptTokens = Number(response.usageMetadata?.promptTokenCount) || 0;
-          const candidatesTokens = Number(response.usageMetadata?.candidatesTokenCount) || 0;
-          const totalTokens = Number(response.usageMetadata?.totalTokenCount) || (promptTokens + candidatesTokens);
-
-          return {
-            text: text.trim(),
-            modelUsed: modelName,
-            usageMetadata: {
-              promptTokenCount: promptTokens,
-              candidatesTokenCount: candidatesTokens,
-              totalTokenCount: totalTokens,
-            },
+      // Retry up to 2 attempts for 503/transient high demand spikes per candidate model
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          console.log(`[Gemini Request] Attempting model: ${modelName} (Search: ${searchFlag}, Attempt: ${attempt + 1})...`);
+          const config: any = {
+            model: modelName,
+            contents: Array.isArray(contents) ? contents : [{ role: 'user', parts: [{ text: contents }] }],
+            generationConfig: {
+              responseMimeType: 'application/json',
+              temperature: isLite ? 0.4 : 0.7,
+            }
           };
-        }
-      } catch (err: any) {
-        lastError = err;
-        let status = err.status || err.code || 0;
-        const message = err.message || '';
 
-        if (!status && message) {
-          const match = message.match(/503|429|500|400|401|403/);
-          if (match) {
-            status = parseInt(match[0], 10);
+          if (searchFlag) {
+            config.tools = [{ googleSearch: {} }];
           }
-        }
 
-        const isAuthError =
-          status === 401 ||
-          status === 403 ||
-          message.includes('PERMISSION_DENIED') ||
-          message.includes('denied access') ||
-          message.includes('API_KEY_INVALID') ||
-          message.includes('API key not valid');
+          const response = await ai.models.generateContent(config);
+          const text = response.text;
+          if (text && text.trim().length > 0) {
+            console.log(`[Gemini Success] Successfully generated with ${modelName} (Search: ${searchFlag})`);
+            const promptTokens = Number(response.usageMetadata?.promptTokenCount) || 0;
+            const candidatesTokens = Number(response.usageMetadata?.candidatesTokenCount) || 0;
+            const totalTokens = Number(response.usageMetadata?.totalTokenCount) || (promptTokens + candidatesTokens);
 
-        // If it's explicitly an authorization/permission error, fail-fast immediately without trying other models
-        if (
-          status === 403 ||
-          message.includes('PERMISSION_DENIED') ||
-          message.includes('denied access')
-        ) {
-          throw new Error('Gemini API 存取遭受拒絕 (Permission Denied)。該 API Key 所屬 Google Cloud 專案未開通權限或遭限制，請前往 Google AI Studio (https://aistudio.google.com/app/apikey) 建立新專案金鑰，或直接使用系統共享 AI 額度。');
-        }
+            return {
+              text: text.trim(),
+              modelUsed: modelName,
+              usageMetadata: {
+                promptTokenCount: promptTokens,
+                candidatesTokenCount: candidatesTokens,
+                totalTokenCount: totalTokens,
+              },
+            };
+          }
+        } catch (err: any) {
+          lastError = err;
+          let status = err.status || err.code || 0;
+          const message = err.message || '';
 
-        if (
-          status === 401 ||
-          message.includes('API_KEY_INVALID') ||
-          message.includes('API key not valid')
-        ) {
-          throw new Error('Gemini API Key 無效 (401)，請至「設定」確認您的 API Key。');
+          if (!status && message) {
+            const match = message.match(/503|429|500|400|401|403/);
+            if (match) {
+              status = parseInt(match[0], 10);
+            }
+          }
+
+          // If explicitly an authorization/permission error, fail-fast immediately
+          if (
+            status === 403 ||
+            message.includes('PERMISSION_DENIED') ||
+            message.includes('denied access')
+          ) {
+            throw new Error('Gemini API 存取遭受拒絕 (Permission Denied)。該 API Key 所屬 Google Cloud 專案未開通權限或遭限制，請前往 Google AI Studio (https://aistudio.google.com/app/apikey) 建立新專案金鑰，或直接使用系統共享 AI 額度。');
+          }
+
+          if (
+            status === 401 ||
+            message.includes('API_KEY_INVALID') ||
+            message.includes('API key not valid')
+          ) {
+            throw new Error('Gemini API Key 無效 (401)，請至「設定」確認您的 API Key。');
+          }
+
+          const isBusy = status === 503 ||
+            message.includes('503') ||
+            message.includes('high demand') ||
+            message.includes('UNAVAILABLE') ||
+            message.includes('overloaded') ||
+            message.includes('Spikes in demand');
+
+          if (isBusy && attempt === 0) {
+            // Wait 800ms before retrying on the same model candidate
+            await new Promise(r => setTimeout(r, 800));
+            continue;
+          }
+
+          // Move to next candidate model or search flag
+          break;
         }
       }
     }
@@ -665,6 +677,19 @@ async function generateWithFallback(
       if (match) status = parseInt(match[0], 10);
     }
 
+    const isBusy = status === 503 ||
+      msg.includes('503') ||
+      msg.includes('high demand') ||
+      msg.includes('UNAVAILABLE') ||
+      msg.includes('overloaded') ||
+      msg.includes('Spikes in demand');
+
+    if (isBusy) {
+      const err = new Error('AI 伺服器忙碌中，請稍後重試') as any;
+      err.status = 503;
+      throw err;
+    }
+
     if (msg.includes('RESOURCE_EXHAUSTED') || msg.includes('exceeded your current quota') || status === 429) {
       const err = new Error('Gemini API 額度已達上限 (Quota Exceeded)，請稍後再試或至「設定」改用個人 API Key。') as any;
       err.status = 429;
@@ -676,13 +701,13 @@ async function generateWithFallback(
       throw err;
     }
     if (msg) {
-      const err = new Error(`AI 服務暫時無法回應 (${msg.slice(0, 100)})`) as any;
+      const err = new Error(`AI 服務暫時無法回應，請稍後重試 (${status || 500})`) as any;
       err.status = status || 500;
       throw err;
     }
   }
 
-  const finalErr = new Error('AI 伺服器目前忙碌中，請稍後重試。') as any;
+  const finalErr = new Error('AI 伺服器忙碌中，請稍後重試') as any;
   finalErr.status = 503;
   throw finalErr;
 }
@@ -2324,6 +2349,22 @@ app.get('/DietApp.part*', (req, res) => {
   res.setHeader('Content-Type', 'application/octet-stream');
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.sendFile(filePath);
+});
+
+// Ensure all unhandled /api/* routes return JSON 404 instead of falling through to Vite HTML SPA fallback
+app.all('/api/*', (req, res) => {
+  res.status(404).json({ error: `找不到此 API 端點: ${req.originalUrl}` });
+});
+
+// Global Express error handler for /api requests (e.g. 413 Payload Too Large)
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (req.path && req.path.startsWith('/api')) {
+    console.error('[API Error]:', err);
+    const status = err.status && err.status >= 400 && err.status < 600 ? err.status : 500;
+    const msg = err.status === 413 ? '上傳圖片檔案過大，請微調照片解析度後重試' : (err.message || '伺服器處理失敗');
+    return res.status(status).json({ error: msg, status });
+  }
+  next(err);
 });
 
 // Vite middleware in dev or static serving in production
