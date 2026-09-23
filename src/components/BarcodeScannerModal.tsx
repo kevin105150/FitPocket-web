@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 import { Camera, Image, X, Flashlight, RefreshCw, AlertCircle, Loader2, Sparkles, CheckCircle2, ChevronDown, Check } from 'lucide-react';
 import { StorageService } from '../services/storage';
+import { getAiRequestParams } from '../utils/aiHelper';
 import { useModalBackHandler } from '../hooks/useModalBackHandler';
 
 interface BarcodeScannerModalProps {
@@ -212,6 +213,54 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
         return;
       }
 
+      if (!navigator?.mediaDevices?.getUserMedia) {
+        if (myRequestId === activeRequestIdRef.current) {
+          setScanError('您的瀏覽器不支援 WebRTC 相機連線，請使用「開啟原生系統相機」拍照。');
+        }
+        return;
+      }
+
+      // Pre-request getUserMedia to cleanly prompt and secure first-time permission
+      try {
+        const testStream = await navigator.mediaDevices.getUserMedia({
+          video: cameraId && cameraId !== 'environment' && cameraId !== 'user'
+            ? { deviceId: { exact: cameraId } }
+            : { facingMode: { ideal: 'environment' } },
+          audio: false,
+        });
+        // Release the test stream immediately so Html5Qrcode can bind the camera
+        testStream.getTracks().forEach((track) => {
+          try { track.stop(); } catch {}
+        });
+      } catch (permErr: any) {
+        if (myRequestId !== activeRequestIdRef.current) return;
+        const errName = permErr?.name || '';
+        const errMsg = String(permErr?.message || '');
+        
+        if (errName === 'NotAllowedError' || errName === 'PermissionDeniedError' || errMsg.includes('Permission denied')) {
+          setScanError('相機存取權限已被拒絕。請在瀏覽器網址列點擊鎖頭/設定圖示開啟相機權限，或使用下方「開啟原生系統相機」。');
+          setIsScanning(false);
+          return;
+        }
+
+        // If exact device ID failed (e.g. overconstrained), fallback test stream
+        if (cameraId) {
+          try {
+            const fallbackStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+            fallbackStream.getTracks().forEach((track) => { try { track.stop(); } catch {} });
+          } catch (fErr: any) {
+            if (myRequestId !== activeRequestIdRef.current) return;
+            if (fErr?.name === 'NotAllowedError' || fErr?.name === 'PermissionDeniedError') {
+              setScanError('相機存取權限已被拒絕。請在瀏覽器設定開啟權限，或使用下方原生相機按鈕。');
+              setIsScanning(false);
+              return;
+            }
+          }
+        }
+      }
+
+      if (myRequestId !== activeRequestIdRef.current) return;
+
       const html5Qrcode = new Html5Qrcode(qrCodeElementId);
       html5QrcodeRef.current = html5Qrcode;
 
@@ -264,18 +313,27 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
         }
         console.warn('Barcode camera constraint failed, attempting environment fallback:', startErr);
         
-        if (html5QrcodeRef.current) {
-          await html5QrcodeRef.current.start(
-            { facingMode: 'environment' },
-            config,
-            (decodedText) => {
-              if (myRequestId === activeRequestIdRef.current) {
-                handleSuccess(decodedText);
-              }
-            },
-            () => {}
-          );
-        }
+        try {
+          if (html5QrcodeRef.current) {
+            try { await html5QrcodeRef.current.stop(); } catch {}
+            try { html5QrcodeRef.current.clear(); } catch {}
+            html5QrcodeRef.current = null;
+          }
+        } catch {}
+
+        const fallbackHtml5Qrcode = new Html5Qrcode(qrCodeElementId);
+        html5QrcodeRef.current = fallbackHtml5Qrcode;
+
+        await fallbackHtml5Qrcode.start(
+          { facingMode: 'environment' },
+          config,
+          (decodedText) => {
+            if (myRequestId === activeRequestIdRef.current) {
+              handleSuccess(decodedText);
+            }
+          },
+          () => {}
+        );
       }
 
       if (myRequestId !== activeRequestIdRef.current) {
@@ -398,16 +456,6 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   useEffect(() => {
     if (isOpen && activeMode === 'camera') {
       setIsExiting(false);
-      // Pre-enumerate cameras immediately if permission is already granted
-      Html5Qrcode.getCameras().then((devices) => {
-        if (devices && devices.length > 0) {
-          const formatted = rankAndFormatCameras(devices);
-          setAvailableCameras(formatted);
-          if (!selectedCameraId && formatted.length > 0) {
-            setSelectedCameraId(formatted[0].id);
-          }
-        }
-      }).catch(() => {});
 
       const timer = setTimeout(() => {
         startCamera(selectedCameraId);
@@ -468,8 +516,93 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
         }
       }
 
-      setScanError('相片中未偵測到清晰的條碼，請調整角度拍攝或手動輸入。');
-      setIsProcessingFile(false);
+      // 3. Fallback to Gemini AI Vision Barcode Reader
+      const reader = new FileReader();
+      reader.onload = async (evt) => {
+        const base64 = evt.target?.result as string;
+        if (!base64) {
+          setScanError('無法讀取照片資料');
+          setIsProcessingFile(false);
+          return;
+        }
+
+        try {
+          const aiParams = getAiRequestParams();
+          const ALLOWED_3X_MODELS = [
+            'gemini-3.1-flash-lite',
+            'gemini-3.8-flash',
+            'gemini-3.6-flash',
+            'gemini-3.5-flash',
+          ];
+          
+          let lastResultRes: Response | null = null;
+          for (let i = 0; i < ALLOWED_3X_MODELS.length; i++) {
+            const currentModel = ALLOWED_3X_MODELS[i];
+            try {
+              const res = await fetch('/api/ai/read-barcode', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  imageBase64: base64,
+                  mimeType: file.type || 'image/jpeg',
+                  customApiKey: aiParams.customApiKey,
+                  apiKeySource: aiParams.apiKeySource,
+                  userEmail: aiParams.userEmail,
+                  userUid: aiParams.userUid,
+                  model: currentModel,
+                  disableFallback: true
+                }),
+              });
+
+              if (res.ok) {
+                lastResultRes = res;
+                break;
+              }
+
+              // Robust transient error detection
+              const errData = await res.json().catch(() => ({}));
+              const errStatus = res.status;
+              const errMsg = String(errData.error || '');
+              const isTransient = errStatus === 503 || errStatus === 429 || 
+                                 errMsg.includes('503') || errMsg.includes('429') || 
+                                 errMsg.includes('high demand') || errMsg.includes('Busy') ||
+                                 errMsg.includes('RESOURCE_EXHAUSTED');
+
+              if (isTransient) {
+                console.warn(`[Barcode Fallback] ${currentModel} returned transient error (${errStatus}), trying next...`);
+                continue;
+              }
+              
+              throw new Error(errMsg || '條碼分析失敗');
+            } catch (err: any) {
+              if (i === ALLOWED_3X_MODELS.length - 1) throw err;
+              const errMsg = String(err.message || '');
+              if (errMsg.includes('Busy') || errMsg.includes('503') || errMsg.includes('429') || errMsg.includes('high demand')) {
+                 continue;
+              }
+              continue;
+            }
+          }
+
+          if (lastResultRes && lastResultRes.ok) {
+            const data = await lastResultRes.json();
+            if (data._usage) {
+              StorageService.recordApiUsage(data._usage);
+            }
+            if (data.barcode) {
+              handleSuccess(data.barcode);
+              setIsProcessingFile(false);
+              return;
+            }
+          }
+          setScanError('相片中未偵測到清晰的條碼，請調整角度拍攝包裝上的國際條碼（13碼數字）。');
+        } catch (err: any) {
+          setScanError('條碼分析失敗，請重試或改用語音/文字搜尋。');
+        } finally {
+          setIsProcessingFile(false);
+        }
+      };
+      reader.readAsDataURL(file);
     } catch (err: any) {
       setScanError('處理照片失敗，請重試');
       setIsProcessingFile(false);
@@ -737,14 +870,14 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
 
               <div className="flex items-center justify-center gap-1.5 text-xs font-bold text-blue-700 bg-blue-50 px-3 py-2 rounded-xl border border-blue-100">
                 <Sparkles className="w-3.5 h-3.5 text-blue-600" />
-                自動執行條碼解碼，請確保條碼清晰且無反光
+                自動執行條碼解碼，未讀取時自動啟動 AI 辨識
               </div>
 
               {isProcessingFile && (
                 <div className="py-6 text-center space-y-2 bg-slate-50 rounded-2xl border border-slate-100">
                   <Loader2 className="w-8 h-8 animate-spin text-blue-600 mx-auto" />
                   <p className="text-xs font-bold text-blue-900">正在解析相片條碼數據...</p>
-                  <p className="text-[11px] text-slate-400">正在執行條碼解碼程序...</p>
+                  <p className="text-[11px] text-slate-400">正在執行條碼解碼與 AI 視覺辨識...</p>
                 </div>
               )}
             </div>
@@ -752,9 +885,27 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
 
           {/* Scan Error Message */}
           {scanError && (
-            <div className="p-3 bg-rose-50 border border-rose-200 rounded-2xl text-xs text-rose-800 flex items-start gap-2 animate-in fade-in duration-200">
-              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-              <div className="leading-relaxed">{scanError}</div>
+            <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-2xl text-xs text-rose-800 flex flex-col gap-2.5 animate-in fade-in duration-200 shadow-2xs">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                <div className="leading-relaxed flex-1 font-medium">{scanError}</div>
+              </div>
+              <div className="flex items-center gap-2 pt-0.5">
+                <button
+                  type="button"
+                  onClick={() => startCamera(selectedCameraId)}
+                  className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl transition cursor-pointer shadow-2xs active:scale-98"
+                >
+                  再次嘗試請求權限
+                </button>
+                <button
+                  type="button"
+                  onClick={() => nativeCameraInputRef.current?.click()}
+                  className="px-3 py-1.5 bg-white border border-rose-300 text-rose-900 font-bold text-xs rounded-xl transition hover:bg-rose-100/80 cursor-pointer active:scale-98"
+                >
+                  開啟原生相機拍照
+                </button>
+              </div>
             </div>
           )}
         </div>

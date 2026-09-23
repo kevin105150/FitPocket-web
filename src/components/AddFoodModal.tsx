@@ -50,7 +50,7 @@ interface AddFoodModalProps {
   onOpenCustomFoodModal: (prefilledData?: string | CustomFood) => void;
 }
 
-export type FoodTab = 'ALL' | 'OPEN_FOOD' | 'OFFICIAL' | 'CUSTOM' | 'CLOUD' | 'AI_SCAN' | 'BARCODE' | 'FAMILY' | 'OCR_SCAN';
+export type FoodTab = 'ALL' | 'OPEN_FOOD' | 'OFFICIAL' | 'CUSTOM' | 'CLOUD' | 'AI_SCAN' | 'BARCODE' | 'FAMILY';
 
 export const AddFoodModal: React.FC<AddFoodModalProps> = ({
   initialMealType,
@@ -67,11 +67,14 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState<FoodTab>(initialTab);
   const [mainCategory, setMainCategory] = useState<'GENERAL' | 'AI' | 'ADVANCED'>(
-    initialTab === 'AI_SCAN' || initialTab === 'BARCODE' || initialTab === 'OCR_SCAN'
+    initialTab === 'AI_SCAN' || initialTab === 'BARCODE'
       ? 'AI'
       : initialTab === 'OPEN_FOOD' || initialTab === 'CLOUD' || initialTab === 'FAMILY'
       ? 'ADVANCED'
       : 'GENERAL'
+  );
+  const [aiSubTab, setAiSubTab] = useState<'AI_SCAN' | 'BARCODE'>(
+    initialTab === 'BARCODE' ? 'BARCODE' : 'AI_SCAN'
   );
   const [advancedSubTab, setAdvancedSubTab] = useState<'FAMILY' | 'CLOUD' | 'OPEN_FOOD'>(
     initialTab === 'OPEN_FOOD' ? 'OPEN_FOOD' : initialTab === 'CLOUD' ? 'CLOUD' : 'FAMILY'
@@ -1285,7 +1288,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
           </button>
         </div>
 
-        {/* Search Mode Toggle (Strictly 3 Buttons) */}
+        {/* Search Mode Toggle (First Layer: Strictly 3 Buttons) */}
         <div className="p-3 border-b border-slate-100 flex gap-2">
           <button
             type="button"
@@ -1300,14 +1303,14 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
             }`}
           >
             <Search className="w-4 h-4" />
-            一般搜尋
+            <span>一般搜尋</span>
           </button>
 
           <button
             type="button"
             onClick={() => {
               setMainCategory('AI');
-              setActiveTab('AI_SCAN');
+              setActiveTab(aiSubTab);
             }}
             className={`flex-1 py-2.5 rounded-2xl text-xs font-black transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
               mainCategory === 'AI'
@@ -1316,7 +1319,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
             }`}
           >
             <Sparkles className="w-4 h-4" />
-            AI辨識
+            <span>AI搜尋</span>
           </button>
 
           <button
@@ -1332,9 +1335,48 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
             }`}
           >
             <Globe className="w-4 h-4" />
-            進階搜尋
+            <span>進階搜尋</span>
           </button>
         </div>
+
+        {/* Conditional Sub-Bar (Second Layer) for AI search */}
+        {mainCategory === 'AI' && (
+          <div className="px-4 pt-3 pb-2 border-b border-slate-100/60 bg-purple-50/30">
+            <div className="flex bg-slate-100 p-1 rounded-2xl gap-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setAiSubTab('AI_SCAN');
+                  setActiveTab('AI_SCAN');
+                }}
+                className={`flex-1 py-2 text-xs font-black rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                  aiSubTab === 'AI_SCAN'
+                    ? 'bg-purple-600 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                }`}
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>AI影像/文字分析</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setAiSubTab('BARCODE');
+                  setActiveTab('BARCODE');
+                }}
+                className={`flex-1 py-2 text-xs font-black rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                  aiSubTab === 'BARCODE'
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                }`}
+              >
+                <Barcode className="w-3.5 h-3.5" />
+                <span>條碼掃描</span>
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Conditional Sub-Bar for GENERAL search */}
         {mainCategory === 'GENERAL' && (
@@ -2083,21 +2125,37 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
             </div>
           )}
 
-          {/* TAB: AI 辨識中心 (整合 AI 影像、條碼辨識、即時相機條碼與營養標示 OCR) */}
-          {mainCategory === 'AI' && (
-            <div className="space-y-4 max-w-md mx-auto py-2">
-              <div className="bg-gradient-to-r from-purple-600 via-indigo-600 to-sky-600 rounded-3xl p-4 text-white shadow-md">
-                <div className="flex items-center gap-2 font-black text-sm mb-1">
-                  <Sparkles className="w-4 h-4 text-amber-300 animate-pulse" />
-                  Gemini AI 辨識與相機掃描中心
+          {/* PAGE 1: AI 影像 / 文字分析 */}
+          {activeTab === 'AI_SCAN' && (
+            <div className="space-y-4 max-w-md mx-auto py-2 animate-in fade-in duration-200">
+              {/* Clean Intro Card */}
+              <div className="bg-gradient-to-r from-purple-600 to-indigo-600 rounded-3xl p-4.5 text-white shadow-md">
+                <div className="flex items-center gap-2 font-black text-sm mb-1.5">
+                  <Sparkles className="w-4.5 h-4.5 text-amber-300 animate-pulse shrink-0" />
+                  <span>Gemini 3.x AI 影像與文字分析</span>
                 </div>
                 <p className="text-xs text-purple-100 leading-relaxed font-medium">
-                  一站式支援 AI 照片估算、AI 條碼辨識、即時鏡頭條碼掃描與營養標示 OCR！
+                  拍攝食物照片、上傳圖庫或輸入文字描述，由 AI 自動辨識食材與估算營養素（蛋白質、碳水化合物、脂肪與熱量）。
                 </p>
+                <div className="flex items-center gap-2 mt-3 pt-2.5 border-t border-purple-500/40 text-[11px] text-purple-200 font-semibold">
+                  <span className="flex items-center gap-1">📸 照片與即時拍攝</span>
+                  <span>·</span>
+                  <span className="flex items-center gap-1">✍️ 菜單與外食描述</span>
+                  <span>·</span>
+                  <span className="flex items-center gap-1">⚡ 多模型自動備援</span>
+                </div>
               </div>
 
-              {/* Photo Upload & Camera Action Hub */}
-              <div className="bg-white border-2 border-dashed border-purple-200 rounded-3xl p-4 text-center hover:border-purple-400 transition shadow-xs space-y-3">
+              {/* Section 1: Image & Camera Analysis */}
+              <div className="bg-white border border-purple-100 rounded-3xl p-4.5 shadow-2xs space-y-3.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-black text-purple-950 flex items-center gap-1.5">
+                    <Camera className="w-4 h-4 text-purple-600" />
+                    <span>照片與相機分析</span>
+                  </label>
+                  <span className="text-[10px] font-bold text-slate-400">拍攝佳餚或上傳圖庫</span>
+                </div>
+
                 <input
                   type="file"
                   ref={cameraInputRef}
@@ -2114,110 +2172,95 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                   className="hidden"
                 />
 
-                {selectedImageBase64 && (
-                  <div className="relative inline-block group mb-1">
+                {selectedImageBase64 ? (
+                  <div className="relative inline-block w-full text-center group">
                     <img
                       src={selectedImageBase64}
                       alt="辨識照片預覽"
-                      className="w-36 h-36 object-cover rounded-2xl border-2 border-purple-300 shadow-sm mx-auto"
+                      className="w-44 h-44 object-cover rounded-2xl border-2 border-purple-300 shadow-sm mx-auto"
                     />
-                    <div className="absolute bottom-2 right-2 flex gap-1">
+                    <div className="mt-3 flex justify-center gap-2">
                       <button
                         type="button"
                         onClick={() => setIsAiCameraModalOpen(true)}
-                        className="p-1.5 bg-purple-700 text-white rounded-xl shadow-md text-xs font-bold hover:bg-purple-800 transition cursor-pointer flex items-center gap-1"
+                        className="px-3 py-1.5 bg-purple-700 text-white rounded-xl shadow-xs text-xs font-bold hover:bg-purple-800 transition cursor-pointer flex items-center gap-1"
                       >
                         <Camera className="w-3.5 h-3.5" />
-                        重拍
+                        重拍照片
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => galleryInputRef.current?.click()}
+                        className="px-3 py-1.5 bg-slate-100 text-slate-700 rounded-xl text-xs font-bold hover:bg-slate-200 transition cursor-pointer flex items-center gap-1"
+                      >
+                        <Upload className="w-3.5 h-3.5" />
+                        重新選擇
                       </button>
                       <button
                         type="button"
                         onClick={() => setSelectedImageBase64(null)}
-                        className="p-1.5 bg-rose-600 text-white rounded-xl shadow-md text-xs font-bold hover:bg-rose-700 transition cursor-pointer flex items-center"
+                        className="px-2.5 py-1.5 bg-rose-50 text-rose-600 rounded-xl text-xs font-bold hover:bg-rose-100 transition cursor-pointer flex items-center"
                         title="清除照片"
                       >
                         <X className="w-3.5 h-3.5" />
                       </button>
                     </div>
                   </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <button
+                      type="button"
+                      onClick={() => setIsAiCameraModalOpen(true)}
+                      className="py-3.5 px-3 bg-purple-50 hover:bg-purple-100 border border-purple-200/80 rounded-2xl text-purple-900 transition flex flex-col items-center justify-center gap-1.5 cursor-pointer group active:scale-98"
+                    >
+                      <div className="w-9 h-9 rounded-xl bg-purple-600 text-white flex items-center justify-center shadow-xs group-hover:scale-105 transition-transform">
+                        <Camera className="w-5 h-5" />
+                      </div>
+                      <span className="text-xs font-bold">開啟相機拍攝</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => galleryInputRef.current?.click()}
+                      className="py-3.5 px-3 bg-slate-50 hover:bg-slate-100 border border-slate-200/80 rounded-2xl text-slate-800 transition flex flex-col items-center justify-center gap-1.5 cursor-pointer group active:scale-98"
+                    >
+                      <div className="w-9 h-9 rounded-xl bg-slate-700 text-white flex items-center justify-center shadow-xs group-hover:scale-105 transition-transform">
+                        <Upload className="w-5 h-5" />
+                      </div>
+                      <span className="text-xs font-bold">上傳相片圖庫</span>
+                    </button>
+                  </div>
                 )}
 
-                {/* Recognition Mode Buttons */}
-                <div className="grid grid-cols-2 gap-2">
+                {selectedImageBase64 && (
                   <button
                     type="button"
                     onClick={() => {
                       if (!checkAiKeyOrWarn()) return;
-                      if (selectedImageBase64) {
-                        performImageAnalysis(selectedImageBase64, lastImageMimeType);
-                      } else {
-                        setIsAiCameraModalOpen(true);
-                      }
+                      performImageAnalysis(selectedImageBase64, lastImageMimeType);
                     }}
                     disabled={aiLoading}
-                    className="py-3 px-2 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-2xl shadow-xs transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 active:scale-98"
+                    className="w-full py-3 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white text-xs font-black rounded-2xl shadow-md transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 active:scale-98"
                   >
-                    <Sparkles className="w-4 h-4" />
-                    AI 影像估算
+                    {aiLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                    <span>開始 AI 影像估算</span>
                   </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setIsScannerModalOpen(true)}
-                    className="py-3 px-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-2xl shadow-xs transition flex items-center justify-center gap-1.5 cursor-pointer active:scale-98"
-                  >
-                    <Barcode className="w-4 h-4" />
-                    鏡頭條碼掃描
-                  </button>
-                </div>
+                )}
               </div>
 
-              {/* Barcode Manual Query Box */}
-              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4">
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">或手動輸入商品條碼號碼</label>
-                <div className="flex gap-2">
-                  <div className="relative flex-1">
-                    <input
-                      type="text"
-                      placeholder="例如: 4710088195001"
-                      value={barcodeInput}
-                      onChange={(e) => setBarcodeInput(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && handleBarcodeLookup(barcodeInput)}
-                      className="w-full pl-3 pr-9 py-2 bg-white rounded-xl border border-slate-200 text-sm font-mono focus:outline-blue-600"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setIsScannerModalOpen(true)}
-                      title="開啟鏡頭即時掃描"
-                      className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-blue-600 transition cursor-pointer"
-                    >
-                      <Camera className="w-4 h-4" />
-                    </button>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => handleBarcodeLookup(barcodeInput)}
-                    disabled={barcodeLoading || !barcodeInput.trim()}
-                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs transition flex items-center gap-1 cursor-pointer disabled:opacity-50 whitespace-nowrap"
-                  >
-                    {barcodeLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : '查詢條碼'}
-                  </button>
-                </div>
-              </div>
-
-              {/* AI Text Prompt Input Box */}
-              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4">
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                  或輸入食物名稱 / 外食描述
+              {/* Section 2: AI Text Prompt Analysis */}
+              <div className="bg-white border border-slate-200/80 rounded-3xl p-4.5 shadow-2xs space-y-3">
+                <label className="block text-xs font-black text-slate-800">
+                  食物名稱 / 外食描述估算
                 </label>
                 <div className="space-y-2.5">
                   <input
                     type="text"
-                    placeholder="例如: 摩斯藜麥燒肉珍珠堡、超商烤雞便當"
+                    placeholder="例如: 摩斯藜麥燒肉珍珠堡、超商雞腿便當"
                     value={aiPrompt}
                     onChange={(e) => setAiPrompt(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && handleAiTextAnalyze()}
-                    className="w-full px-3 py-2 bg-white rounded-xl border border-slate-200 text-sm focus:outline-purple-600"
+                    className="w-full px-3.5 py-2.5 bg-slate-50 rounded-2xl border border-slate-200 text-sm font-medium focus:outline-purple-600 focus:bg-white transition"
                   />
                   <button
                     type="button"
@@ -2231,9 +2274,9 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                 </div>
               </div>
 
-              {/* Animated Progress Bars */}
+              {/* Animated Progress Bar */}
               {aiLoading && (
-                <div className="py-5 px-4 bg-purple-50/60 rounded-2xl border border-purple-100 text-center space-y-3">
+                <div className="py-5 px-4 bg-purple-50/80 rounded-2xl border border-purple-100 text-center space-y-3 animate-in fade-in duration-200">
                   <div className="relative">
                     <Loader2 className="w-8 h-8 animate-spin text-purple-600 mx-auto opacity-20" />
                     <div className="absolute inset-0 flex items-center justify-center">
@@ -2255,15 +2298,8 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                 </div>
               )}
 
-              {barcodeLoading && (
-                <div className="py-4 text-center space-y-2 bg-blue-50/50 rounded-2xl border border-blue-100">
-                  <Loader2 className="w-6 h-6 animate-spin text-blue-600 mx-auto" />
-                  <p className="text-xs font-medium text-blue-800">正在比對食品條碼資料庫...</p>
-                </div>
-              )}
-
               {aiError && (
-                <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 space-y-2">
+                <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-2xl text-xs text-rose-700 space-y-2 animate-in fade-in duration-200">
                   <div className="flex items-start gap-2">
                     <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
                     <span>{aiError}</span>
@@ -2278,9 +2314,101 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                   )}
                 </div>
               )}
+            </div>
+          )}
+
+          {/* PAGE 2: 條碼掃描 */}
+          {activeTab === 'BARCODE' && (
+            <div className="space-y-4 max-w-md mx-auto py-2 animate-in fade-in duration-200">
+              {/* Clean Intro Card */}
+              <div className="bg-gradient-to-r from-blue-600 to-sky-600 rounded-3xl p-4.5 text-white shadow-md">
+                <div className="flex items-center gap-2 font-black text-sm mb-1.5">
+                  <Barcode className="w-4.5 h-4.5 text-sky-200 shrink-0" />
+                  <span>商品條碼即時比對</span>
+                </div>
+                <p className="text-xs text-blue-100 leading-relaxed font-medium">
+                  對準食品包裝上的條碼，或輸入 13 位條碼號碼，即可連線衛生福利部、超商與 Open Food Facts 全球資料庫查詢真實標示。
+                </p>
+                <div className="flex items-center gap-2 mt-3 pt-2.5 border-t border-blue-500/40 text-[11px] text-blue-100 font-semibold">
+                  <span>📷 鏡頭即時自動辨識</span>
+                  <span>·</span>
+                  <span>🌐 全球與本機資料庫連線</span>
+                </div>
+              </div>
+
+              {/* Section 1: Hero Camera Scanner Entry */}
+              <div 
+                onClick={() => setIsScannerModalOpen(true)}
+                className="bg-white border-2 border-dashed border-blue-200 hover:border-blue-500 rounded-3xl p-6 text-center shadow-2xs hover:shadow-md transition-all cursor-pointer group space-y-3"
+              >
+                <div className="w-14 h-14 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center mx-auto group-hover:scale-110 group-hover:bg-blue-600 group-hover:text-white transition-all shadow-xs">
+                  <Barcode className="w-7 h-7" />
+                </div>
+                <div>
+                  <h4 className="font-black text-base text-slate-900 group-hover:text-blue-700 transition-colors">
+                    開啟鏡頭條碼掃描
+                  </h4>
+                  <p className="text-xs text-slate-500 mt-1 font-medium">
+                    自動對焦與解碼商品包裝 13 位條碼
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setIsScannerModalOpen(true);
+                  }}
+                  className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs transition inline-flex items-center gap-2 cursor-pointer active:scale-95"
+                >
+                  <Camera className="w-4 h-4" />
+                  <span>即時啟動相機</span>
+                </button>
+              </div>
+
+              {/* Section 2: Manual Barcode Lookup Box */}
+              <div className="bg-white border border-slate-200/80 rounded-3xl p-4.5 shadow-2xs space-y-3">
+                <label className="block text-xs font-black text-slate-800">
+                  手動輸入商品條碼號碼
+                </label>
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <input
+                      type="text"
+                      placeholder="例如: 4710088195001"
+                      value={barcodeInput}
+                      onChange={(e) => setBarcodeInput(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleBarcodeLookup(barcodeInput)}
+                      className="w-full pl-3.5 pr-9 py-2.5 bg-slate-50 rounded-2xl border border-slate-200 text-sm font-mono focus:outline-blue-600 focus:bg-white transition"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setIsScannerModalOpen(true)}
+                      title="開啟鏡頭即時掃描"
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-blue-600 transition cursor-pointer"
+                    >
+                      <Camera className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleBarcodeLookup(barcodeInput)}
+                    disabled={barcodeLoading || !barcodeInput.trim()}
+                    className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-2xl shadow-xs transition flex items-center gap-1 cursor-pointer disabled:opacity-50 whitespace-nowrap"
+                  >
+                    {barcodeLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : '查詢條碼'}
+                  </button>
+                </div>
+              </div>
+
+              {barcodeLoading && (
+                <div className="py-4 text-center space-y-2 bg-blue-50/60 rounded-2xl border border-blue-100 animate-in fade-in duration-200">
+                  <Loader2 className="w-6 h-6 animate-spin text-blue-600 mx-auto" />
+                  <p className="text-xs font-medium text-blue-800">正在比對食品條碼資料庫...</p>
+                </div>
+              )}
 
               {barcodeError && (
-                <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 flex items-start gap-2">
+                <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-2xl text-xs text-rose-700 flex items-start gap-2 animate-in fade-in duration-200">
                   <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
                   <span>{barcodeError}</span>
                 </div>

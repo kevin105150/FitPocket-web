@@ -708,9 +708,27 @@ export const AiCameraModal: React.FC<AiCameraModalProps> = ({
 
               {/* Camera Access Error Message */}
               {cameraError && (
-                <div className="p-3 bg-rose-50 border border-rose-200 rounded-2xl text-xs text-rose-800 flex items-start gap-2 animate-in fade-in duration-200">
-                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-                  <div className="leading-relaxed">{cameraError}</div>
+                <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-2xl text-xs text-rose-800 flex flex-col gap-2.5 animate-in fade-in duration-200 shadow-2xs">
+                  <div className="flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                    <div className="leading-relaxed flex-1 font-medium">{cameraError}</div>
+                  </div>
+                  <div className="flex items-center gap-2 pt-0.5">
+                    <button
+                      type="button"
+                      onClick={() => startCamera(selectedCameraId)}
+                      className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs rounded-xl transition cursor-pointer shadow-2xs active:scale-98"
+                    >
+                      再次嘗試請求權限
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => nativeCameraInputRef.current?.click()}
+                      className="px-3 py-1.5 bg-white border border-rose-300 text-rose-900 font-bold text-xs rounded-xl transition hover:bg-rose-100/80 cursor-pointer active:scale-98"
+                    >
+                      開啟原生相機拍照
+                    </button>
+                  </div>
                 </div>
               )}
             </>
