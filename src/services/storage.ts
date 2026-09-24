@@ -314,10 +314,10 @@ export const StorageService = {
     }
   },
 
-  async syncFromCloud(): Promise<{ success: boolean; message: string }> {
+  async syncFromCloud(): Promise<{ success: boolean; message: string; changed: boolean }> {
     if (!auth.currentUser) {
       notifySyncStatus('offline');
-      return { success: false, message: '尚未登入 Google 帳號' };
+      return { success: false, message: '尚未登入 Google 帳號', changed: false };
     }
 
     notifySyncStatus('syncing');
@@ -325,28 +325,44 @@ export const StorageService = {
       const json = await DriveStorageService.loadAllData();
       if (json) {
         // Use merging logic instead of blind import
-        const { changed, success } = this.mergeData(json);
+        const { changed, success, counts } = this.mergeData(json);
         if (success) {
           notifySyncStatus('synced');
           if (changed) {
-            return { success: true, message: '成功與 Google Drive 同步並合併資料！' };
+            const parts: string[] = [];
+            if (counts.food > 0) parts.push(`飲食紀錄 ${counts.food} 筆`);
+            if (counts.workout > 0) parts.push(`訓練紀錄 ${counts.workout} 筆`);
+            if (counts.water > 0) parts.push(`飲水紀錄 ${counts.water} 筆`);
+            if (counts.weight > 0) parts.push(`體重紀錄 ${counts.weight} 筆`);
+            if (counts.custom > 0) parts.push(`自訂食材 ${counts.custom} 筆`);
+
+            const detailsStr = parts.length > 0 ? parts.join('、') : '個人設定與目標';
+            return { 
+              success: true, 
+              message: `✨ 同步成功！已更新：${detailsStr}`,
+              changed: true
+            };
           } else {
-            return { success: true, message: '雲端資料已是最新，無需更新。' };
+            return { 
+              success: true, 
+              message: '雲端資料已是最新，本機未發現需更新的紀錄。',
+              changed: false 
+            };
           }
         } else {
           notifySyncStatus('error');
-          return { success: false, message: '備份檔案格式解析失敗' };
+          return { success: false, message: '備份檔案格式解析失敗', changed: false };
         }
       }
       notifySyncStatus('synced');
-      return { success: false, message: '尚未在 Google Drive 找到備份檔 (fitpocket_data.json)' };
+      return { success: false, message: '尚未在 Google Drive 找到備份檔 (fitpocket_data.json)', changed: false };
     } catch (e: any) {
       console.warn('Drive sync notice:', e);
       notifySyncStatus('error');
       if (e.message === 'AUTH_ERROR') {
-        return { success: false, message: '雲端授權已過期，請重新登入 Google 帳號以恢復同步' };
+        return { success: false, message: '雲端授權已過期，請重新登入 Google 帳號以恢復同步', changed: false };
       }
-      return { success: false, message: '連線至 Google Drive 失敗，請確認網路或重新連線授權' };
+      return { success: false, message: '連線至 Google Drive 失敗，請確認網路或重新連線授權', changed: false };
     }
   },
 
@@ -739,6 +755,9 @@ export const StorageService = {
   saveTimerPresets(presets: number[]): void {
     setItem(STORAGE_KEYS.WORKOUT_PRESETS, presets);
     this.saveToCloud();
+  },
+  getWorkoutPresets(): number[] {
+    return this.getTimerPresets();
   },
   getActiveCarbCycle(): CarbCycleType {
     return getItem<CarbCycleType>(STORAGE_KEYS.ACTIVE_CARB_CYCLE, 'MEDIUM');
@@ -1139,7 +1158,19 @@ export const StorageService = {
   },
 
   // Intelligent Merging logic
-  mergeData(jsonString: string): { changed: boolean; success: boolean } {
+  mergeData(jsonString: string): { 
+    changed: boolean; 
+    success: boolean;
+    counts: {
+      food: number;
+      custom: number;
+      water: number;
+      weight: number;
+      workout: number;
+      total: number;
+    };
+  } {
+    const counts = { food: 0, custom: 0, water: 0, weight: 0, workout: 0, total: 0 };
     try {
       const incoming = JSON.parse(jsonString);
       let localChanged = false;
@@ -1192,11 +1223,12 @@ export const StorageService = {
       const localFood = this.getAllFoodRecords();
       const incomingFood = (incoming.foodRecords || []).map((r: any) => ({
         ...r,
-        createdAt: r.createdAt || Date.now(),
-        updatedAt: r.updatedAt || r.createdAt || Date.now(),
+        createdAt: r.createdAt || 0,
+        updatedAt: r.updatedAt || r.createdAt || 0,
       }));
-      let mergedFood = this.mergeCollections(localFood, incomingFood, 'id', 'updatedAt');
-      mergedFood = filterOutDeleted(mergedFood, 'id', 'updatedAt');
+      const foodRes = this.mergeCollectionsWithCounts(localFood, incomingFood, 'id', 'updatedAt');
+      let mergedFood = filterOutDeleted(foodRes.merged, 'id', 'updatedAt');
+      counts.food = foodRes.addedCount + foodRes.updatedCount;
       if (JSON.stringify(mergedFood) !== JSON.stringify(localFood)) {
         setItem(STORAGE_KEYS.FOOD_RECORDS, mergedFood);
         localChanged = true;
@@ -1206,10 +1238,11 @@ export const StorageService = {
       const localCustom = this.getCustomFoods();
       const incomingCustom = (incoming.customFoods || []).map((cf: any) => ({
         ...cf,
-        updatedAt: cf.updatedAt || Date.now(),
+        updatedAt: cf.updatedAt || cf.createdAt || 0,
       }));
-      let mergedCustom = this.mergeCollections(localCustom, incomingCustom, 'id', 'updatedAt');
-      mergedCustom = filterOutDeleted(mergedCustom, 'id', 'updatedAt');
+      const customRes = this.mergeCollectionsWithCounts(localCustom, incomingCustom, 'id', 'updatedAt');
+      let mergedCustom = filterOutDeleted(customRes.merged, 'id', 'updatedAt');
+      counts.custom = customRes.addedCount + customRes.updatedCount;
       if (JSON.stringify(mergedCustom) !== JSON.stringify(localCustom)) {
         setItem(STORAGE_KEYS.CUSTOM_FOODS, mergedCustom);
         localChanged = true;
@@ -1219,11 +1252,12 @@ export const StorageService = {
       const localWater = this.getAllWaterRecords();
       const incomingWater = (incoming.waterRecords || []).map((w: any) => ({
         ...w,
-        timestamp: w.timestamp || Date.now(),
-        updatedAt: w.updatedAt || w.timestamp || Date.now(),
+        timestamp: w.timestamp || 0,
+        updatedAt: w.updatedAt || w.timestamp || 0,
       }));
-      let mergedWater = this.mergeCollections(localWater, incomingWater, 'id', 'updatedAt');
-      mergedWater = filterOutDeleted(mergedWater, 'id', 'updatedAt');
+      const waterRes = this.mergeCollectionsWithCounts(localWater, incomingWater, 'id', 'updatedAt');
+      let mergedWater = filterOutDeleted(waterRes.merged, 'id', 'updatedAt');
+      counts.water = waterRes.addedCount + waterRes.updatedCount;
       if (JSON.stringify(mergedWater) !== JSON.stringify(localWater)) {
         setItem(STORAGE_KEYS.WATER_RECORDS, mergedWater);
         localChanged = true;
@@ -1233,11 +1267,12 @@ export const StorageService = {
       const localWeight = this.getAllWeightRecords();
       const incomingWeight = (incoming.weightRecords || []).map((w: any) => ({
         ...w,
-        createdAt: w.createdAt || Date.now(),
-        updatedAt: w.updatedAt || w.createdAt || Date.now(),
+        createdAt: w.createdAt || 0,
+        updatedAt: w.updatedAt || w.createdAt || 0,
       }));
-      let mergedWeight = this.mergeCollections(localWeight, incomingWeight, 'date', 'updatedAt');
-      mergedWeight = filterOutDeleted(mergedWeight, 'id', 'updatedAt');
+      const weightRes = this.mergeCollectionsWithCounts(localWeight, incomingWeight, 'date', 'updatedAt');
+      let mergedWeight = filterOutDeleted(weightRes.merged, 'id', 'updatedAt');
+      counts.weight = weightRes.addedCount + weightRes.updatedCount;
       if (JSON.stringify(mergedWeight) !== JSON.stringify(localWeight)) {
         setItem(STORAGE_KEYS.WEIGHT_RECORDS, mergedWeight);
         localChanged = true;
@@ -1247,10 +1282,11 @@ export const StorageService = {
       const localWorkout = this.getAllWorkoutRecords();
       const incomingWorkout = (incoming.workoutRecords || []).map((w: any) => ({
         ...w,
-        updatedAt: w.updatedAt || Date.now(),
+        updatedAt: w.updatedAt || w.createdAt || 0,
       }));
-      let mergedWorkout = this.mergeCollections(localWorkout, incomingWorkout, 'id', 'updatedAt');
-      mergedWorkout = filterOutDeleted(mergedWorkout, 'id', 'updatedAt');
+      const workoutRes = this.mergeCollectionsWithCounts(localWorkout, incomingWorkout, 'id', 'updatedAt');
+      let mergedWorkout = filterOutDeleted(workoutRes.merged, 'id', 'updatedAt');
+      counts.workout = workoutRes.addedCount + workoutRes.updatedCount;
       if (JSON.stringify(mergedWorkout) !== JSON.stringify(localWorkout)) {
         setItem(STORAGE_KEYS.WORKOUT_RECORDS, mergedWorkout);
         localChanged = true;
@@ -1265,51 +1301,51 @@ export const StorageService = {
         localChanged = true;
       }
 
-      // 6. Profile & Settings (Keep newer version)
+      // 6. Profile & Settings (Keep newer version / check equality)
       const localProfile = this.getUserProfile();
       const incomingProfile = incoming.userProfile;
       if (incomingProfile) {
         const localTime = localProfile.updatedAt || 0;
         const incomingTime = incomingProfile.updatedAt || 0;
-        if (incomingTime > localTime) {
+        if (incomingTime > localTime && JSON.stringify(incomingProfile) !== JSON.stringify(localProfile)) {
           setItem(STORAGE_KEYS.USER_PROFILE, incomingProfile);
           localChanged = true;
         }
       }
 
-      if (incoming.waterGoal) {
+      if (incoming.waterGoal && JSON.stringify(incoming.waterGoal) !== JSON.stringify(this.getWaterGoal())) {
         setItem(STORAGE_KEYS.WATER_GOAL, incoming.waterGoal);
         localChanged = true;
       }
-      if (incoming.presets) {
+      if (incoming.presets && JSON.stringify(incoming.presets) !== JSON.stringify(this.getPresets())) {
         setItem(STORAGE_KEYS.CARB_PRESETS, incoming.presets);
         localChanged = true;
       }
-      if (incoming.activeMeals) {
+      if (incoming.activeMeals && JSON.stringify(incoming.activeMeals) !== JSON.stringify(this.getActiveMeals())) {
         setItem(STORAGE_KEYS.ACTIVE_MEALS, incoming.activeMeals);
         localChanged = true;
       }
-      if (incoming.workoutPresets) {
+      if (incoming.workoutPresets && JSON.stringify(incoming.workoutPresets) !== JSON.stringify(this.getTimerPresets())) {
         setItem(STORAGE_KEYS.WORKOUT_PRESETS, incoming.workoutPresets);
         localChanged = true;
       }
-      if (incoming.waterPresets) {
+      if (incoming.waterPresets && JSON.stringify(incoming.waterPresets) !== JSON.stringify(this.getWaterPresets())) {
         setItem(STORAGE_KEYS.WATER_PRESETS, incoming.waterPresets);
         localChanged = true;
       }
-      if (incoming.exercises) {
+      if (incoming.exercises && JSON.stringify(incoming.exercises) !== JSON.stringify(this.getExercises())) {
         setItem(STORAGE_KEYS.EXERCISES, incoming.exercises);
         localChanged = true;
       }
-      if (incoming.muscleGroups) {
+      if (incoming.muscleGroups && JSON.stringify(incoming.muscleGroups) !== JSON.stringify(this.getMuscleGroups())) {
         setItem(STORAGE_KEYS.MUSCLE_GROUPS, incoming.muscleGroups);
         localChanged = true;
       }
-      if (incoming.customBodyParts) {
+      if (incoming.customBodyParts && JSON.stringify(incoming.customBodyParts) !== JSON.stringify(this.getCustomBodyParts())) {
         setItem(STORAGE_KEYS.CUSTOM_BODY_PARTS, incoming.customBodyParts);
         localChanged = true;
       }
-      if (incoming.geminiModel) {
+      if (incoming.geminiModel && incoming.geminiModel !== this.getSelectedAiModel()) {
         setItem(STORAGE_KEYS.GEMINI_MODEL, incoming.geminiModel);
         localChanged = true;
       }
@@ -1323,21 +1359,31 @@ export const StorageService = {
         }
       }
 
+      counts.total = counts.food + counts.custom + counts.water + counts.weight + counts.workout;
+
       // If we integrated changes, notify subscribers and upload the new merged state back to cloud
       if (localChanged) {
         notifyDataChange();
         this.saveToCloud();
       }
 
-      return { changed: localChanged, success: true };
+      return { changed: localChanged, success: true, counts };
     } catch (e) {
       console.error('Failed to merge data:', e);
-      return { changed: false, success: false };
+      return { changed: false, success: false, counts };
     }
   },
 
-  mergeCollections<T extends any>(local: T[], incoming: T[], key: string, timeKey: string): T[] {
+  mergeCollectionsWithCounts<T extends any>(
+    local: T[], 
+    incoming: T[], 
+    key: string, 
+    timeKey: string
+  ): { merged: T[]; addedCount: number; updatedCount: number } {
     const map = new Map<string, T>();
+    let addedCount = 0;
+    let updatedCount = 0;
+
     local.forEach(item => {
       const itemAny = item as any;
       if (itemAny[key] !== undefined && itemAny[key] !== null) {
@@ -1351,16 +1397,24 @@ export const StorageService = {
       const existing = map.get(keyValue);
       if (!existing) {
         map.set(keyValue, item);
+        addedCount++;
       } else {
         const existingAny = existing as any;
         const localTime = existingAny[timeKey] || existingAny.createdAt || existingAny.timestamp || 0;
         const incomingTime = itemAny[timeKey] || itemAny.createdAt || itemAny.timestamp || 0;
         if (incomingTime > localTime) {
-          map.set(keyValue, item);
+          if (JSON.stringify(existing) !== JSON.stringify(item)) {
+            map.set(keyValue, item);
+            updatedCount++;
+          }
         }
       }
     });
 
-    return Array.from(map.values());
+    return { merged: Array.from(map.values()), addedCount, updatedCount };
+  },
+
+  mergeCollections<T extends any>(local: T[], incoming: T[], key: string, timeKey: string): T[] {
+    return this.mergeCollectionsWithCounts(local, incoming, key, timeKey).merged;
   },
 };

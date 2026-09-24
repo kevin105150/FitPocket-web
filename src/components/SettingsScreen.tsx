@@ -1316,12 +1316,8 @@ export const SettingsScreen: React.FC = () => {
                   flashMessage('正在與 Google Drive 同步...');
                   const res = await StorageService.syncFromCloud();
                   flashMessage(res.message);
-                  if (res.success) {
-                    setTimeout(() => window.location.reload(), 1200);
-                  } else {
-                    if (res.message.includes('授權已過期') || res.message.includes('權限')) {
-                      setHasDriveToken(false);
-                    }
+                  if (!res.success && (res.message.includes('授權已過期') || res.message.includes('權限'))) {
+                    setHasDriveToken(false);
                   }
                 }}
                 className="w-full py-2.5 bg-sky-50 hover:bg-sky-100 text-sky-800 text-xs font-black rounded-xl border border-sky-100 transition flex items-center justify-center gap-2 cursor-pointer"
