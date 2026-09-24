@@ -10,17 +10,28 @@ import { auth, getAccessToken, logout, handleRedirectResult, loginWithGoogle } f
 import { onAuthStateChanged } from 'firebase/auth';
 import { StorageService, SyncStatus } from './services/storage';
 import { LoginScreen } from './components/LoginScreen';
-import { LogOut, User as UserIcon, AlertCircle, RefreshCw, CloudOff, CloudCheck, CloudLightning, DownloadCloud, HardDrive } from 'lucide-react';
+import { LogOut, User as UserIcon, AlertCircle, RefreshCw, CloudCheck, CloudLightning, DownloadCloud, HardDrive, CheckCircle2 } from 'lucide-react';
 import { usePWAInstall } from './hooks/usePWAInstall';
 import { useOnlineStatus } from './hooks/useOnlineStatus';
 
 const SyncStatusIndicator = ({ status }: { status: SyncStatus }) => {
   const isOnline = useOnlineStatus();
+  const today = getTodayString();
+  const isDailyOffline = localStorage.getItem('fitpocket_last_daily_sync_date') === today;
   
   if (!isOnline) {
     return (
       <div className="flex items-center gap-1.5 px-2 py-1 bg-slate-100 text-slate-500 rounded-full text-[10px] font-bold">
         <CloudLightning className="w-3 h-3" />
+        離線模式
+      </div>
+    );
+  }
+
+  if (isDailyOffline && status !== 'syncing') {
+    return (
+      <div className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 text-emerald-700 rounded-full text-[10px] font-bold border border-emerald-100">
+        <CloudCheck className="w-3 h-3 text-emerald-600" />
         離線模式
       </div>
     );
@@ -67,8 +78,10 @@ export default function App() {
   const [user, setUser] = useState(auth.currentUser);
   const [isInitializing, setIsInitializing] = useState(true);
   const [needsDriveAuth, setNeedsDriveAuth] = useState(false);
+  const [showDailySyncModal, setShowDailySyncModal] = useState(false);
   const [isUpdatingCredentials, setIsUpdatingCredentials] = useState(false);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>(StorageService.getCurrentSyncStatus());
+  const [syncToastMessage, setSyncToastMessage] = useState<string | null>(null);
   
   const { isInstallable, install } = usePWAInstall();
 
@@ -81,10 +94,11 @@ export default function App() {
     }
   };
 
-  const handleRestoreAuth = async () => {
+  // Perform daily sync & credential update
+  const handlePerformDailySync = async () => {
     try {
       setIsUpdatingCredentials(true);
-      setNeedsDriveAuth(false);
+      setShowDailySyncModal(false);
       localStorage.setItem('fitpocket_redirect_pending', 'true');
 
       const result = await loginWithGoogle(false);
@@ -97,25 +111,45 @@ export default function App() {
         sessionStorage.removeItem('fitpocket_auto_auth_attempted');
         setIsUpdatingCredentials(false);
         setNeedsDriveAuth(false);
-        // Trigger a catch-up sync
-        StorageService.syncFromCloud().catch(err => console.warn("Sync error:", err));
+
+        // Perform full cloud sync and save
+        const syncRes = await StorageService.syncFromCloud();
+        await StorageService.saveToCloud(true);
+
+        const today = getTodayString();
+        localStorage.setItem('fitpocket_last_daily_sync_date', today);
+
+        setSyncToastMessage(syncRes.message || '成功驗證憑證並完成今日雲端同步！今日已啟用零延遲離線模式。');
+        setTimeout(() => setSyncToastMessage(null), 4000);
       } else {
         throw new Error("No token received");
       }
     } catch (err: any) {
       const errCode = err?.code || '';
       if (errCode === 'auth/popup-closed-by-user' || errCode === 'auth/cancelled-popup-request') {
-        console.log("Restore auth cancelled by user.");
+        console.log("Daily sync cancelled by user.");
       } else {
-        console.error("Restore auth error:", err);
+        console.error("Daily sync auth error:", err);
       }
       localStorage.removeItem('fitpocket_redirect_pending');
       localStorage.removeItem('fitpocket_auth_locking');
       setIsUpdatingCredentials(false);
-      setNeedsDriveAuth(true);
+      setShowDailySyncModal(true);
     } finally {
       localStorage.removeItem('fitpocket_auth_locking');
     }
+  };
+
+  const handleSkipDailySync = () => {
+    const today = getTodayString();
+    localStorage.setItem('fitpocket_last_daily_sync_date', today);
+    setShowDailySyncModal(false);
+    setSyncToastMessage('已開啟今日離線模式，所有飲食與運動紀錄將全數儲存於本機。');
+    setTimeout(() => setSyncToastMessage(null), 3000);
+  };
+
+  const handleRestoreAuth = async () => {
+    await handlePerformDailySync();
   };
 
   // 防禦性監控：若自動更新卡住超過 10 秒，強制切換至手動更新介面
@@ -156,7 +190,13 @@ export default function App() {
           localStorage.removeItem('fitpocket_redirect_pending');
           sessionStorage.removeItem('fitpocket_auto_auth_attempted');
           setNeedsDriveAuth(false);
+          setShowDailySyncModal(false);
           setIsUpdatingCredentials(false);
+          const today = getTodayString();
+          localStorage.setItem('fitpocket_last_daily_sync_date', today);
+          StorageService.syncFromCloud().then(() => StorageService.saveToCloud(true)).catch(err => console.warn("Sync error:", err));
+          setSyncToastMessage('已成功更新憑證並完成今日雲端同步！今日將保持極速離線模式。');
+          setTimeout(() => setSyncToastMessage(null), 4000);
         } else if (isPendingRedirect) {
           console.warn("[App] Redirect pending but no token found, potential failure.");
         }
@@ -168,39 +208,35 @@ export default function App() {
           
           try {
             if (u) {
-              const token = await getAccessToken();
-              if (token) {
-                console.log("[App] Valid Drive token found, starting sync...");
-                localStorage.removeItem('fitpocket_redirect_pending');
-                sessionStorage.removeItem('fitpocket_auto_auth_attempted');
+              const today = getTodayString();
+              const lastDailySync = localStorage.getItem('fitpocket_last_daily_sync_date');
+              const isFirstOpenToday = lastDailySync !== today;
+
+              if (isFirstOpenToday && !redirectedToken) {
+                // First open of today -> trigger daily sync dialog
+                console.log("[App] First open today, prompting for daily credential verification & sync...");
+                setShowDailySyncModal(true);
                 setNeedsDriveAuth(false);
                 setIsUpdatingCredentials(false);
-                if (localStorage.getItem('fitpocket_sync_pending') === 'true') {
-                  StorageService.saveToCloud().catch(err => console.warn("Catch-up sync error:", err));
-                } else {
-                  StorageService.syncFromCloud().catch(err => console.warn("Sync error (non-blocking):", err));
-                }
               } else {
-                // Token missing or expired
-                console.log("[App] Token missing or expired, showing manual restore button.");
-                localStorage.removeItem('fitpocket_redirect_pending');
+                // Already synced today or just redirected
+                setShowDailySyncModal(false);
+                setNeedsDriveAuth(false);
                 setIsUpdatingCredentials(false);
-                setNeedsDriveAuth(true);
               }
             } else {
               localStorage.removeItem('fitpocket_redirect_pending');
               sessionStorage.removeItem('fitpocket_auto_auth_attempted');
               setIsUpdatingCredentials(false);
               setNeedsDriveAuth(false);
+              setShowDailySyncModal(false);
             }
           } catch (innerErr) {
             console.error("Auth helper error during init:", innerErr);
             localStorage.removeItem('fitpocket_redirect_pending');
             setIsUpdatingCredentials(false);
-            setNeedsDriveAuth(true);
           } finally {
             if (active) {
-              // Give it a tiny bit more time for any pending state updates to settle
               setTimeout(() => {
                 if (active) setIsInitializing(false);
               }, 500);
@@ -260,6 +296,14 @@ export default function App() {
 
   return (
     <div className="h-full h-[100dvh] bg-[#F8FAFC] flex flex-col antialiased text-slate-800 overflow-hidden">
+      {/* Toast Feedback Notification */}
+      {syncToastMessage && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[110] bg-slate-900/90 backdrop-blur-md text-white px-4 py-2.5 rounded-2xl shadow-xl text-xs font-bold flex items-center gap-2 animate-in fade-in slide-in-from-top-4 duration-300 border border-slate-700">
+          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+          <span>{syncToastMessage}</span>
+        </div>
+      )}
+
       {/* Updating Credentials Loading Modal */}
       {isUpdatingCredentials && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300">
@@ -269,17 +313,67 @@ export default function App() {
             </div>
             
             <div className="space-y-2">
-              <h3 className="text-lg font-black text-slate-900">更新憑證中...</h3>
+              <h3 className="text-lg font-black text-slate-900">更新憑證與同步中...</h3>
               <p className="text-xs text-slate-500 leading-relaxed px-4">
-                正在驗證與更新您的 Google 雲端授權憑證，請稍候...
+                正在驗證 Google 雲端憑證並合併今日資料，請稍候...
               </p>
             </div>
           </div>
         </div>
       )}
 
-      {/* Drive Auth Expired Modal */}
-      {!isUpdatingCredentials && needsDriveAuth && (
+      {/* Daily First Open - Credentials Update & Sync Modal */}
+      {!isUpdatingCredentials && showDailySyncModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="w-full max-w-sm bg-white rounded-[32px] p-6 shadow-2xl border border-slate-100 flex flex-col items-center text-center space-y-4 animate-in zoom-in-95 duration-300">
+            <div className="w-16 h-16 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center shadow-inner relative">
+              <RefreshCw className="w-8 h-8 text-emerald-600" />
+              <CloudCheck className="w-5 h-5 text-emerald-500 absolute -bottom-1 -right-1 bg-white rounded-full p-0.5 border border-emerald-100 shadow-xs" />
+            </div>
+
+            <div className="space-y-2">
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-100/80 text-emerald-800 rounded-full text-[10px] font-black tracking-wider uppercase">
+                每日 1 次 · 雲端同步備份
+              </div>
+              <h3 className="text-lg font-black text-slate-900">每日憑證更新與雲端同步</h3>
+              <p className="text-xs text-slate-500 leading-relaxed px-2">
+                這是您今天首次開啟 App。請驗證 Google 憑證並進行今日雲端同步與資料合併。完成後今日將自動開啟<span className="font-bold text-emerald-700">極速離線模式</span>！
+              </p>
+            </div>
+
+            {/* Incognito & Data Clear Notice */}
+            <div className="w-full p-3 bg-amber-50/90 border border-amber-200/90 rounded-2xl text-left text-[11px] text-amber-900 leading-relaxed space-y-1">
+              <div className="font-extrabold text-amber-800 flex items-center gap-1.5">
+                <AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                <span>離線模式溫馨提醒</span>
+              </div>
+              <p className="text-amber-800/90">
+                今日為離線模式，紀錄將即時儲存於本機。若您今日使用<span className="font-bold text-amber-950 underline decoration-amber-400">無痕視窗</span>或預計<span className="font-bold text-amber-950 underline decoration-amber-400">清除瀏覽器紀錄</span>前，請記得至設定頁點擊手動同步，避免資料遺失喔！
+              </p>
+            </div>
+
+            <div className="w-full space-y-2 pt-2">
+              <button 
+                onClick={handlePerformDailySync}
+                className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-2xl shadow-lg shadow-emerald-200 transition active:scale-95 flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <RefreshCw className="w-4 h-4" />
+                更新憑證並同步今日資料
+              </button>
+
+              <button 
+                onClick={handleSkipDailySync}
+                className="w-full py-2.5 text-slate-400 hover:text-slate-600 font-bold text-xs transition cursor-pointer"
+              >
+                ⚡ 暫時跳過，今日保持離線
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Drive Auth Expired Fallback Modal */}
+      {!isUpdatingCredentials && !showDailySyncModal && needsDriveAuth && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300">
           <div className="w-full max-w-sm bg-white rounded-[32px] p-6 shadow-2xl border border-slate-100 flex flex-col items-center text-center space-y-4 animate-in zoom-in-95 duration-300">
             <div className="w-16 h-16 bg-sky-50 rounded-2xl flex items-center justify-center">
@@ -306,7 +400,7 @@ export default function App() {
             <div className="w-full pt-2">
               <button 
                 onClick={handleRestoreAuth}
-                className="w-full py-3.5 bg-sky-600 hover:bg-sky-700 text-white font-black rounded-2xl shadow-lg shadow-sky-200 transition active:scale-95 flex items-center justify-center gap-2 cursor-pointer"
+                className="w-full py-3.5 bg-sky-600 hover:bg-sky-700 text-white font-black text-xs rounded-2xl shadow-lg shadow-sky-200 transition active:scale-95 flex items-center justify-center gap-2 cursor-pointer"
               >
                 <RefreshCw className="w-4 h-4" />
                 登入 Google 帳號

@@ -211,7 +211,7 @@ export const StorageService = {
   },
 
   // Helper for Google Drive
-  async saveToCloud(): Promise<boolean> {
+  async saveToCloud(isManualTrigger: boolean = false): Promise<boolean> {
     if (!auth.currentUser) {
       notifySyncStatus('offline');
       return false;
@@ -219,6 +219,19 @@ export const StorageService = {
     
     // Set pending sync flag immediately so we know there are unsaved local changes
     localStorage.setItem('fitpocket_sync_pending', 'true');
+
+    // Daily Offline Mode check:
+    // If today's daily sync has already been processed and this is a background save during the day,
+    // keep data buffered locally in IndexedDB without sending network calls.
+    const today = getTodayString();
+    const lastDailySync = localStorage.getItem('fitpocket_last_daily_sync_date');
+    const isDailyOfflineActive = lastDailySync === today;
+
+    if (isDailyOfflineActive && !isManualTrigger) {
+      notifySyncStatus('pending');
+      return true;
+    }
+
     notifySyncStatus('syncing');
 
     if (isSavingToDrive) {
