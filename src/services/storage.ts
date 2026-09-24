@@ -54,6 +54,7 @@ const STORAGE_KEYS = {
   API_USAGE: 'fitpocket_api_usage',
   DELETED_RECORD_IDS: 'fitpocket_deleted_record_ids',
   NET_CARBS_MODE: 'fitpocket_use_net_carbs',
+  REALTIME_SYNC: 'fitpocket_realtime_sync',
   MIGRATED: 'fitpocket_idb_migrated',
 };
 
@@ -64,6 +65,7 @@ const syncListeners: ((status: SyncStatus) => void)[] = [];
 let currentSyncStatus: SyncStatus = localStorage.getItem('fitpocket_sync_pending') === 'true' ? 'pending' : 'synced';
 let isSavingToDrive = false;
 let hasPendingDriveSave = false;
+let debounceDriveSaveTimer: any = null;
 
 function notifySyncStatus(status: SyncStatus) {
   currentSyncStatus = status;
@@ -234,26 +236,10 @@ export const StorageService = {
     return currentSyncStatus;
   },
 
-  // Helper for Google Drive
-  async saveToCloud(isManualTrigger: boolean = false): Promise<boolean> {
+  async executeCloudSave(isManualTrigger: boolean = false): Promise<boolean> {
     if (!auth.currentUser) {
       notifySyncStatus('offline');
       return false;
-    }
-    
-    // Set pending sync flag immediately so we know there are unsaved local changes
-    localStorage.setItem('fitpocket_sync_pending', 'true');
-
-    // Daily Offline Mode check:
-    // If today's daily sync has already been processed and this is a background save during the day,
-    // keep data buffered locally in IndexedDB without sending network calls.
-    const today = getTodayString();
-    const lastDailySync = localStorage.getItem('fitpocket_last_daily_sync_date');
-    const isDailyOfflineActive = lastDailySync === today;
-
-    if (isDailyOfflineActive && !isManualTrigger) {
-      notifySyncStatus('pending');
-      return true;
     }
 
     notifySyncStatus('syncing');
@@ -269,9 +255,6 @@ export const StorageService = {
       do {
         hasPendingDriveSave = false;
 
-        // Check for valid token from cache. 
-        // CRITICAL: We MUST NOT call loginWithGoogle() automatically here because 
-        // background saves (e.g. while typing/editing) are not triggered by direct user clicks.
         const token = await getAccessToken();
         
         if (!token) {
@@ -312,6 +295,50 @@ export const StorageService = {
     } finally {
       isSavingToDrive = false;
     }
+  },
+
+  // Helper for Google Drive with anti-thrashing debounce protection for iOS & Web
+  async saveToCloud(isManualTrigger: boolean = false): Promise<boolean> {
+    if (!auth.currentUser) {
+      notifySyncStatus('offline');
+      return false;
+    }
+    
+    // Set pending sync flag immediately so we know there are unsaved local changes
+    localStorage.setItem('fitpocket_sync_pending', 'true');
+
+    // Daily Offline Mode check:
+    const today = getTodayString();
+    const lastDailySync = localStorage.getItem('fitpocket_last_daily_sync_date');
+    const isDailyOfflineActive = lastDailySync === today;
+    const isRealtime = this.isRealTimeSyncEnabled();
+
+    if (isDailyOfflineActive && !isManualTrigger && !isRealtime) {
+      notifySyncStatus('pending');
+      return true;
+    }
+
+    // iOS & Mobile Safeguard: Debounce rapid background sync requests by 1200ms
+    if (!isManualTrigger) {
+      notifySyncStatus('pending');
+      return new Promise((resolve) => {
+        if (debounceDriveSaveTimer) {
+          clearTimeout(debounceDriveSaveTimer);
+        }
+        debounceDriveSaveTimer = setTimeout(async () => {
+          debounceDriveSaveTimer = null;
+          const res = await this.executeCloudSave(false);
+          resolve(res);
+        }, 1200);
+      });
+    }
+
+    // Manual trigger: cancel any pending background timer and execute immediately!
+    if (debounceDriveSaveTimer) {
+      clearTimeout(debounceDriveSaveTimer);
+      debounceDriveSaveTimer = null;
+    }
+    return this.executeCloudSave(true);
   },
 
   async syncFromCloud(): Promise<{ success: boolean; message: string; changed: boolean }> {
@@ -1079,6 +1106,18 @@ export const StorageService = {
     notifyApiUsageListeners(resetStats);
   },
 
+  isRealTimeSyncEnabled(): boolean {
+    return getItem<boolean>(STORAGE_KEYS.REALTIME_SYNC, false);
+  },
+
+  setRealTimeSyncEnabled(enabled: boolean): void {
+    setItem(STORAGE_KEYS.REALTIME_SYNC, enabled);
+    notifyDataChange();
+    if (enabled) {
+      this.saveToCloud(true);
+    }
+  },
+
   subscribeApiUsage(listener: (stats: ApiUsageStats) => void): () => void {
     apiUsageListeners.push(listener);
     return () => {
@@ -1113,6 +1152,7 @@ export const StorageService = {
       geminiModel: this.getSelectedAiModel(),
       dailyConfigs: this.getDailyConfigs(),
       useNetCarbsMode: this.getNetCarbsMode(),
+      realTimeSync: this.isRealTimeSyncEnabled(),
       apiUsage: this.getApiUsageStats(),
     };
     return JSON.stringify(data, null, 2);
@@ -1347,6 +1387,10 @@ export const StorageService = {
       }
       if (incoming.geminiModel && incoming.geminiModel !== this.getSelectedAiModel()) {
         setItem(STORAGE_KEYS.GEMINI_MODEL, incoming.geminiModel);
+        localChanged = true;
+      }
+      if (incoming.realTimeSync !== undefined && incoming.realTimeSync !== this.isRealTimeSyncEnabled()) {
+        setItem(STORAGE_KEYS.REALTIME_SYNC, incoming.realTimeSync);
         localChanged = true;
       }
       if (incoming.apiUsage) {

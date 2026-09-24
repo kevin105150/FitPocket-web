@@ -133,6 +133,9 @@ export const SettingsScreen: React.FC = () => {
   const [userProfile, setUserProfile] = useState<UserProfile>(
     StorageService.getUserProfile()
   );
+  const [isRealTimeSync, setIsRealTimeSync] = useState<boolean>(() =>
+    StorageService.isRealTimeSyncEnabled()
+  );
   const [customFoods, setCustomFoods] = useState<CustomFood[]>(
     StorageService.getCustomFoods()
   );
@@ -1298,6 +1301,43 @@ export const SettingsScreen: React.FC = () => {
               </div>
             )}
             
+            {/* Real-time Sync Toggle */}
+            <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200/80 flex items-center justify-between">
+              <div className="pr-3">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs font-black text-slate-900">即時自動同步</span>
+                  {isRealTimeSync ? (
+                    <span className="inline-block px-1.5 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded-md">已開啟</span>
+                  ) : (
+                    <span className="inline-block px-1.5 py-0.5 bg-slate-200 text-slate-600 text-[10px] font-bold rounded-md">已關閉</span>
+                  )}
+                </div>
+                <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                  {isRealTimeSync
+                    ? '開啟時，每次新增或修改紀錄將會即時同步至 Google Drive 雲端。'
+                    : '關閉時，紀錄將先暫存於本機，僅在點擊手動同步或重啟時備份。'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  const nextVal = !isRealTimeSync;
+                  setIsRealTimeSync(nextVal);
+                  StorageService.setRealTimeSyncEnabled(nextVal);
+                  flashMessage(nextVal ? '已開啟即時自動同步！' : '已關閉即時自動同步 (切換為極速離線暫存模式)');
+                }}
+                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
+                  isRealTimeSync ? 'bg-sky-600' : 'bg-slate-300'
+                }`}
+              >
+                <span
+                  className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+                    isRealTimeSync ? 'translate-x-5' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+            </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <button
                 onClick={async () => {

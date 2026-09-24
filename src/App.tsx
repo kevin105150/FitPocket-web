@@ -211,10 +211,12 @@ export default function App() {
               const today = getTodayString();
               const lastDailySync = localStorage.getItem('fitpocket_last_daily_sync_date');
               const isFirstOpenToday = lastDailySync !== today;
+              const isRealtimeSync = StorageService.isRealTimeSyncEnabled();
+              const hasToken = !!(await getAccessToken());
 
-              if (isFirstOpenToday && !redirectedToken) {
-                // First open of today -> trigger daily sync dialog
-                console.log("[App] First open today, prompting for daily credential verification & sync...");
+              if ((isFirstOpenToday || (isRealtimeSync && !hasToken)) && !redirectedToken) {
+                // First open of today or Real-time is enabled but we don't have a valid token -> trigger daily sync dialog
+                console.log("[App] Prompting for credential verification (First open today or Real-time enabled with no valid token)...");
                 setShowDailySyncModal(true);
                 setNeedsDriveAuth(false);
                 setIsUpdatingCredentials(false);
