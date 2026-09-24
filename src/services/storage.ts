@@ -70,6 +70,18 @@ function notifySyncStatus(status: SyncStatus) {
   syncListeners.forEach(listener => listener(status));
 }
 
+// Pub/Sub for Data changes (allows UI components to re-render automatically when cloud sync completes)
+const dataListeners: (() => void)[] = [];
+function notifyDataChange() {
+  dataListeners.forEach(listener => {
+    try {
+      listener();
+    } catch (e) {
+      console.warn('Data listener notification error:', e);
+    }
+  });
+}
+
 // Pub/Sub for API Usage stats
 const apiUsageListeners: ((stats: ApiUsageStats) => void)[] = [];
 function notifyApiUsageListeners(stats: ApiUsageStats) {
@@ -206,6 +218,18 @@ export const StorageService = {
     };
   },
 
+  onDataChange(listener: () => void) {
+    dataListeners.push(listener);
+    return () => {
+      const index = dataListeners.indexOf(listener);
+      if (index > -1) dataListeners.splice(index, 1);
+    };
+  },
+
+  notifyDataChanged() {
+    notifyDataChange();
+  },
+
   getCurrentSyncStatus() {
     return currentSyncStatus;
   },
@@ -254,6 +278,18 @@ export const StorageService = {
           console.log("No valid Drive token for background sync. Keeping data in local buffer (pending).");
           notifySyncStatus('pending');
           return false;
+        }
+
+        if (isManualTrigger) {
+          // Pre-save merge with latest cloud data before uploading to prevent data loss
+          try {
+            const cloudJson = await DriveStorageService.loadAllData();
+            if (cloudJson) {
+              this.mergeData(cloudJson);
+            }
+          } catch (mergeErr) {
+            console.warn('Pre-save merge warning:', mergeErr);
+          }
         }
 
         const json = this.exportData();
@@ -1093,7 +1129,8 @@ export const StorageService = {
       }
       
       // After manual import, immediately upload to cloud to make this the "latest" version
-      this.saveToCloud();
+      notifyDataChange();
+      this.saveToCloud(true);
       return true;
     } catch (e) {
       console.error('Failed to parse import data:', e);
@@ -1286,8 +1323,9 @@ export const StorageService = {
         }
       }
 
-      // If we integrated changes, upload the new merged state back to cloud
+      // If we integrated changes, notify subscribers and upload the new merged state back to cloud
       if (localChanged) {
+        notifyDataChange();
         this.saveToCloud();
       }
 

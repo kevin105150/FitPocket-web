@@ -1345,7 +1345,7 @@ export const SettingsScreen: React.FC = () => {
                     }
                   }
                   flashMessage('正在上傳備份至 Google Drive...');
-                  const success = await StorageService.saveToCloud();
+                  const success = await StorageService.saveToCloud(true);
                   if (success) {
                     flashMessage('成功備份至 Google Drive！');
                   } else {

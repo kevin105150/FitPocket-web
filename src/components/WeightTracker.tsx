@@ -53,6 +53,10 @@ export const WeightTracker: React.FC<WeightTrackerProps> = ({
 
   useEffect(() => {
     refreshWeights();
+    const unsubscribe = StorageService.onDataChange(() => {
+      refreshWeights();
+    });
+    return () => unsubscribe();
   }, [currentDate]);
 
   const handleSaveDayWeight = (e: React.FormEvent) => {

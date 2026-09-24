@@ -670,6 +670,10 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
 
   useEffect(() => {
     refreshRecords();
+    const unsubscribe = StorageService.onDataChange(() => {
+      refreshRecords();
+    });
+    return () => unsubscribe();
   }, [currentDate]);
 
   // Current active goal preset (merged with daily custom goals if any)

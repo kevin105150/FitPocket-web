@@ -163,6 +163,10 @@ export const TrainingTracker: React.FC<TrainingTrackerProps> = ({
 
   useEffect(() => {
     refreshWorkouts();
+    const unsubscribe = StorageService.onDataChange(() => {
+      refreshWorkouts();
+    });
+    return () => unsubscribe();
   }, [currentDate]);
 
   // Handle create new workout category / body part

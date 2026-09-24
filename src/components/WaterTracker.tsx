@@ -40,6 +40,10 @@ export const WaterTracker: React.FC<WaterTrackerProps> = ({
 
   useEffect(() => {
     refreshWater();
+    const unsubscribe = StorageService.onDataChange(() => {
+      refreshWater();
+    });
+    return () => unsubscribe();
   }, [currentDate]);
 
   const totalWater = waterRecords.reduce((sum, r) => sum + r.amountMl, 0);
