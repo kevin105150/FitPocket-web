@@ -1873,7 +1873,9 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
     if (res.ok) {
       if (json) return json;
       console.warn('[API] Response was OK but returned non-JSON body:', text.slice(0, 200));
-      throw new Error('AI 伺服器回應格式異常，請稍後重試。');
+      const err = new Error('AI 伺服器回應格式異常，請稍後重試。') as any;
+      err.status = 500;
+      throw err;
     }
 
     // Extract error message from JSON body or handle status
@@ -1891,10 +1893,14 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
     }
 
     if (errMsg) {
-      throw new Error(errMsg);
+      const err = new Error(errMsg) as any;
+      err.status = res.status;
+      throw err;
     }
 
-    throw new Error(`AI 伺服器暫時無法回應 (${res.status})`);
+    const genericErr = new Error(`AI 伺服器暫時無法回應 (${res.status})`) as any;
+    genericErr.status = res.status;
+    throw genericErr;
   };
 
   // Separate AI call logic for reusability (Retries)
@@ -1934,13 +1940,15 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
 
       let lastResult: any = null;
       let finalModelUsed = targetModel;
+      const fallbackReasons: string[] = [];
 
       for (let i = 0; i < modelsToTry.length; i++) {
         const currentModel = modelsToTry[i];
         finalModelUsed = currentModel;
         
         setAiProgress(30 + (i * 15));
-        const retryMsg = i > 0 ? `(正在自動切換後援第 ${i} 次) ` : '';
+        const lastReason = fallbackReasons.length > 0 ? fallbackReasons[fallbackReasons.length - 1] : '';
+        const retryMsg = i > 0 ? `(${lastReason} ➔ 自動切換第 ${i} 次) ` : '';
         setAiStatus(`${retryMsg}[${currentModel}] 正在進行 AI 影像分析...`);
 
         // Smooth progression timer
@@ -1977,14 +1985,20 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
           clearInterval(progressInterval);
           const errStatus = err.status || 0;
           const errMsg = String(err.message || '');
-          const isTransient = errStatus === 503 || errStatus === 429 || 
-                             errMsg.includes('503') || errMsg.includes('429') || 
-                             errMsg.includes('忙碌') || errMsg.includes('high demand') ||
-                             errMsg.includes('RESOURCE_EXHAUSTED');
+          const reasonText = errStatus ? `${errStatus} ${errMsg}` : errMsg;
+          fallbackReasons.push(`${currentModel}: ${reasonText}`);
 
-          if (isTransient && i < modelsToTry.length - 1) {
-            console.warn(`[AI Fallback] ${currentModel} returned transient error (${errMsg}), trying next model...`);
+          const isAuthError = errStatus === 401 || errStatus === 403 || 
+                             errMsg.includes('權限') || errMsg.includes('Permission') || 
+                             errMsg.includes('登入') || errMsg.includes('金鑰無效');
+
+          if (!isAuthError && i < modelsToTry.length - 1) {
+            console.warn(`[AI Fallback] ${currentModel} returned error (${errMsg}), trying next 3.x model...`);
             continue;
+          }
+
+          if (i === modelsToTry.length - 1 && !isAuthError) {
+            throw new Error('AI 伺服器忙碌中，請稍後重試');
           }
 
           throw err;
@@ -2005,7 +2019,11 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
 
       const usedModel = result._modelUsed || finalModelUsed;
       setAiProgress(96);
-      setAiStatus(`[${usedModel}] 資料擷取中...`);
+      if (fallbackReasons.length > 0) {
+        setAiStatus(`[${usedModel}] 資料擷取中... (切換原因: ${fallbackReasons.join(', ')})`);
+      } else {
+        setAiStatus(`[${usedModel}] 資料擷取中...`);
+      }
 
 
       const parseNum = (val: any, fallback: number) => {
@@ -2117,14 +2135,17 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
         } catch (err: any) {
           const errStatus = err.status || 0;
           const errMsg = String(err.message || '');
-          const isTransient = errStatus === 503 || errStatus === 429 || 
-                             errMsg.includes('503') || errMsg.includes('429') || 
-                             errMsg.includes('忙碌') || errMsg.includes('high demand') ||
-                             errMsg.includes('RESOURCE_EXHAUSTED');
+          const isAuthError = errStatus === 401 || errStatus === 403 || 
+                             errMsg.includes('權限') || errMsg.includes('Permission') || 
+                             errMsg.includes('登入') || errMsg.includes('金鑰無效');
 
-          if (isTransient && i < modelsToTry.length - 1) {
-            console.warn(`[AI Fallback] ${currentModel} returned transient error (${errMsg}), trying next model...`);
+          if (!isAuthError && i < modelsToTry.length - 1) {
+            console.warn(`[AI Fallback] ${currentModel} returned error (${errMsg}), trying next 3.x model...`);
             continue;
+          }
+
+          if (i === modelsToTry.length - 1 && !isAuthError) {
+            throw new Error('AI 伺服器忙碌中，請稍後重試');
           }
 
           throw err;

@@ -551,7 +551,8 @@ async function generateWithFallback(
   preferredModel: string,
   contents: any,
   useSearch = false,
-  disableInternalFallback = false
+  disableInternalFallback = false,
+  isJson = true
 ): Promise<{
   text: string;
   modelUsed: string;
@@ -592,13 +593,18 @@ async function generateWithFallback(
           const config: any = {
             model: modelName,
             contents: Array.isArray(contents) ? contents : [{ role: 'user', parts: [{ text: contents }] }],
+            config: {
+              ...(isJson ? { responseMimeType: 'application/json' } : {}),
+              temperature: isLite ? 0.3 : 0.4,
+            },
             generationConfig: {
-              responseMimeType: 'application/json',
-              temperature: isLite ? 0.4 : 0.7,
+              ...(isJson ? { responseMimeType: 'application/json' } : {}),
+              temperature: isLite ? 0.3 : 0.4,
             }
           };
 
           if (searchFlag) {
+            config.config.tools = [{ googleSearch: {} }];
             config.tools = [{ googleSearch: {} }];
           }
 
@@ -647,6 +653,12 @@ async function generateWithFallback(
             message.includes('API key not valid')
           ) {
             throw new Error('Gemini API Key 無效 (401)，請至「設定」確認您的 API Key。');
+          }
+
+          // If search grounding fails (e.g. 429 quota exhausted or unsupported tool), immediately fallback without search
+          if (searchFlag) {
+            console.warn(`[Gemini Search] Search grounding failed for ${modelName} (${message.slice(0, 80)}), falling back without search...`);
+            break;
           }
 
           const isBusy = status === 503 ||
@@ -714,17 +726,61 @@ async function generateWithFallback(
 
 // Helper to extract JSON from AI response text
 function extractJsonFromText(rawText: string): any {
-  const jsonMatch =
-    rawText.match(/```json\s*([\s\S]*?)\s*```/) ||
-    rawText.match(/```\s*([\s\S]*?)\s*```/) ||
-    rawText.match(/([\{\[][\s\S]*[\}\]])/);
-
-  if (!jsonMatch) {
-    throw new Error('AI 回傳資料格式有誤，未能成功提取 JSON');
+  if (!rawText || typeof rawText !== 'string') {
+    throw new Error('AI 未回傳任何文字內容');
   }
 
-  const clean = jsonMatch[1].trim();
-  return JSON.parse(clean);
+  const trimmed = rawText.trim();
+
+  // 1. Direct parse attempt
+  try {
+    return JSON.parse(trimmed);
+  } catch {}
+
+  // 2. Extract from markdown code fence
+  const fenceMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  if (fenceMatch && fenceMatch[1]) {
+    try {
+      return JSON.parse(fenceMatch[1].trim());
+    } catch {
+      const cleaned = fenceMatch[1].trim().replace(/,\s*([}\]])/g, '$1');
+      try {
+        return JSON.parse(cleaned);
+      } catch {}
+    }
+  }
+
+  // 3. Find outermost JSON object { ... }
+  const firstBrace = trimmed.indexOf('{');
+  const lastBrace = trimmed.lastIndexOf('}');
+  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+    const candidate = trimmed.substring(firstBrace, lastBrace + 1).trim();
+    try {
+      return JSON.parse(candidate);
+    } catch {
+      const cleaned = candidate.replace(/,\s*([}\]])/g, '$1');
+      try {
+        return JSON.parse(cleaned);
+      } catch {}
+    }
+  }
+
+  // 4. Find outermost JSON array [ ... ]
+  const firstBracket = trimmed.indexOf('[');
+  const lastBracket = trimmed.lastIndexOf(']');
+  if (firstBracket !== -1 && lastBracket !== -1 && lastBracket > firstBracket) {
+    const candidate = trimmed.substring(firstBracket, lastBracket + 1).trim();
+    try {
+      return JSON.parse(candidate);
+    } catch {
+      const cleaned = candidate.replace(/,\s*([}\]])/g, '$1');
+      try {
+        return JSON.parse(cleaned);
+      } catch {}
+    }
+  }
+
+  throw new Error('AI 回傳資料格式有誤，未能成功提取 JSON');
 }
 
 // Server-side normalization for 4 major Taiwan convenience stores
@@ -835,7 +891,7 @@ app.post('/api/admin/save-shared-gemini-key', async (req, res) => {
 
     // Test key with Gemini API
     const ai = getGenAIClient(cleanKey);
-    const testRes = await generateWithFallback(ai, 'gemini-3.8-flash', '請回覆短字串：OK', false);
+    const testRes = await generateWithFallback(ai, 'gemini-3.8-flash', '請回覆短字串：OK', false, false, false);
     if (!testRes || !testRes.text) {
       return res.status(400).json({ ok: false, error: '金鑰連線測試無回應，請確認 Key 是否正確或具備存取權限。' });
     }
@@ -902,7 +958,7 @@ app.post('/api/admin/test-shared-gemini-key', async (req, res) => {
     // Test Gemini 3.x with a fast prompt
     const ai = getGenAIClient(activeKey);
     const startTime = Date.now();
-    const testResult = await generateWithFallback(ai, 'gemini-3.8-flash', '請回覆短字串：TEST_OK', false);
+    const testResult = await generateWithFallback(ai, 'gemini-3.8-flash', '請回覆短字串：TEST_OK', false, false, false);
     const latencyMs = Date.now() - startTime;
 
     res.json({
@@ -1357,7 +1413,10 @@ app.all('/api/ai/test-connection', async (req, res) => {
     const { text, modelUsed, usageMetadata } = await generateWithFallback(
       ai,
       model,
-      '請回覆：「連線成功」'
+      '請回覆：「連線成功」',
+      false,
+      false,
+      false
     );
 
     const latencyMs = Date.now() - startTime;
@@ -1523,12 +1582,17 @@ app.post('/api/ai/estimate-image', async (req, res) => {
     const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, '');
 
     const contents = [
-      prompt,
       {
-        inlineData: {
-          mimeType,
-          data: base64Data,
-        },
+        role: 'user',
+        parts: [
+          { text: prompt },
+          {
+            inlineData: {
+              mimeType,
+              data: base64Data,
+            },
+          },
+        ],
       },
     ];
 
@@ -1694,7 +1758,8 @@ If no readable barcode numbers are visible in the image, reply ONLY with 'NONE'.
       model || 'gemini-3.1-flash-lite',
       contents,
       false,
-      req.body.disableFallback === true
+      req.body.disableFallback === true,
+      false
     );
 
     const cleaned = text.replace(/[^0-9a-zA-Z]/g, '').trim();
@@ -2254,6 +2319,8 @@ app.get('/api/openfoodfacts/search', async (req, res) => {
             ai,
             'gemini-3.1-flash-lite',
             `Translate the Chinese food search term "${query}" to 1-3 English keywords for Open Food Facts search. Return ONLY the English keywords, no punctuation or markdown.`,
+            false,
+            false,
             false
           );
           const timeoutPromise = new Promise<{ text: string; modelUsed: string }>((_, reject) =>

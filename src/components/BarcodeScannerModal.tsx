@@ -597,7 +597,12 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
           }
           setScanError('相片中未偵測到清晰的條碼，請調整角度拍攝包裝上的國際條碼（13碼數字）。');
         } catch (err: any) {
-          setScanError('條碼分析失敗，請重試或改用語音/文字搜尋。');
+          const errMsg = String(err?.message || '');
+          if (errMsg.includes('忙碌') || errMsg.includes('503') || errMsg.includes('429')) {
+            setScanError('AI 伺服器忙碌中，請稍後重試');
+          } else {
+            setScanError(errMsg || '條碼分析失敗，請重試或改用語音/文字搜尋。');
+          }
         } finally {
           setIsProcessingFile(false);
         }

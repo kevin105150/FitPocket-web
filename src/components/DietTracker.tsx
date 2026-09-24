@@ -478,8 +478,13 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
           throw new Error(errData.error || '照片辨識失敗');
         }
 
-        // Download and parse JSON stream first (blisteringly fast now without Google Search Grounding)
-        const result = await res.json();
+        // Download and parse JSON safely
+        let result: any;
+        try {
+          result = await res.json();
+        } catch {
+          throw new Error('AI 伺服器回應格式異常，請稍後重試。');
+        }
         if (result._usage) {
           StorageService.recordApiUsage(result._usage);
         }
