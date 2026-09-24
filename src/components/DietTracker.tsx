@@ -1112,7 +1112,7 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
           {/* Carbs */}
           {(() => {
             const displayedCarbs = useNetCarbsMode
-              ? Math.max(0, Math.round((totalCarbs - totalFiber) * 10) / 10)
+              ? Math.max(0, Math.round(totalCarbs - totalFiber))
               : Math.round(totalCarbs);
             const carbPercent = Math.round((displayedCarbs / (currentGoal.carbs || 1)) * 100);
 
@@ -1152,11 +1152,11 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
                         </div>
                         <div className="flex justify-between text-[11px] pt-0.5 text-slate-600">
                           <span>總碳水：</span>
-                          <span className="font-bold text-slate-900">{Math.round(totalCarbs * 10) / 10} g</span>
+                          <span className="font-bold text-slate-900">{Math.round(totalCarbs)} g</span>
                         </div>
                         <div className="flex justify-between text-[11px] text-amber-700">
                           <span>膳食纖維：</span>
-                          <span className="font-bold">-{Math.round(totalFiber * 10) / 10} g</span>
+                          <span className="font-bold">-{Math.round(totalFiber)} g</span>
                         </div>
                         <div className="flex justify-between text-xs font-black text-amber-950 pt-1 border-t border-amber-100">
                           <span>淨碳水：</span>
