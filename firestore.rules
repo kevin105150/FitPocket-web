@@ -23,9 +23,10 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
-    // System config collection (for shared developer API key)
+    // System config collection (OCR pipeline configuration and global developer settings)
     match /system_config/{docId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if isAdmin();
     }
 
     // AI Whitelist collection for shared developer API key access

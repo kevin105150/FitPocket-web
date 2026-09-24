@@ -51,8 +51,8 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
 
   const [name, setName] = useState(initialFood?.name || '');
   const [brand, setBrand] = useState(() => {
-    if (initialFood?.brand) return initialFood.brand;
-    if (mode === 'AI_REVIEW' || initialFood?.id?.startsWith('ai_')) return 'AI辨識';
+    if (initialFood?.brand !== undefined) return initialFood.brand;
+    if (mode === 'AI_REVIEW' || (initialFood?.id?.startsWith('ai_') && !initialFood?.id?.startsWith('custom_ocr_') && !initialFood?.id?.startsWith('ocr_'))) return 'AI辨識';
     return '';
   });
   const [calories, setCalories] = useState<number | string>(initialFood?.calories ?? 0);
@@ -101,7 +101,9 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
   useEffect(() => {
     if (initialFood) {
       setName(initialFood.name || '');
-      const b = initialFood.brand || ((mode === 'AI_REVIEW' || initialFood.id?.startsWith('ai_')) ? 'AI辨識' : '');
+      const b = initialFood.brand !== undefined
+        ? initialFood.brand
+        : ((mode === 'AI_REVIEW' || (initialFood.id?.startsWith('ai_') && !initialFood.id?.startsWith('custom_ocr_') && !initialFood.id?.startsWith('ocr_'))) ? 'AI辨識' : '');
       setBrand(b);
       setCalories(initialFood.calories ?? 0);
       setCarbs(initialFood.carbs ?? 0);
@@ -752,8 +754,8 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
   }, []);
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="bg-white w-full max-w-lg rounded-t-[32px] sm:rounded-[32px] shadow-xl overflow-hidden flex flex-col h-[90dvh] sm:h-auto sm:max-h-[90vh] animate-in slide-in-from-bottom-10 sm:slide-in-from-bottom-0 duration-300">
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+      <div className="bg-white w-full max-w-lg rounded-3xl shadow-xl overflow-hidden flex flex-col h-[85vh] sm:h-auto sm:max-h-[90vh] transition-all duration-300">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
           <div>

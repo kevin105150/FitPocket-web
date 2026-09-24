@@ -304,5 +304,22 @@
         }
       }
     }
+  },
+  "system_config": {
+    "description": "Global system configurations including developer OCR pipeline model sequence",
+    "documents": {
+      "{configId}": {
+        "fields": {
+          "selectedPreprocessing": { "type": "array" },
+          "selectedLocator": { "type": "string" },
+          "selectedExtractors": { "type": "array" },
+          "selectedSemantics": { "type": "array" },
+          "ensembleStrategy": { "type": "string" },
+          "updatedAt": { "type": "number" },
+          "updatedBy": { "type": "string" },
+          "version": { "type": "number" }
+        }
+      }
+    }
   }
 }

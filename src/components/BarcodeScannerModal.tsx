@@ -612,11 +612,11 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   if (!shouldRender) return null;
 
   return (
-    <div className={`fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-slate-900/80 backdrop-blur-md transition-opacity duration-300 ${isExiting ? 'opacity-0 pointer-events-none' : 'animate-in fade-in'}`}>
+    <div className={`fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-md transition-opacity duration-300 ${isExiting ? 'opacity-0 pointer-events-none' : 'animate-in fade-in'}`}>
       {/* Hidden div for html5-qrcode file decoder */}
       <div id="temp-barcode-file-decoder" className="hidden" />
 
-      <div className={`bg-white rounded-t-[32px] sm:rounded-[32px] shadow-2xl max-w-md w-full overflow-hidden border border-slate-100 flex flex-col h-[94dvh] sm:h-auto sm:max-h-[90vh] transition-all duration-300 ${isExiting ? 'scale-95 translate-y-10' : 'animate-in slide-in-from-bottom-10 sm:slide-in-from-bottom-0'}`}>
+      <div className={`bg-white rounded-3xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-100 flex flex-col h-[82vh] sm:h-[75vh] max-h-[640px] transition-all duration-300 ${isExiting ? 'scale-95 translate-y-10' : 'scale-100'}`}>
         {/* Header */}
         <div className="p-4 bg-slate-900 text-white flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2">

@@ -927,6 +927,7 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
     };
     StorageService.saveFoodRecord(record);
     setShowCustomFoodModal(false);
+    setShowAddFood(false);
     refreshRecords();
   };
 
