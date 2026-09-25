@@ -62,7 +62,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
           {!imgError ? (
             <img
               src="/favicon.jpg"
-              alt="FitPocket Logo"
+              alt="NutraiFit Logo"
               className="w-16 h-16 rounded-2xl object-cover shadow-md mb-3"
               onError={() => setImgError(true)}
               referrerPolicy="no-referrer"
@@ -72,7 +72,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
               <Flame className="w-8 h-8" />
             </div>
           )}
-          <h1 className="text-2xl font-black text-slate-900 tracking-tight">FitPocket</h1>
+          <h1 className="text-2xl font-black text-slate-900 tracking-tight">NutraiFit</h1>
         </div>
 
         <p className="text-slate-500 text-sm font-medium mb-10">

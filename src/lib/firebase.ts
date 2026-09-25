@@ -151,7 +151,7 @@ export const testFirebaseConnection = async (): Promise<{
           ping: { stringValue: 'pong' },
           timestamp: { integerValue: String(Date.now()) },
           target: { stringValue: configuredDbId },
-          client: { stringValue: 'FitPocket Diagnostic' }
+          client: { stringValue: 'NutraiFit Diagnostic' }
         }
       })
     });

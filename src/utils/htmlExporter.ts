@@ -18,7 +18,7 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>FitPocket 7日報表 (${startDate} ～ ${endDate})</title>
+  <title>NutraiFit 7日報表 (${startDate} ～ ${endDate})</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
@@ -72,7 +72,7 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
 
         <div class="min-w-0 flex-1 space-y-0.5">
           <div class="flex items-center gap-2 flex-wrap">
-            <h1 class="text-base sm:text-lg font-black text-slate-900 tracking-tight leading-none">FitPocket 離線報表</h1>
+            <h1 class="text-base sm:text-lg font-black text-slate-900 tracking-tight leading-none">NutraiFit 離線報表</h1>
             <span class="text-[10px] bg-sky-100/80 text-sky-900 font-bold px-2 py-0.5 rounded-md border border-sky-200 shrink-0">
               7日數據
             </span>

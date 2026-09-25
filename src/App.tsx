@@ -425,13 +425,13 @@ export default function App() {
           <div className="flex items-center gap-3">
             <img 
               src="/favicon.jpg" 
-              alt="FitPocket Logo" 
+              alt="NutraiFit Logo" 
               className="w-10 h-10 rounded-2xl object-cover shadow-xs"
               referrerPolicy="no-referrer"
             />
             <div>
               <h1 className="text-lg font-black text-slate-900 tracking-tight leading-none">
-                FitPocket
+                NutraiFit
               </h1>
               <span className="text-[10px] font-bold text-sky-700 tracking-widest uppercase">
                 AI Intelligence
