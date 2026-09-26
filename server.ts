@@ -289,9 +289,16 @@ async function getSharedDeveloperApiKeyFromFirestore(): Promise<string> {
     return cachedSharedApiKey;
   }
   const cfg = getFirestoreConfig();
+  if (!cfg.apiKey) {
+    return cachedSharedApiKey || '';
+  }
   const url = `https://firestore.googleapis.com/v1/projects/${cfg.projectId}/databases/${cfg.databaseId}/documents/system_config/gemini_shared_key?key=${cfg.apiKey}`;
   try {
-    const resp = await fetch(url);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3500);
+    const resp = await fetch(url, { signal: controller.signal });
+    clearTimeout(timeoutId);
+
     if (resp.ok) {
       const data = await resp.json();
       const doc = parseFirestoreDoc(data);
@@ -301,11 +308,11 @@ async function getSharedDeveloperApiKeyFromFirestore(): Promise<string> {
         return cachedSharedApiKey;
       }
     } else {
-      const errTxt = await resp.text();
-      console.warn('Firestore fetch shared key status:', resp.status, errTxt);
+      const errTxt = await resp.text().catch(() => '');
+      console.warn('Firestore fetch shared key status notice:', resp.status, errTxt);
     }
   } catch (err) {
-    console.error('Error fetching shared developer key from Firestore:', err);
+    console.warn('Notice: Firestore shared key lookup skipped or timed out:', err);
   }
   return cachedSharedApiKey || '';
 }

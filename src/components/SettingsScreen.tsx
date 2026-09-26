@@ -179,7 +179,7 @@ export const SettingsScreen: React.FC = () => {
     try {
       const res = await fetch('/api/admin/shared-gemini-key-status');
       if (res.ok) {
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         if (data.ok) {
           setSharedKeyStatus({
             hasKey: data.hasKey,
@@ -189,8 +189,8 @@ export const SettingsScreen: React.FC = () => {
           });
         }
       }
-    } catch (e) {
-      console.error('Failed to fetch shared key status:', e);
+    } catch (e: any) {
+      console.warn('[Shared Key Status Notice]:', e?.message || e);
     }
   }, []);
 
