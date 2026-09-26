@@ -881,10 +881,12 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
         potassium: 0,
       };
 
-      const nutrientKeys: (keyof NutrientValues)[] = [
+      type BaseNutrientKey = 'calories' | 'protein' | 'fat' | 'carbs' | 'sugars' | 'fiber' | 'sodium' | 'potassium';
+
+      const nutrientKeys: BaseNutrientKey[] = [
         'calories', 'protein', 'fat', 'carbs', 'sugars', 'fiber', 'sodium', 'potassium'
       ];
-      const nutrientInfo: Record<keyof NutrientValues, { label: string; unit: string }> = {
+      const nutrientInfo: Record<BaseNutrientKey, { label: string; unit: string }> = {
         calories: { label: '熱量', unit: 'kcal' },
         protein: { label: '蛋白質', unit: 'g' },
         fat: { label: '脂肪', unit: 'g' },
@@ -895,7 +897,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
         potassium: { label: '鉀', unit: 'mg' },
       };
 
-      const filledSources: Record<keyof NutrientValues, string> = {
+      const filledSources: Record<BaseNutrientKey, string> = {
         calories: '未取得 (0)',
         protein: '未取得 (0)',
         fat: '未取得 (0)',
@@ -922,9 +924,9 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
         // First evaluate non-calorie macronutrients so we can calculate theoretical calories for arbitration
         const nonCalorieKeys = nutrientKeys.filter(k => k !== 'calories');
         for (const key of nonCalorieKeys) {
-          const validBranches = branchResults.filter(b => b.nutrients[key] > 0);
+          const validBranches = branchResults.filter(b => (b.nutrients[key] ?? 0) > 0);
           if (validBranches.length > 0) {
-            const values = validBranches.map(b => b.nutrients[key]).sort((a, b) => a - b);
+            const values = validBranches.map(b => b.nutrients[key] as number).sort((a, b) => a - b);
             
             // Group close values within 12% tolerance to find consensus clusters
             const clusters: { val: number; count: number; sum: number }[] = [];
@@ -1036,7 +1038,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
           const distinctVals: { val: number; count: number }[] = [];
           for (const branch of branchResults) {
             const v = branch.nutrients[key];
-            if (v > 0) {
+            if (v != null && v > 0) {
               const rounded = (key === 'calories' || key === 'sodium' || key === 'potassium') ? Math.round(v) : Math.round(v * 10) / 10;
               const match = distinctVals.find(d => Math.abs(d.val - rounded) <= (key === 'calories' || key === 'sodium' || key === 'potassium' ? 1 : 0.1));
               if (match) {
@@ -1052,8 +1054,9 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
           }
 
           for (const branch of branchResults) {
-            if (finalNutrients[key] === 0 && branch.nutrients[key] > 0) {
-              finalNutrients[key] = branch.nutrients[key];
+            const v = branch.nutrients[key];
+            if ((finalNutrients[key] ?? 0) === 0 && v != null && v > 0) {
+              finalNutrients[key] = v;
               filledSources[key] = `[${branch.imageVariantLabel}] + [${branch.extractorName.split(' ')[0]}] + [${branch.semanticName.split(' ')[0]}]`;
               debugLogs.push(`  ✓ [互補補足] 【${nutrientInfo[key].label}】由組合 [${filledSources[key]}] 成功貢獻: ${finalNutrients[key]} ${nutrientInfo[key].unit}`);
               break;

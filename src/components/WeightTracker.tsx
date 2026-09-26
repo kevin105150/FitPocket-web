@@ -4,6 +4,7 @@ import { WeightRecord } from '../types';
 import { StorageService } from '../services/storage';
 import { DateNavigator } from './DateNavigator';
 import { motion, AnimatePresence } from 'motion/react';
+import { useModalBackHandler } from '../hooks/useModalBackHandler';
 
 interface WeightTrackerProps {
   currentDate: string;
@@ -32,6 +33,9 @@ export const WeightTracker: React.FC<WeightTrackerProps> = ({
 
   const [weightRecordToDelete, setWeightRecordToDelete] = useState<WeightRecord | null>(null);
   const [confirmSwipeDeleteId, setConfirmSwipeDeleteId] = useState<string | null>(null);
+
+  useModalBackHandler(isModalOpen, () => setIsModalOpen(false));
+  useModalBackHandler(weightRecordToDelete !== null, () => setWeightRecordToDelete(null));
 
   const refreshWeights = () => {
     const all = StorageService.getAllWeightRecords().sort(
