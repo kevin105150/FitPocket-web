@@ -297,7 +297,7 @@ export const SettingsScreen: React.FC = () => {
     setAiAnalysisAdminStatus('正在優化圖片以加快 AI 辨識...');
 
     try {
-      const optimizedBase64 = await optimizeImageForAi(base64, 768, 768, 0.7);
+      const optimizedBase64 = await optimizeImageForAi(base64, 1280, 1280, 0.85);
       const aiParams = getAiRequestParams();
       const model = StorageService.getSelectedAiModel();
 

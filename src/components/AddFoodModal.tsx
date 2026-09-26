@@ -1917,10 +1917,10 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
       setAiProgress(20);
       setAiStatus('正在優化圖片以加快辨識速度...');
 
-      // 核心優化：在前端先壓縮圖片 (帶有 fallback 機制)
+      // 核心優化：在前端先校正方向與壓縮圖片 (帶有 fallback 機制)
       let optimizedBase64 = base64;
       try {
-        optimizedBase64 = await optimizeImageForAi(base64, 768, 768, 0.7);
+        optimizedBase64 = await optimizeImageForAi(base64, 1280, 1280, 0.85);
       } catch (optErr) {
         console.warn('[Image Optimizer] 圖片壓縮失敗，改用原圖 Base64進行辨識:', optErr);
       }

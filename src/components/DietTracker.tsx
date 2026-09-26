@@ -434,8 +434,8 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
         setAiPhotoProgress(25);
         setAiPhotoStatus('正在優化圖片以加快辨識速度...');
 
-        // 核心優化：壓縮圖片 (最佳化為 768x768，Gemini 視覺識別最速甜點尺寸)
-        const optimizedBase64 = await optimizeImageForAi(base64, 768, 768, 0.7);
+        // 核心優化：校正方向與壓縮圖片 (最佳化為 1280x1280，Gemini 視覺識別清晰高解析度)
+        const optimizedBase64 = await optimizeImageForAi(base64, 1280, 1280, 0.85);
 
         const aiParams = getAiRequestParams();
         const model = StorageService.getSelectedAiModel();

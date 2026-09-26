@@ -323,15 +323,22 @@ export const AiCameraModal: React.FC<AiCameraModalProps> = ({
   const takeSnapshot = () => {
     if (!videoRef.current) return;
     const video = videoRef.current;
+    
+    const vWidth = video.videoWidth || 1280;
+    const vHeight = video.videoHeight || 720;
+
     const canvas = document.createElement('canvas');
-    canvas.width = video.videoWidth || 1280;
-    canvas.height = video.videoHeight || 720;
+    canvas.width = vWidth;
+    canvas.height = vHeight;
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(video, 0, 0, vWidth, vHeight);
+    
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
 
     setCapturedImageBase64(dataUrl);
     setCapturedMimeType('image/jpeg');

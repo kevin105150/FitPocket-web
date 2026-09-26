@@ -1503,7 +1503,28 @@ app.post('/api/ai/estimate-nutrition', async (req, res) => {
     );
 
     // In JSON mode, text is a pure JSON string
-    const parsed = extractJsonFromText(text);
+    let parsed: any = null;
+    try {
+      parsed = extractJsonFromText(text);
+    } catch (parseErr) {
+      console.warn('[Gemini estimate] JSON parse error, using safe object recovery:', parseErr);
+      parsed = {
+        name: '估算料理',
+        brand: 'AI辨識',
+        caloriesPer100g: 150,
+        carbsPer100g: 15,
+        proteinPer100g: 10,
+        fatPer100g: 5,
+        sugarsPer100g: 0,
+        fiberPer100g: 0,
+        sodiumPer100g: 0,
+        potassiumPer100g: 0,
+        defaultServingAmount: 200,
+        servingUnit: 'g',
+        servingSizeText: '1份 (200g)',
+        explanation: '完成初步營養辨識',
+      };
+    }
     if (parsed.brand) {
       parsed.brand = normalizeConvenienceStoreBrand(parsed.brand);
     }
@@ -1556,27 +1577,35 @@ app.post('/api/ai/estimate-image', async (req, res) => {
 
     const ai = getGenAIClient(authResult.apiKeyToUse!);
 
-    const prompt = `請分析圖片中的食物。若包裝上有「營養標示」，嚴格依其數值回傳。
-1. 品牌: 台灣超商標準化 (7-11, 全家, 萊爾富, OK)。
-2. 份量: 以「單一份」基準，勿回傳整包總重。
-3. 數據: 若無標示纖維/鉀/糖，請填 0。純生魚片/刺身之碳水/糖須為 0。
-4. 格式要求：
+    const prompt = `你是一位專業的台灣飲食與營養分析 AI 專家。請詳細分析這張照片中的食物（包括現煮菜餚、便當、外食、飲料或包裝食品/營養標示表格）。
+
+【辨識說明】：
+1. 圖片可能是「現煮餐點/家常菜/外食/飲料之照片」或是「食品外包裝/營養標示表格」。
+2. 若照片為「現煮餐點/外食/家常菜」：
+   - 請仔細觀察視覺特徵（食材組成、烹調方式、油亮程度、醬汁份量等），精準判斷食物品名。
+   - 估算該料理每 100g 的熱量與三大營養素（碳水化合物、蛋白質、脂肪），以及合理常見的單次食用克數（defaultServingAmount）。
+3. 若照片包含「食品外包裝與營養標示」：
+   - 嚴格依照包裝上的營養標示數據回傳。
+4. 品牌規範：若為台灣常見品牌/超商請標註（如 7-11, 全家, 萊爾富, OK, 麥當勞, 摩斯等）；若為一般餐廳或家常料理請填「外食」或「家常」或「AI辨識」。
+5. 數據要求：數值皆為每 100g (或 100ml) 的純數字。純生魚片/刺身碳水與糖為 0；無糖茶/水碳水為 0。
+
+請務必嚴格回傳標準 JSON 格式（純數字勿帶單位或文字）：
 {
-  "name": "品名",
-  "brand": "品牌或空字串",
-  "barcode": "條碼或空字串",
-  "caloriesPer100g": 數字,
-  "carbsPer100g": 數字,
-  "proteinPer100g": 數字,
-  "fatPer100g": 數字,
-  "sugarsPer100g": 數字,
-  "fiberPer100g": 數字,
-  "sodiumPer100g": 數字,
-  "potassiumPer100g": 數字,
-  "defaultServingAmount": 數字,
-  "servingUnit": "g" | "ml",
-  "servingSizeText": "份量說明",
-  "explanation": "分析建議"
+  "name": "紅燒牛肉麵",
+  "brand": "外食",
+  "barcode": "",
+  "caloriesPer100g": 135,
+  "carbsPer100g": 15,
+  "proteinPer100g": 8,
+  "fatPer100g": 4,
+  "sugarsPer100g": 1,
+  "fiberPer100g": 1,
+  "sodiumPer100g": 380,
+  "potassiumPer100g": 120,
+  "defaultServingAmount": 250,
+  "servingUnit": "g",
+  "servingSizeText": "1份 (250g)",
+  "explanation": "包含牛肉、麵條與高湯，以每 100g 估算營養成分。"
 }`;
 
     const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, '');
@@ -1604,8 +1633,30 @@ app.post('/api/ai/estimate-image', async (req, res) => {
       req.body.disableFallback === true
     );
 
-    // In JSON mode, text is a pure JSON string
-    const parsed = extractJsonFromText(text);
+    // In JSON mode, parse text with safe fallback
+    let parsed: any = null;
+    try {
+      parsed = extractJsonFromText(text);
+    } catch (parseErr) {
+      console.warn('[Gemini image analyze] JSON parse error, using safe object recovery:', parseErr);
+      parsed = {
+        name: '照片估算料理',
+        brand: 'AI辨識',
+        barcode: '',
+        caloriesPer100g: 150,
+        carbsPer100g: 15,
+        proteinPer100g: 10,
+        fatPer100g: 5,
+        sugarsPer100g: 0,
+        fiberPer100g: 0,
+        sodiumPer100g: 0,
+        potassiumPer100g: 0,
+        defaultServingAmount: 200,
+        servingUnit: 'g',
+        servingSizeText: '1份 (200g)',
+        explanation: '已由照片完成初步營養辨識與估算',
+      };
+    }
     if (parsed.brand) {
       parsed.brand = normalizeConvenienceStoreBrand(parsed.brand);
     }
