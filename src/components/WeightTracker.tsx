@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Scale, TrendingDown, TrendingUp, Minus, Calendar, Plus, Trash2, Edit2, Check } from 'lucide-react';
+import { Scale, TrendingDown, TrendingUp, Minus, Calendar, Plus, Trash2, Edit2, Check, X } from 'lucide-react';
 import { WeightRecord } from '../types';
 import { StorageService } from '../services/storage';
 import { DateNavigator } from './DateNavigator';
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 
 interface WeightTrackerProps {
   currentDate: string;
@@ -15,18 +15,21 @@ export const WeightTracker: React.FC<WeightTrackerProps> = ({
   onDateChange,
 }) => {
   const [weightRecords, setWeightRecords] = useState<WeightRecord[]>([]);
-  const [currentDayRecord, setCurrentDayRecord] = useState<WeightRecord | undefined>(undefined);
-  const [morningWeight, setMorningWeight] = useState<string>('');
-  const [morningTime, setMorningTime] = useState<string>(new Date().toTimeString().slice(0, 5));
-  const [eveningWeight, setEveningWeight] = useState<string>('');
-  const [eveningTime, setEveningTime] = useState<string>(new Date().toTimeString().slice(0, 5));
   const [chartDays, setChartDays] = useState<number>(7);
   const [userProfile, setUserProfile] = useState(StorageService.getUserProfile());
 
-  const [activeTab, setActiveTab] = useState<'morning' | 'evening'>(() => {
+  const [activeChartTab, setActiveChartTab] = useState<'morning' | 'evening'>(() => {
     const hour = new Date().getHours();
     return hour < 12 ? 'morning' : 'evening';
   });
+
+  // Modal State
+  const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
+  const [modalDate, setModalDate] = useState<string>(currentDate);
+  const [modalTab, setModalTab] = useState<'morning' | 'evening'>('morning');
+  const [modalWeight, setModalWeight] = useState<string>('');
+  const [modalTime, setModalTime] = useState<string>('08:00');
+
   const [weightRecordToDelete, setWeightRecordToDelete] = useState<WeightRecord | null>(null);
   const [confirmSwipeDeleteId, setConfirmSwipeDeleteId] = useState<string | null>(null);
 
@@ -35,19 +38,6 @@ export const WeightTracker: React.FC<WeightTrackerProps> = ({
       (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
     );
     setWeightRecords(all);
-    const day = all.find((r) => r.date === currentDate);
-    setCurrentDayRecord(day);
-    if (day) {
-      setMorningWeight(day.morningWeightKg ? day.morningWeightKg.toString() : '');
-      setMorningTime(day.morningTime || '08:00');
-      setEveningWeight(day.eveningWeightKg ? day.eveningWeightKg.toString() : '');
-      setEveningTime(day.eveningTime || '21:30');
-    } else {
-      setMorningWeight('');
-      setMorningTime(new Date().toTimeString().slice(0, 5));
-      setEveningWeight('');
-      setEveningTime(new Date().toTimeString().slice(0, 5));
-    }
     setUserProfile(StorageService.getUserProfile());
   };
 
@@ -59,32 +49,77 @@ export const WeightTracker: React.FC<WeightTrackerProps> = ({
     return () => unsubscribe();
   }, [currentDate]);
 
-  const handleSaveDayWeight = (e: React.FormEvent) => {
-    e.preventDefault();
-    const mw = morningWeight ? parseFloat(morningWeight) : null;
-    const ew = eveningWeight ? parseFloat(eveningWeight) : null;
+  const handleOpenModal = (date: string, tab?: 'morning' | 'evening') => {
+    const hour = new Date().getHours();
+    const targetTab = tab || (hour < 12 ? 'morning' : 'evening');
+    setModalDate(date);
+    setModalTab(targetTab);
 
-    if (mw === null && ew === null) {
-      // Don't save empty
-      return;
+    const rec = StorageService.getAllWeightRecords().find((r) => r.date === date);
+    if (targetTab === 'morning') {
+      setModalWeight(rec?.morningWeightKg != null ? String(rec.morningWeightKg) : '');
+      setModalTime(rec?.morningTime || (date === currentDate ? new Date().toTimeString().slice(0, 5) : '08:00'));
+    } else {
+      setModalWeight(rec?.eveningWeightKg != null ? String(rec.eveningWeightKg) : '');
+      setModalTime(rec?.eveningTime || (date === currentDate ? new Date().toTimeString().slice(0, 5) : '21:30'));
     }
-
-    const record: WeightRecord = {
-      id: currentDayRecord?.id || 'weight_' + Date.now(),
-      date: currentDate,
-      morningWeightKg: mw,
-      morningTime: mw ? morningTime : null,
-      eveningWeightKg: ew,
-      eveningTime: ew ? eveningTime : null,
-      createdAt: Date.now(),
-    };
-
-    StorageService.saveWeightRecord(record);
-    refreshWeights();
+    setIsModalOpen(true);
   };
 
-  // ... (Chart logic needs to be updated to be tab-aware)
-  
+  const handleSwitchModalTab = (tab: 'morning' | 'evening') => {
+    setModalTab(tab);
+    const rec = StorageService.getAllWeightRecords().find((r) => r.date === modalDate);
+    if (tab === 'morning') {
+      setModalWeight(rec?.morningWeightKg != null ? String(rec.morningWeightKg) : '');
+      setModalTime(rec?.morningTime || (modalDate === currentDate ? new Date().toTimeString().slice(0, 5) : '08:00'));
+    } else {
+      setModalWeight(rec?.eveningWeightKg != null ? String(rec.eveningWeightKg) : '');
+      setModalTime(rec?.eveningTime || (modalDate === currentDate ? new Date().toTimeString().slice(0, 5) : '21:30'));
+    }
+  };
+
+  const handleSaveModalWeight = (e: React.FormEvent) => {
+    e.preventDefault();
+    const all = StorageService.getAllWeightRecords();
+    const existingRecord = all.find((r) => r.date === modalDate);
+
+    const parsedWeight = modalWeight.trim() ? parseFloat(modalWeight) : null;
+    const timeVal = parsedWeight !== null ? (modalTime || (modalTab === 'morning' ? '08:00' : '21:30')) : null;
+
+    let morningWeightKg = existingRecord?.morningWeightKg ?? null;
+    let morningTime = existingRecord?.morningTime ?? null;
+    let eveningWeightKg = existingRecord?.eveningWeightKg ?? null;
+    let eveningTime = existingRecord?.eveningTime ?? null;
+
+    if (modalTab === 'morning') {
+      morningWeightKg = parsedWeight;
+      morningTime = timeVal;
+    } else {
+      eveningWeightKg = parsedWeight;
+      eveningTime = timeVal;
+    }
+
+    if (morningWeightKg === null && eveningWeightKg === null) {
+      if (existingRecord) {
+        StorageService.deleteWeightRecord(existingRecord.id);
+      }
+    } else {
+      const record: WeightRecord = {
+        id: existingRecord?.id || 'weight_' + Date.now(),
+        date: modalDate,
+        morningWeightKg,
+        morningTime,
+        eveningWeightKg,
+        eveningTime,
+        createdAt: existingRecord?.createdAt || Date.now(),
+      };
+      StorageService.saveWeightRecord(record);
+    }
+
+    refreshWeights();
+    setIsModalOpen(false);
+  };
+
   const handleDeleteRecord = (id: string) => {
     StorageService.deleteWeightRecord(id);
     setWeightRecordToDelete(null);
@@ -110,21 +145,10 @@ export const WeightTracker: React.FC<WeightTrackerProps> = ({
     refreshWeights();
   };
 
-  // Compute latest weight and BMI
-  const latestRecord = [...weightRecords].reverse().find(
-    (r) => r.morningWeightKg || r.eveningWeightKg
-  );
-  const latestWeight =
-    latestRecord?.morningWeightKg || latestRecord?.eveningWeightKg || userProfile.currentWeightKg;
-  const heightM = (userProfile.heightCm || 175) / 100;
-  const bmi = latestWeight ? parseFloat(((latestWeight / (heightM * heightM))).toFixed(1)) : '--';
-
   // Chart data filter
   const sortedRecords = [...weightRecords].sort(
     (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
   );
-  const chartFiltered =
-    chartDays === 0 ? sortedRecords : sortedRecords.slice(-chartDays);
 
   // Filter for chart based on tab
   const getChartPoints = (type: 'morning' | 'evening') => {
@@ -134,16 +158,17 @@ export const WeightTracker: React.FC<WeightTrackerProps> = ({
         return val ? { date: r.date.slice(5), weight: val } : null;
       })
       .filter(Boolean) as { date: string; weight: number }[];
-  }
+  };
 
-  const validChartPoints = getChartPoints(activeTab);
+  const allValidPoints = getChartPoints(activeChartTab);
+  const validChartPoints = chartDays === 0 ? allValidPoints : allValidPoints.slice(-chartDays);
 
-  const minW = Math.min(...validChartPoints.map((p) => p.weight), userProfile.targetWeightKg) - 1;
-  const maxW = Math.max(...validChartPoints.map((p) => p.weight), userProfile.targetWeightKg) + 1;
+  const minW = Math.min(...(validChartPoints.length ? validChartPoints.map((p) => p.weight) : [userProfile.targetWeightKg || 60]), userProfile.targetWeightKg || 60) - 1;
+  const maxW = Math.max(...(validChartPoints.length ? validChartPoints.map((p) => p.weight) : [userProfile.targetWeightKg || 60]), userProfile.targetWeightKg || 60) + 1;
   const rangeW = maxW - minW || 1;
 
   return (
-    <div className="space-y-4 pb-24 max-w-2xl mx-auto">
+    <div className="space-y-4 pb-28 max-w-2xl mx-auto relative">
       {/* Date Navigator */}
       <DateNavigator currentDate={currentDate} onDateChange={onDateChange} />
 
@@ -155,7 +180,7 @@ export const WeightTracker: React.FC<WeightTrackerProps> = ({
           </div>
           <div className="text-xl font-black text-amber-800 mt-1">
             {(() => {
-              const last = [...weightRecords].reverse().find(r => r.morningWeightKg);
+              const last = [...weightRecords].reverse().find((r) => r.morningWeightKg);
               return last ? parseFloat(Number(last.morningWeightKg).toFixed(1)) : '--';
             })()}{' '}
             <span className="text-xs font-semibold text-slate-400">kg</span>
@@ -168,7 +193,7 @@ export const WeightTracker: React.FC<WeightTrackerProps> = ({
           </div>
           <div className="text-xl font-black text-indigo-800 mt-1">
             {(() => {
-              const last = [...weightRecords].reverse().find(r => r.eveningWeightKg);
+              const last = [...weightRecords].reverse().find((r) => r.eveningWeightKg);
               return last ? parseFloat(Number(last.eveningWeightKg).toFixed(1)) : '--';
             })()}{' '}
             <span className="text-xs font-semibold text-slate-400">kg</span>
@@ -180,7 +205,7 @@ export const WeightTracker: React.FC<WeightTrackerProps> = ({
             目標體重
           </div>
           <div className="text-xl font-black text-slate-900 mt-1">
-            {parseFloat(Number(userProfile.targetWeightKg).toFixed(1))}{' '}
+            {parseFloat(Number(userProfile.targetWeightKg || 0).toFixed(1))}{' '}
             <span className="text-xs font-semibold text-slate-400">kg</span>
           </div>
         </div>
@@ -190,69 +215,47 @@ export const WeightTracker: React.FC<WeightTrackerProps> = ({
             身高
           </div>
           <div className="text-xl font-black text-slate-900 mt-1">
-            {parseFloat(Number(userProfile.heightCm).toFixed(1))}{' '}
+            {parseFloat(Number(userProfile.heightCm || 0).toFixed(1))}{' '}
             <span className="text-xs font-semibold text-slate-400">cm</span>
           </div>
         </div>
       </div>
 
-      {/* Tab Switcher */}
-      <div className="bg-white p-1 rounded-2xl border border-slate-200 flex gap-1">
-        <button
-          onClick={() => setActiveTab('morning')}
-          className={`flex-1 py-3 text-sm font-bold rounded-xl transition ${activeTab === 'morning' ? 'bg-amber-100 text-amber-900' : 'text-slate-500'}`}
-        >
-          晨間體重
-        </button>
-        <button
-          onClick={() => setActiveTab('evening')}
-          className={`flex-1 py-3 text-sm font-bold rounded-xl transition ${activeTab === 'evening' ? 'bg-indigo-100 text-indigo-900' : 'text-slate-500'}`}
-        >
-          晚間體重
-        </button>
-      </div>
-
-      {/* Weight Entry Form */}
-      <div className="bg-white rounded-3xl border border-slate-200/80 shadow-2xs p-5">
-        <h3 className="font-bold text-slate-900 text-sm mb-3">記錄 {currentDate} {activeTab === 'morning' ? '晨間' : '晚間'} 體重</h3>
-        <form onSubmit={handleSaveDayWeight} className="space-y-4">
-            <div className={`p-4 rounded-2xl border ${activeTab === 'morning' ? 'bg-amber-50/50 border-amber-200/60' : 'bg-indigo-50/50 border-indigo-200/60'}`}>
-              <div className="flex justify-between items-center mb-1">
-                <span className="text-xs font-bold text-slate-700">{activeTab === 'morning' ? '🌅 晨重 (空腹)' : '🌙 晚重 (睡前)'}</span>
-                <input
-                  type="time"
-                  value={activeTab === 'morning' ? morningTime : eveningTime}
-                  onChange={(e) => activeTab === 'morning' ? setMorningTime(e.target.value) : setEveningTime(e.target.value)}
-                  className="px-2 py-1 text-xs font-bold bg-white rounded-lg border border-slate-200 text-slate-600"
-                />
-              </div>
-              <div className="flex items-center gap-1.5 mt-2">
-                <input
-                  type="number"
-                  step="0.1"
-                  placeholder="例如: 72.4"
-                  value={activeTab === 'morning' ? morningWeight : eveningWeight}
-                  onChange={(e) => activeTab === 'morning' ? setMorningWeight(e.target.value) : setEveningWeight(e.target.value)}
-                  className="w-full px-3 py-2 bg-white rounded-xl border border-slate-200 text-lg font-black text-slate-800 focus:outline-sky-600"
-                />
-                <span className="text-sm font-bold text-slate-500">kg</span>
-              </div>
-            </div>
-          <button
-            type="submit"
-            className="w-full py-3 bg-sky-600 hover:bg-sky-700 text-white font-bold text-sm rounded-xl shadow-xs transition flex items-center justify-center gap-1.5 cursor-pointer"
-          >
-            <Check className="w-4 h-4" />
-            <span>儲存 {activeTab === 'morning' ? '晨間' : '晚間'} 體重</span>
-          </button>
-        </form>
-      </div>
-
       {/* Weight Trend Chart */}
       <div className="bg-white rounded-3xl border border-slate-200/80 shadow-2xs p-5">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-bold text-slate-900 text-sm">體重趨勢圖表</h3>
-          <div className="flex gap-1 bg-slate-100 p-1 rounded-xl">
+        <div className="flex flex-col gap-2.5 mb-4">
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="font-bold text-slate-900 text-sm">體重趨勢圖表</h3>
+
+            {/* 早上 / 晚上 (右上角) */}
+            <div className="flex bg-slate-100 p-0.5 sm:p-1 rounded-xl text-xs font-bold">
+              <button
+                type="button"
+                onClick={() => setActiveChartTab('morning')}
+                className={`px-2.5 py-0.5 sm:py-1 rounded-lg transition cursor-pointer ${
+                  activeChartTab === 'morning'
+                    ? 'bg-amber-100 text-amber-900 shadow-2xs'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                早上
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveChartTab('evening')}
+                className={`px-2.5 py-0.5 sm:py-1 rounded-lg transition cursor-pointer ${
+                  activeChartTab === 'evening'
+                    ? 'bg-indigo-100 text-indigo-900 shadow-2xs'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                晚上
+              </button>
+            </div>
+          </div>
+
+          {/* Days Filter (Left) */}
+          <div className="flex gap-1 bg-slate-100 p-0.5 sm:p-1 rounded-xl self-start -ml-0.5 sm:-ml-1">
             {[
               { label: '7天', val: 7 },
               { label: '30天', val: 30 },
@@ -263,7 +266,7 @@ export const WeightTracker: React.FC<WeightTrackerProps> = ({
                 key={tab.val}
                 type="button"
                 onClick={() => setChartDays(tab.val)}
-                className={`px-2.5 py-1 text-xs font-bold rounded-lg transition cursor-pointer ${
+                className={`px-2 py-0.5 sm:px-2.5 sm:py-1 text-xs font-bold rounded-lg transition cursor-pointer ${
                   chartDays === tab.val
                     ? 'bg-white text-sky-800 shadow-2xs'
                     : 'text-slate-500 hover:text-slate-800'
@@ -294,7 +297,7 @@ export const WeightTracker: React.FC<WeightTrackerProps> = ({
               {/* Trend Polyline */}
               <polyline
                 fill="none"
-                stroke="#0284c7"
+                stroke={activeChartTab === 'morning' ? '#d97706' : '#4f46e5'}
                 strokeWidth="2.5"
                 points={validChartPoints
                   .map((p, i) => {
@@ -311,7 +314,7 @@ export const WeightTracker: React.FC<WeightTrackerProps> = ({
                 const y = 120 - ((p.weight - minW) / rangeW) * 100;
                 return (
                   <g key={i}>
-                    <circle cx={x} cy={y} r="3.5" fill="#0284c7" />
+                    <circle cx={x} cy={y} r="3.5" fill={activeChartTab === 'morning' ? '#d97706' : '#4f46e5'} />
                     <text
                       x={x}
                       y={y - 8}
@@ -345,7 +348,10 @@ export const WeightTracker: React.FC<WeightTrackerProps> = ({
 
       {/* Weight History List */}
       <div className="bg-white rounded-3xl border border-slate-200/80 shadow-2xs p-5">
-        <h3 className="font-bold text-slate-900 text-sm mb-3">近期體重記錄</h3>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="font-bold text-slate-900 text-sm">近期體重記錄</h3>
+          <span className="text-[11px] text-slate-400">點擊筆圖示可快速編輯</span>
+        </div>
         <div className="divide-y divide-slate-100">
           {[...weightRecords].reverse().slice(0, 10).map((rec) => (
             <div key={rec.id} className="relative overflow-hidden py-1">
@@ -393,10 +399,10 @@ export const WeightTracker: React.FC<WeightTrackerProps> = ({
 
               {/* Sliding Card Content */}
               {(() => {
-                let slideDist = 85; // 全天(50) + 關閉(35)
+                let slideDist = 85;
                 if (rec.morningWeightKg) slideDist += 45;
                 if (rec.eveningWeightKg) slideDist += 45;
-                
+
                 return (
                   <motion.div
                     animate={{ x: confirmSwipeDeleteId === rec.id ? -slideDist : 0 }}
@@ -404,72 +410,193 @@ export const WeightTracker: React.FC<WeightTrackerProps> = ({
                     className="relative z-10 bg-white py-2 flex items-center justify-between gap-3 w-full will-change-transform transform-gpu"
                   >
                     <div className="min-w-0 flex-1">
-                  <div className="font-bold text-xs text-slate-800">{rec.date}</div>
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-slate-500 mt-1.5">
-                    {/* Morning Weight Segment */}
-                    <div className="flex items-center justify-between w-[115px] bg-amber-50/50 border border-amber-100/50 px-2 py-1 rounded-xl">
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        <span className="text-[10px] text-amber-900 font-semibold shrink-0">晨重</span>
-                        {rec.morningWeightKg != null ? (
-                          <span className="text-amber-800 font-black text-[11px] truncate">{parseFloat(Number(rec.morningWeightKg).toFixed(1))}</span>
-                        ) : (
-                          <span className="text-slate-300 font-medium">--</span>
-                        )}
+                      <div className="font-bold text-xs text-slate-800">{rec.date}</div>
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-slate-500 mt-1.5">
+                        {/* Morning Weight Segment */}
+                        <div className="flex items-center justify-between w-[115px] bg-amber-50/50 border border-amber-100/50 px-2 py-1 rounded-xl">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <span className="text-[10px] text-amber-900 font-semibold shrink-0">晨重</span>
+                            {rec.morningWeightKg != null ? (
+                              <span className="text-amber-800 font-black text-[11px] truncate">
+                                {parseFloat(Number(rec.morningWeightKg).toFixed(1))}
+                              </span>
+                            ) : (
+                              <span className="text-slate-300 font-medium">--</span>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenModal(rec.date, 'morning')}
+                            className="p-1 text-slate-400 hover:text-amber-700 hover:bg-amber-100 rounded-lg transition cursor-pointer shrink-0"
+                            title={rec.morningWeightKg ? '編輯晨間體重' : '新增晨間體重'}
+                          >
+                            <Edit2 className="w-3 h-3" />
+                          </button>
+                        </div>
+
+                        {/* Evening Weight Segment */}
+                        <div className="flex items-center justify-between w-[115px] bg-indigo-50/50 border border-indigo-100/50 px-2 py-1 rounded-xl">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <span className="text-[10px] text-indigo-900 font-semibold shrink-0">晚重</span>
+                            {rec.eveningWeightKg != null ? (
+                              <span className="text-indigo-800 font-black text-[11px] truncate">
+                                {parseFloat(Number(rec.eveningWeightKg).toFixed(1))}
+                              </span>
+                            ) : (
+                              <span className="text-slate-300 font-medium">--</span>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenModal(rec.date, 'evening')}
+                            className="p-1 text-slate-400 hover:text-indigo-700 hover:bg-indigo-100 rounded-lg transition cursor-pointer shrink-0"
+                            title={rec.eveningWeightKg ? '編輯晚間體重' : '新增晚間體重'}
+                          >
+                            <Edit2 className="w-3 h-3" />
+                          </button>
+                        </div>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          onDateChange(rec.date);
-                          setActiveTab('morning');
-                          window.scrollTo({ top: 0, behavior: 'smooth' });
-                        }}
-                        className="p-1 text-slate-400 hover:text-amber-700 hover:bg-amber-100 rounded-lg transition cursor-pointer shrink-0"
-                        title={rec.morningWeightKg ? "編輯晨間體重" : "新增晨間體重"}
-                      >
-                        <Edit2 className="w-3 h-3" />
-                      </button>
                     </div>
 
-                    {/* Evening Weight Segment */}
-                    <div className="flex items-center justify-between w-[115px] bg-indigo-50/50 border border-indigo-100/50 px-2 py-1 rounded-xl">
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        <span className="text-[10px] text-indigo-900 font-semibold shrink-0">晚重</span>
-                        {rec.eveningWeightKg != null ? (
-                          <span className="text-indigo-800 font-black text-[11px] truncate">{parseFloat(Number(rec.eveningWeightKg).toFixed(1))}</span>
-                        ) : (
-                          <span className="text-slate-300 font-medium">--</span>
-                        )}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          onDateChange(rec.date);
-                          setActiveTab('evening');
-                          window.scrollTo({ top: 0, behavior: 'smooth' });
-                        }}
-                        className="p-1 text-slate-400 hover:text-indigo-700 hover:bg-indigo-100 rounded-lg transition cursor-pointer shrink-0"
-                        title={rec.eveningWeightKg ? "編輯晚間體重" : "新增晚間體重"}
-                      >
-                        <Edit2 className="w-3 h-3" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => setConfirmSwipeDeleteId(rec.id)}
-                  className="p-2 text-slate-300 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition cursor-pointer shrink-0"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </motion.div>
-              );
+                    <button
+                      type="button"
+                      onClick={() => setConfirmSwipeDeleteId(rec.id)}
+                      className="p-2 text-slate-300 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition cursor-pointer shrink-0"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </motion.div>
+                );
               })()}
             </div>
           ))}
         </div>
       </div>
+
+      {/* Floating Action Button (+) */}
+      <button
+        type="button"
+        onClick={() => handleOpenModal(currentDate)}
+        className="fixed right-5 bottom-20 sm:right-8 sm:bottom-24 z-40 w-14 h-14 bg-sky-600 hover:bg-sky-700 active:scale-95 text-white rounded-full shadow-lg shadow-sky-600/30 flex items-center justify-center transition-all duration-200 cursor-pointer group"
+        aria-label="記錄體重"
+        title="記錄體重"
+      >
+        <Plus className="w-7 h-7 stroke-[2.5] group-hover:rotate-90 transition-transform duration-200" />
+      </button>
+
+      {/* Weight Record Dialog / Modal */}
+      <AnimatePresence>
+        {isModalOpen && (
+          <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="absolute inset-0" onClick={() => setIsModalOpen(false)} />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              transition={{ duration: 0.15 }}
+              className="bg-white rounded-[32px] max-w-md w-full p-6 shadow-2xl border border-slate-100 relative z-10 space-y-4"
+            >
+              {/* Modal Header */}
+              <div className="flex items-center justify-between pb-1">
+                <div className="flex items-center gap-2">
+                  <div className="w-9 h-9 rounded-2xl bg-sky-100 text-sky-800 flex items-center justify-center">
+                    <Scale className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-black text-slate-900 text-base">記錄體重</h3>
+                    <p className="text-[11px] font-bold text-slate-400">📅 {modalDate}</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsModalOpen(false)}
+                  className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 flex items-center justify-center transition cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Tab Switcher */}
+              <div className="bg-slate-100/80 p-1 rounded-2xl flex gap-1">
+                <button
+                  type="button"
+                  onClick={() => handleSwitchModalTab('morning')}
+                  className={`flex-1 py-2 text-xs sm:text-sm font-bold rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5 ${
+                    modalTab === 'morning'
+                      ? 'bg-amber-100 text-amber-900 shadow-2xs'
+                      : 'text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  <span>🌅</span>
+                  <span>早上體重</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSwitchModalTab('evening')}
+                  className={`flex-1 py-2 text-xs sm:text-sm font-bold rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5 ${
+                    modalTab === 'evening'
+                      ? 'bg-indigo-100 text-indigo-900 shadow-2xs'
+                      : 'text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  <span>🌙</span>
+                  <span>晚上體重</span>
+                </button>
+              </div>
+
+              {/* Form Entry Area */}
+              <form onSubmit={handleSaveModalWeight} className="space-y-4 pt-1.5">
+                <div
+                  className={`p-4 rounded-2xl border transition-colors ${
+                    modalTab === 'morning'
+                      ? 'bg-amber-50/50 border-amber-200/60'
+                      : 'bg-indigo-50/50 border-indigo-200/60'
+                  }`}
+                >
+                  <div className="flex justify-between items-center mb-3">
+                    <span className="text-xs font-bold text-slate-700">
+                      {modalTab === 'morning' ? '🌅 早上體重 (空腹)' : '🌙 晚上體重 (睡前)'}
+                    </span>
+                    <input
+                      type="time"
+                      value={modalTime}
+                      onChange={(e) => setModalTime(e.target.value)}
+                      className="px-2.5 py-1 text-xs font-bold bg-white rounded-lg border border-slate-200 text-slate-700 shadow-2xs focus:outline-sky-600"
+                    />
+                  </div>
+                  <div className="flex items-center justify-center gap-2">
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={modalWeight}
+                      onChange={(e) => setModalWeight(e.target.value)}
+                      className="w-1/2 max-w-[150px] px-3 py-1.5 bg-white rounded-xl border border-slate-200 text-base font-black text-slate-800 text-center focus:outline-sky-600 shadow-2xs"
+                    />
+                    <span className="text-sm font-bold text-slate-500 shrink-0">kg</span>
+                  </div>
+                </div>
+
+                <div className="flex gap-2 pt-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setIsModalOpen(false)}
+                    className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-sm rounded-2xl transition cursor-pointer"
+                  >
+                    取消
+                  </button>
+                  <button
+                    type="submit"
+                    className="flex-[2] py-3 bg-sky-600 hover:bg-sky-700 active:scale-[0.99] text-white font-black text-sm rounded-2xl shadow-md shadow-sky-600/25 transition flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <Check className="w-4 h-4" />
+                    <span>儲存 {modalTab === 'morning' ? '早上' : '晚上'} 體重</span>
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* Centered weight delete confirmation modal */}
       {weightRecordToDelete && (
