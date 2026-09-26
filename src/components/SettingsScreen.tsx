@@ -255,6 +255,15 @@ export const SettingsScreen: React.FC = () => {
     CloudFoodService.getCloudFoodsCount().then((count) => setCloudFoodCount(count));
   }, []);
 
+  useEffect(() => {
+    const syncSettings = () => {
+      setIsRealTimeSync(StorageService.isRealTimeSyncEnabled());
+    };
+    syncSettings();
+    const unsubscribe = StorageService.subscribeDataChange(syncSettings);
+    return unsubscribe;
+  }, []);
+
   // Admin Database Food Management States
   const [showDatabaseFoodModal, setShowDatabaseFoodModal] = useState(false);
   const [selectedCollection, setSelectedCollection] = useState<'cloud_foods' | 'family_foods' | 'open_foods'>('cloud_foods');

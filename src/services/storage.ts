@@ -131,12 +131,10 @@ function getItem<T>(key: string, defaultValue: T): T {
 async function setItem<T>(key: string, value: T): Promise<void> {
   memoryCache[key] = value;
   try {
+    // Keep localStorage in sync for instant reads / page reloads
+    localStorage.setItem(key, JSON.stringify(value));
     // Save to IndexedDB asynchronously
     await dbSet(key, value);
-    // Keep localStorage in sync for a short transition period or for critical flags
-    if (key === 'fitpocket_sync_pending') {
-       localStorage.setItem(key, JSON.stringify(value));
-    }
   } catch (e) {
     console.warn(`Failed saving key ${key} to IndexedDB:`, e);
     // Critical fallback to localStorage if IndexedDB fails
@@ -1112,10 +1110,19 @@ export const StorageService = {
 
   setRealTimeSyncEnabled(enabled: boolean): void {
     setItem(STORAGE_KEYS.REALTIME_SYNC, enabled);
+    try {
+      localStorage.setItem(STORAGE_KEYS.REALTIME_SYNC, JSON.stringify(enabled));
+    } catch {}
     notifyDataChange();
-    if (enabled) {
-      this.saveToCloud(true);
-    }
+    this.saveToCloud(true);
+  },
+
+  subscribeDataChange(listener: () => void): () => void {
+    dataListeners.push(listener);
+    return () => {
+      const idx = dataListeners.indexOf(listener);
+      if (idx > -1) dataListeners.splice(idx, 1);
+    };
   },
 
   subscribeApiUsage(listener: (stats: ApiUsageStats) => void): () => void {
@@ -1389,9 +1396,18 @@ export const StorageService = {
         setItem(STORAGE_KEYS.GEMINI_MODEL, incoming.geminiModel);
         localChanged = true;
       }
-      if (incoming.realTimeSync !== undefined && incoming.realTimeSync !== this.isRealTimeSyncEnabled()) {
-        setItem(STORAGE_KEYS.REALTIME_SYNC, incoming.realTimeSync);
-        localChanged = true;
+      if (incoming.realTimeSync !== undefined) {
+        const localVal = this.isRealTimeSyncEnabled();
+        if (localVal && !incoming.realTimeSync) {
+          // Local user enabled real-time sync, keep local true and trigger cloud backup update
+          localChanged = true;
+        } else if (incoming.realTimeSync !== localVal) {
+          setItem(STORAGE_KEYS.REALTIME_SYNC, incoming.realTimeSync);
+          try {
+            localStorage.setItem(STORAGE_KEYS.REALTIME_SYNC, JSON.stringify(incoming.realTimeSync));
+          } catch {}
+          localChanged = true;
+        }
       }
       if (incoming.apiUsage) {
         const localUsage = this.getApiUsageStats();
