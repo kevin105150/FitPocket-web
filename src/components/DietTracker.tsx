@@ -73,6 +73,8 @@ const MealSection: React.FC<MealSectionProps> = ({
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [confirmDeleteRecordId, setConfirmDeleteRecordId] = useState<string | null>(null);
 
+  useModalBackHandler(showDeleteModal, () => setShowDeleteModal(false));
+
   const mealCals = Math.round(mealRecords.reduce((s, r) => s + (r.calories || 0), 0));
   const mealP = Math.round(mealRecords.reduce((s, r) => s + (r.protein || 0), 0));
   const mealC = Math.round(mealRecords.reduce((s, r) => s + (r.carbs || 0), 0));
@@ -292,8 +294,14 @@ const MealSection: React.FC<MealSectionProps> = ({
 
       {/* Delete Meal Safety Confirm Modal */}
       {showDeleteModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
+        <div 
+          onClick={() => setShowDeleteModal(false)}
+          className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 cursor-pointer"
+        >
+          <div 
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-xl space-y-4 animate-in fade-in zoom-in-95 duration-150 cursor-default"
+          >
             <div className="flex items-center gap-2.5 text-rose-600">
               <div className="p-2 bg-rose-50 rounded-xl">
                 <Trash2 className="w-5 h-5" />
@@ -1674,8 +1682,14 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
 
       {/* Add Meal Custom Modal */}
       {showAddMealModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
+        <div 
+          onClick={() => setShowAddMealModal(false)}
+          className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 cursor-pointer"
+        >
+          <div 
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-xl space-y-4 animate-in fade-in zoom-in-95 duration-150 cursor-default"
+          >
             <h3 className="text-lg font-black text-slate-900">新增自訂餐次</h3>
             <p className="text-xs text-slate-500">請輸入餐次名稱（例如：下午茶、訓練前餐、宵夜）</p>
             <input
@@ -1709,8 +1723,14 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
 
       {/* Edit Meal Name Custom Modal */}
       {editingMealState && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
+        <div 
+          onClick={() => setEditingMealState(null)}
+          className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 cursor-pointer"
+        >
+          <div 
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-xl space-y-4 animate-in fade-in zoom-in-95 duration-150 cursor-default"
+          >
             <h3 className="text-lg font-black text-slate-900">修改餐別名稱</h3>
             <p className="text-xs text-slate-500">請輸入新的餐次名稱</p>
             <input
