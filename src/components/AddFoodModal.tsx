@@ -335,6 +335,14 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
 
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
   // OCR Scanner state
   const [ocrImageBase64, setOcrImageBase64] = useState<string | null>(null);
   const [processedImagePreview, setProcessedImagePreview] = useState<string | null>(null);
@@ -2071,12 +2079,18 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
         aiSource: 'vision',
       };
 
-      onSelectFood(foodItem);
+      if (isMountedRef.current) {
+        onSelectFood(foodItem);
+      }
     } catch (e: any) {
-      setAiError(e.message || 'AI 辨識發生錯誤');
-      setRetryAction(() => () => performImageAnalysis(base64, mime));
+      if (isMountedRef.current) {
+        setAiError(e.message || 'AI 辨識發生錯誤');
+        setRetryAction(() => () => performImageAnalysis(base64, mime));
+      }
     } finally {
-      setAiLoading(false);
+      if (isMountedRef.current) {
+        setAiLoading(false);
+      }
     }
   };
 

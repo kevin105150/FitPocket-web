@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Camera, Image, X, Flashlight, RefreshCw, Sparkles, Check, ArrowLeft, AlertCircle, ChevronDown } from 'lucide-react';
 import { useModalBackHandler } from '../hooks/useModalBackHandler';
+import { optimizeImageForAi } from '../utils/imageOptimizer';
 
 interface AiCameraModalProps {
   isOpen: boolean;
@@ -81,6 +82,22 @@ export const AiCameraModal: React.FC<AiCameraModalProps> = ({
   // Captured photo preview state
   const [capturedImageBase64, setCapturedImageBase64] = useState<string | null>(null);
   const [capturedMimeType, setCapturedMimeType] = useState<string>('image/jpeg');
+
+  const capturedRef = useRef<string | null>(capturedImageBase64);
+  const isOpenRef = useRef(isOpen);
+  const activeModeRef = useRef(activeMode);
+
+  useEffect(() => {
+    capturedRef.current = capturedImageBase64;
+  }, [capturedImageBase64]);
+
+  useEffect(() => {
+    isOpenRef.current = isOpen;
+  }, [isOpen]);
+
+  useEffect(() => {
+    activeModeRef.current = activeMode;
+  }, [activeMode]);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -345,21 +362,69 @@ export const AiCameraModal: React.FC<AiCameraModalProps> = ({
     stopStream();
   };
 
-  // Handle file select
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Safely stop WebRTC camera stream before launching native system camera/gallery
+  const handleOpenNativeCamera = async () => {
+    await stopStream();
+
+    const onFocusReturn = () => {
+      window.removeEventListener('focus', onFocusReturn);
+      setTimeout(() => {
+        if (isOpenRef.current && activeModeRef.current === 'camera' && !capturedRef.current) {
+          startCamera(selectedCameraId);
+        }
+      }, 350);
+    };
+    window.addEventListener('focus', onFocusReturn);
+
+    nativeCameraInputRef.current?.click();
+  };
+
+  const handleOpenGallery = async () => {
+    await stopStream();
+
+    const onFocusReturn = () => {
+      window.removeEventListener('focus', onFocusReturn);
+      setTimeout(() => {
+        if (isOpenRef.current && activeModeRef.current === 'camera' && !capturedRef.current) {
+          startCamera(selectedCameraId);
+        }
+      }, 350);
+    };
+    window.addEventListener('focus', onFocusReturn);
+
+    fileInputRef.current?.click();
+  };
+
+  // Handle file select with early downsampling
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const mime = file.type || 'image/jpeg';
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-      const base64 = evt.target?.result as string;
-      if (base64) {
-        setCapturedImageBase64(base64);
-        setCapturedMimeType(mime);
-      }
-    };
-    reader.readAsDataURL(file);
+    // Reset input value to allow re-selecting the same file without memory leaks
+    e.target.value = '';
+
+    try {
+      const objectUrl = URL.createObjectURL(file);
+      const optimizedBase64 = await optimizeImageForAi(objectUrl, 1280, 1280, 0.85);
+      URL.revokeObjectURL(objectUrl);
+
+      setCapturedImageBase64(optimizedBase64);
+      setCapturedMimeType('image/jpeg');
+      await stopStream();
+    } catch (err) {
+      console.warn('[AiCameraModal] File downsampling fallback:', err);
+      const mime = file.type || 'image/jpeg';
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+        const base64 = evt.target?.result as string;
+        if (base64) {
+          setCapturedImageBase64(base64);
+          setCapturedMimeType(mime);
+        }
+      };
+      reader.readAsDataURL(file);
+      await stopStream();
+    }
   };
 
   // Retake photo
@@ -657,7 +722,7 @@ export const AiCameraModal: React.FC<AiCameraModalProps> = ({
                     <div className="pt-2 border-t border-slate-100">
                       <button
                         type="button"
-                        onClick={() => nativeCameraInputRef.current?.click()}
+                        onClick={handleOpenNativeCamera}
                         className="w-full py-2.5 px-3 bg-purple-600 hover:bg-purple-700 text-white rounded-2xl text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer shadow-xs active:scale-98"
                       >
                         <Camera className="w-4 h-4" />
@@ -678,7 +743,7 @@ export const AiCameraModal: React.FC<AiCameraModalProps> = ({
                     {/* Native Camera Action Card */}
                     <button
                       type="button"
-                      onClick={() => nativeCameraInputRef.current?.click()}
+                      onClick={handleOpenNativeCamera}
                       className="border-2 border-purple-200 hover:border-purple-500 bg-purple-50/70 hover:bg-purple-100/80 rounded-2xl p-4 text-center transition cursor-pointer group flex flex-col items-center justify-center gap-2 active:scale-98"
                     >
                       <div className="w-11 h-11 rounded-xl bg-purple-600 text-white flex items-center justify-center shadow-xs group-hover:scale-110 transition">
@@ -693,7 +758,7 @@ export const AiCameraModal: React.FC<AiCameraModalProps> = ({
                     {/* Gallery Select Action Card */}
                     <button
                       type="button"
-                      onClick={() => fileInputRef.current?.click()}
+                      onClick={handleOpenGallery}
                       className="border-2 border-slate-200 hover:border-slate-400 bg-slate-50 hover:bg-slate-100 rounded-2xl p-4 text-center transition cursor-pointer group flex flex-col items-center justify-center gap-2 active:scale-98"
                     >
                       <div className="w-11 h-11 rounded-xl bg-slate-700 text-white flex items-center justify-center shadow-xs group-hover:scale-110 transition">
@@ -730,7 +795,7 @@ export const AiCameraModal: React.FC<AiCameraModalProps> = ({
                     </button>
                     <button
                       type="button"
-                      onClick={() => nativeCameraInputRef.current?.click()}
+                      onClick={handleOpenNativeCamera}
                       className="px-3 py-1.5 bg-white border border-rose-300 text-rose-900 font-bold text-xs rounded-xl transition hover:bg-rose-100/80 cursor-pointer active:scale-98"
                     >
                       開啟原生相機拍照

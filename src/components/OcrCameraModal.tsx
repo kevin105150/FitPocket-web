@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Camera, Image, X, Flashlight, RefreshCw, ScanText, Check, ArrowLeft, AlertCircle, ChevronDown, Clock, RotateCw, RotateCcw, Loader2 } from 'lucide-react';
 import { useModalBackHandler } from '../hooks/useModalBackHandler';
 import { rotateBase64Image } from '../utils/imagePreprocessing';
+import { optimizeImageForAi } from '../utils/imageOptimizer';
 
 interface OcrCameraModalProps {
   isOpen: boolean;
@@ -83,6 +84,22 @@ export const OcrCameraModal: React.FC<OcrCameraModalProps> = ({
   const [capturedImageBase64, setCapturedImageBase64] = useState<string | null>(null);
   const [capturedMimeType, setCapturedMimeType] = useState<string>('image/jpeg');
   const [isRotatingImage, setIsRotatingImage] = useState(false);
+
+  const capturedRef = useRef<string | null>(capturedImageBase64);
+  const isOpenRef = useRef(isOpen);
+  const activeModeRef = useRef(activeMode);
+
+  useEffect(() => {
+    capturedRef.current = capturedImageBase64;
+  }, [capturedImageBase64]);
+
+  useEffect(() => {
+    isOpenRef.current = isOpen;
+  }, [isOpen]);
+
+  useEffect(() => {
+    activeModeRef.current = activeMode;
+  }, [activeMode]);
 
   const handleRotateCaptured = async (degrees: number) => {
     if (!capturedImageBase64 || isRotatingImage) return;
@@ -331,17 +348,66 @@ export const OcrCameraModal: React.FC<OcrCameraModalProps> = ({
     }
   };
 
-  // Handle native file selection
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Safely stop WebRTC camera stream before launching native system camera/gallery
+  const handleOpenNativeCamera = async () => {
+    await stopStream();
+
+    const onFocusReturn = () => {
+      window.removeEventListener('focus', onFocusReturn);
+      setTimeout(() => {
+        if (isOpenRef.current && activeModeRef.current === 'camera' && !capturedRef.current) {
+          startCamera(selectedCameraId);
+        }
+      }, 350);
+    };
+    window.addEventListener('focus', onFocusReturn);
+
+    nativeCameraInputRef.current?.click();
+  };
+
+  const handleOpenGallery = async () => {
+    await stopStream();
+
+    const onFocusReturn = () => {
+      window.removeEventListener('focus', onFocusReturn);
+      setTimeout(() => {
+        if (isOpenRef.current && activeModeRef.current === 'camera' && !capturedRef.current) {
+          startCamera(selectedCameraId);
+        }
+      }, 350);
+    };
+    window.addEventListener('focus', onFocusReturn);
+
+    fileInputRef.current?.click();
+  };
+
+  // Handle native file selection with early downsampling
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const mime = file.type || 'image/jpeg';
-    setCapturedMimeType(mime);
-    const reader = new FileReader();
-    reader.onload = () => {
-      setCapturedImageBase64(reader.result as string);
-    };
-    reader.readAsDataURL(file);
+
+    // Reset input value to allow re-selecting the same file without memory leaks
+    e.target.value = '';
+
+    try {
+      const objectUrl = URL.createObjectURL(file);
+      const optimizedBase64 = await optimizeImageForAi(objectUrl, 1280, 1280, 0.85);
+      URL.revokeObjectURL(objectUrl);
+
+      setCapturedImageBase64(optimizedBase64);
+      setCapturedMimeType('image/jpeg');
+      await stopStream();
+    } catch (err) {
+      console.warn('[OcrCameraModal] File downsampling fallback:', err);
+      const mime = file.type || 'image/jpeg';
+      setCapturedMimeType(mime);
+      const reader = new FileReader();
+      reader.onload = () => {
+        setCapturedImageBase64(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+      await stopStream();
+    }
   };
 
   // Confirm and return captured image
@@ -699,7 +765,7 @@ export const OcrCameraModal: React.FC<OcrCameraModalProps> = ({
                     <div className="pt-2 border-t border-slate-100">
                       <button
                         type="button"
-                        onClick={() => nativeCameraInputRef.current?.click()}
+                        onClick={handleOpenNativeCamera}
                         className="w-full py-2.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer shadow-xs active:scale-98"
                       >
                         <Camera className="w-4 h-4" />
@@ -716,7 +782,7 @@ export const OcrCameraModal: React.FC<OcrCameraModalProps> = ({
                   <div className="grid grid-cols-2 gap-2.5 max-w-sm mx-auto w-full">
                     <button
                       type="button"
-                      onClick={() => nativeCameraInputRef.current?.click()}
+                      onClick={handleOpenNativeCamera}
                       className="border-2 border-emerald-200 hover:border-emerald-500 bg-emerald-50/70 hover:bg-emerald-100/80 rounded-2xl p-4 text-center transition cursor-pointer group flex flex-col items-center justify-center gap-2 active:scale-98"
                     >
                       <div className="w-11 h-11 rounded-xl bg-emerald-600 text-white flex items-center justify-center shadow-xs group-hover:scale-110 transition">
@@ -730,7 +796,7 @@ export const OcrCameraModal: React.FC<OcrCameraModalProps> = ({
 
                     <button
                       type="button"
-                      onClick={() => fileInputRef.current?.click()}
+                      onClick={handleOpenGallery}
                       className="border-2 border-slate-200 hover:border-slate-400 bg-slate-50 hover:bg-slate-100 rounded-2xl p-4 text-center transition cursor-pointer group flex flex-col items-center justify-center gap-2 active:scale-98"
                     >
                       <div className="w-11 h-11 rounded-xl bg-slate-700 text-white flex items-center justify-center shadow-xs group-hover:scale-110 transition">

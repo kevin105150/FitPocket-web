@@ -2,14 +2,17 @@
  * 優化圖片：自動修正手機相機 EXIF 旋轉方向、進行等比例高解析度壓縮，確保 Gemini 視覺辨識清晰度
  */
 export async function optimizeImageForAi(
-  base64: string,
+  base64OrUrl: string,
   maxWidth = 1280,
   maxHeight = 1280,
   quality = 0.85
 ): Promise<string> {
-  const dataUrl = base64.startsWith('data:')
-    ? base64
-    : `data:image/jpeg;base64,${base64}`;
+  const dataUrl =
+    base64OrUrl.startsWith('data:') ||
+    base64OrUrl.startsWith('blob:') ||
+    base64OrUrl.startsWith('http')
+      ? base64OrUrl
+      : `data:image/jpeg;base64,${base64OrUrl}`;
 
   try {
     // 1. 將 Data URL 轉為 Blob 以便使用 createImageBitmap 校正 EXIF 旋轉
