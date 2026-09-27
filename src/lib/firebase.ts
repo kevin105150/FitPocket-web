@@ -53,7 +53,10 @@ try {
 // Add connection monitoring
 onAuthStateChanged(auth, (user) => {
   if (user) {
-    console.log("Firebase Auth State: User is logged in.");
+    console.log("Firebase Auth State: User is logged in.", user.email);
+    if (user.email) {
+      localStorage.setItem('fitpocket_last_user_email', user.email);
+    }
   } else {
     console.log("Firebase Auth State: User is logged out.");
   }
@@ -98,9 +101,11 @@ export const requestTokenViaGsi = async (forceSelectAccount = false): Promise<st
     (typeof rawFirebaseConfig === 'object' && (rawFirebaseConfig as any).oAuthClientId) ||
     '870931923285-98213jfk7pp6nsrfuvdd52stodij2mqb.apps.googleusercontent.com';
 
+  const userEmail = auth.currentUser?.email || localStorage.getItem('fitpocket_last_user_email') || '';
+
   return new Promise((resolve, reject) => {
     try {
-      const client = window.google.accounts.oauth2.initTokenClient({
+      const initOptions: any = {
         client_id: clientId,
         scope: 'https://www.googleapis.com/auth/drive.file email profile openid',
         prompt: forceSelectAccount ? 'select_account' : '',
@@ -124,7 +129,13 @@ export const requestTokenViaGsi = async (forceSelectAccount = false): Promise<st
           console.warn('GSI token client notice:', err);
           reject(new Error('POPUP_BLOCKED'));
         },
-      });
+      };
+
+      if (userEmail && !forceSelectAccount) {
+        initOptions.hint = userEmail;
+      }
+
+      const client = window.google.accounts.oauth2.initTokenClient(initOptions);
 
       // Attempt to request token - this will trigger a popup
       client.requestAccessToken();
@@ -268,10 +279,13 @@ export const loginWithGoogle = async (forceSelectAccount = false, forceMethod?: 
   const performLogin = async () => {
     const isInIframe = typeof window !== 'undefined' && window.self !== window.top;
     const isStudioEnv = typeof window !== 'undefined' && window.location.hostname.includes('run.app');
+    const userEmail = auth.currentUser?.email || localStorage.getItem('fitpocket_last_user_email') || '';
 
     try {
       if (forceSelectAccount) {
         googleProvider.setCustomParameters({ prompt: 'select_account' });
+      } else if (userEmail) {
+        googleProvider.setCustomParameters({ login_hint: userEmail });
       } else {
         googleProvider.setCustomParameters({});
       }

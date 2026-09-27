@@ -277,7 +277,11 @@ export const StorageService = {
         const success = await DriveStorageService.saveAllData(json);
         if (success) {
           localStorage.removeItem('fitpocket_sync_pending');
-          notifySyncStatus('synced');
+          if (this.isRealTimeSyncEnabled()) {
+            notifySyncStatus('synced');
+          } else {
+            notifySyncStatus('offline');
+          }
           finalSuccess = true;
         } else {
           notifySyncStatus('error');
@@ -1114,6 +1118,11 @@ export const StorageService = {
       localStorage.setItem(STORAGE_KEYS.REALTIME_SYNC, JSON.stringify(enabled));
     } catch {}
     notifyDataChange();
+    if (!enabled) {
+      notifySyncStatus('offline');
+    } else {
+      notifySyncStatus('syncing');
+    }
     this.saveToCloud(true);
   },
 
@@ -1397,16 +1406,20 @@ export const StorageService = {
         localChanged = true;
       }
       if (incoming.realTimeSync !== undefined) {
-        const localVal = this.isRealTimeSyncEnabled();
-        if (localVal && !incoming.realTimeSync) {
-          // Local user enabled real-time sync, keep local true and trigger cloud backup update
-          localChanged = true;
-        } else if (incoming.realTimeSync !== localVal) {
-          setItem(STORAGE_KEYS.REALTIME_SYNC, incoming.realTimeSync);
+        const rawLocal = localStorage.getItem(STORAGE_KEYS.REALTIME_SYNC);
+        if (rawLocal === null) {
+          // Brand new device/session without setting: adopt cloud value
+          setItem(STORAGE_KEYS.REALTIME_SYNC, !!incoming.realTimeSync);
           try {
-            localStorage.setItem(STORAGE_KEYS.REALTIME_SYNC, JSON.stringify(incoming.realTimeSync));
+            localStorage.setItem(STORAGE_KEYS.REALTIME_SYNC, JSON.stringify(!!incoming.realTimeSync));
           } catch {}
           localChanged = true;
+        } else {
+          // Local device setting exists: preserve local preference and mark changed if cloud differs
+          const localVal = this.isRealTimeSyncEnabled();
+          if (localVal !== !!incoming.realTimeSync) {
+            localChanged = true;
+          }
         }
       }
       if (incoming.apiUsage) {

@@ -10,49 +10,84 @@ import { auth, getAccessToken, logout, handleRedirectResult, loginWithGoogle } f
 import { onAuthStateChanged } from 'firebase/auth';
 import { StorageService, SyncStatus } from './services/storage';
 import { LoginScreen } from './components/LoginScreen';
-import { LogOut, User as UserIcon, AlertCircle, RefreshCw, CloudCheck, CloudLightning, DownloadCloud, HardDrive, CheckCircle2 } from 'lucide-react';
+import { LogOut, User as UserIcon, AlertCircle, RefreshCw, CloudCheck, CloudLightning, DownloadCloud, HardDrive, CheckCircle2, Zap } from 'lucide-react';
 import { usePWAInstall } from './hooks/usePWAInstall';
 import { useOnlineStatus } from './hooks/useOnlineStatus';
 
 const SyncStatusIndicator = ({ status }: { status: SyncStatus }) => {
   const isOnline = useOnlineStatus();
+  const isRealtime = StorageService.isRealTimeSyncEnabled();
   
-  if (status === 'offline') {
+  if (!isOnline) {
     return (
-      <div className="flex items-center gap-1.5 px-2 py-1 bg-slate-100 text-slate-500 rounded-full text-[10px] font-bold">
-        <CloudLightning className="w-3 h-3" />
-        離線模式
+      <div className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 text-slate-500 rounded-full text-[10px] font-bold border border-slate-200/80 shadow-2xs">
+        <CloudLightning className="w-3 h-3 text-amber-500 shrink-0" />
+        <span>離線模式 (無網路)</span>
       </div>
     );
   }
 
+  // When Real-Time Sync is DISABLED (User selected Daily / Offline local mode)
+  if (!isRealtime) {
+    if (status === 'syncing') {
+      return (
+        <div className="flex items-center gap-1.5 px-2.5 py-1 bg-sky-50 text-sky-700 rounded-full text-[10px] font-bold border border-sky-200/80 shadow-2xs">
+          <RefreshCw className="w-3 h-3 text-sky-600 animate-spin shrink-0" />
+          <span>離線 (同步中...)</span>
+        </div>
+      );
+    }
+    if (status === 'pending') {
+      return (
+        <div className="flex items-center gap-1.5 px-2.5 py-1 bg-amber-50 text-amber-700 rounded-full text-[10px] font-bold border border-amber-200/80 shadow-2xs">
+          <HardDrive className="w-3 h-3 text-amber-600 shrink-0" />
+          <span>離線暫存</span>
+        </div>
+      );
+    }
+    return (
+      <div className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 text-slate-700 rounded-full text-[10px] font-bold border border-slate-200/80 shadow-2xs">
+        <CloudLightning className="w-3 h-3 text-slate-500 shrink-0" />
+        <span>離線模式</span>
+      </div>
+    );
+  }
+
+  // When Real-Time Sync is ENABLED
   switch (status) {
     case 'synced':
       return (
-        <div className="flex items-center gap-1.5 px-2 py-1 bg-emerald-50 text-emerald-600 rounded-full text-[10px] font-bold">
-          <CloudCheck className="w-3 h-3" />
-          已同步
+        <div className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 text-emerald-700 rounded-full text-[10px] font-bold border border-emerald-200/80 shadow-2xs">
+          <Zap className="w-3 h-3 text-emerald-600 shrink-0" />
+          <span>即時同步</span>
         </div>
       );
     case 'syncing':
       return (
-        <div className="flex items-center gap-1.5 px-2 py-1 bg-sky-50 text-sky-600 rounded-full text-[10px] font-bold">
-          <RefreshCw className="w-3 h-3 animate-spin" />
-          同步中...
+        <div className="flex items-center gap-1.5 px-2.5 py-1 bg-sky-50 text-sky-700 rounded-full text-[10px] font-bold border border-sky-200/80 shadow-2xs">
+          <RefreshCw className="w-3 h-3 text-sky-600 animate-spin shrink-0" />
+          <span>即時同步中...</span>
         </div>
       );
     case 'pending':
       return (
-        <div className="flex items-center gap-1.5 px-2 py-1 bg-amber-50 text-amber-600 rounded-full text-[10px] font-bold">
-          <HardDrive className="w-3 h-3" />
-          本機暫存
+        <div className="flex items-center gap-1.5 px-2.5 py-1 bg-amber-50 text-amber-700 rounded-full text-[10px] font-bold border border-amber-200/80 shadow-2xs">
+          <HardDrive className="w-3 h-3 text-amber-600 shrink-0" />
+          <span>即時待備份</span>
+        </div>
+      );
+    case 'offline':
+      return (
+        <div className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 text-slate-700 rounded-full text-[10px] font-bold border border-slate-200/80 shadow-2xs">
+          <CloudLightning className="w-3 h-3 text-slate-500 shrink-0" />
+          <span>離線模式</span>
         </div>
       );
     case 'error':
       return (
-        <div className="flex items-center gap-1.5 px-2 py-1 bg-rose-50 text-rose-600 rounded-full text-[10px] font-bold">
-          <AlertCircle className="w-3 h-3" />
-          同步錯誤
+        <div className="flex items-center gap-1.5 px-2.5 py-1 bg-rose-50 text-rose-700 rounded-full text-[10px] font-bold border border-rose-200/80 shadow-2xs">
+          <AlertCircle className="w-3 h-3 text-rose-600 shrink-0" />
+          <span>同步異常</span>
         </div>
       );
     default:
@@ -68,6 +103,7 @@ export default function App() {
   const [isInitializing, setIsInitializing] = useState(true);
   const [needsDriveAuth, setNeedsDriveAuth] = useState(false);
   const [showDailySyncModal, setShowDailySyncModal] = useState(false);
+  const [showRealTimeSyncModal, setShowRealTimeSyncModal] = useState(false);
   const [isUpdatingCredentials, setIsUpdatingCredentials] = useState(false);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>(StorageService.getCurrentSyncStatus());
   const [syncToastMessage, setSyncToastMessage] = useState<string | null>(null);
@@ -129,11 +165,60 @@ export default function App() {
     }
   };
 
+  // Perform real-time sync credential verification
+  const handlePerformRealTimeSyncAuth = async () => {
+    try {
+      setIsUpdatingCredentials(true);
+      setShowRealTimeSyncModal(false);
+      localStorage.setItem('fitpocket_redirect_pending', 'true');
+
+      const result = await loginWithGoogle(false);
+      if (result && result.isRedirecting) {
+        return;
+      }
+      if (result && result.accessToken) {
+        localStorage.removeItem('fitpocket_redirect_pending');
+        localStorage.removeItem('fitpocket_auth_locking');
+        sessionStorage.removeItem('fitpocket_auto_auth_attempted');
+        setIsUpdatingCredentials(false);
+        setNeedsDriveAuth(false);
+
+        const syncRes = await StorageService.syncFromCloud();
+        await StorageService.saveToCloud(true);
+
+        const today = getTodayString();
+        localStorage.setItem('fitpocket_last_daily_sync_date', today);
+
+        setSyncToastMessage(syncRes.message || '⚡ 已成功驗證憑證！即時自動同步功能已就緒。');
+        setTimeout(() => setSyncToastMessage(null), 4000);
+      } else {
+        throw new Error("No token received");
+      }
+    } catch (err: any) {
+      console.error("Real-time sync auth error:", err);
+      localStorage.removeItem('fitpocket_redirect_pending');
+      localStorage.removeItem('fitpocket_auth_locking');
+      setIsUpdatingCredentials(false);
+      setShowRealTimeSyncModal(true);
+    } finally {
+      localStorage.removeItem('fitpocket_auth_locking');
+    }
+  };
+
   const handleSkipDailySync = () => {
     const today = getTodayString();
     localStorage.setItem('fitpocket_last_daily_sync_date', today);
     setShowDailySyncModal(false);
     setSyncToastMessage('已開啟今日離線模式，所有飲食與運動紀錄將全數儲存於本機。');
+    setTimeout(() => setSyncToastMessage(null), 3000);
+  };
+
+  const handleSkipRealTimeSync = () => {
+    StorageService.setRealTimeSyncEnabled(false);
+    const today = getTodayString();
+    localStorage.setItem('fitpocket_last_daily_sync_date', today);
+    setShowRealTimeSyncModal(false);
+    setSyncToastMessage('已切換為離線暫存模式，所有紀錄將先儲存於本機。');
     setTimeout(() => setSyncToastMessage(null), 3000);
   };
 
@@ -197,21 +282,53 @@ export default function App() {
           
           try {
             if (u) {
+              if (u.email) {
+                localStorage.setItem('fitpocket_last_user_email', u.email);
+              }
               const today = getTodayString();
               const lastDailySync = localStorage.getItem('fitpocket_last_daily_sync_date');
               const isFirstOpenToday = lastDailySync !== today;
               const isRealtimeSync = StorageService.isRealTimeSyncEnabled();
               const hasToken = !!(await getAccessToken());
 
-              if ((isFirstOpenToday || (isRealtimeSync && !hasToken)) && !redirectedToken) {
-                // First open of today or Real-time is enabled but we don't have a valid token -> trigger daily sync dialog
-                console.log("[App] Prompting for credential verification (First open today or Real-time enabled with no valid token)...");
-                setShowDailySyncModal(true);
-                setNeedsDriveAuth(false);
-                setIsUpdatingCredentials(false);
+              if (!redirectedToken) {
+                if (hasToken) {
+                  // Credential verified! Suppress all modals on launch
+                  console.log("[App] Valid credential confirmed! Skipping auth dialog modal.");
+                  setShowRealTimeSyncModal(false);
+                  setShowDailySyncModal(false);
+                  setNeedsDriveAuth(false);
+                  setIsUpdatingCredentials(false);
+
+                  // Update daily sync date and execute background sync if needed
+                  if (isFirstOpenToday) {
+                    localStorage.setItem('fitpocket_last_daily_sync_date', today);
+                    StorageService.syncFromCloud().catch(err => console.warn("Background sync error:", err));
+                  }
+                } else {
+                  // Credential missing or expired -> Prompt user dialog
+                  if (isRealtimeSync) {
+                    console.log("[App] Real-Time Sync active but no valid credential token found. Prompting modal.");
+                    setShowRealTimeSyncModal(true);
+                    setShowDailySyncModal(false);
+                    setNeedsDriveAuth(false);
+                    setIsUpdatingCredentials(false);
+                  } else if (isFirstOpenToday) {
+                    console.log("[App] Daily Sync active and first open today with no token. Prompting modal.");
+                    setShowDailySyncModal(true);
+                    setShowRealTimeSyncModal(false);
+                    setNeedsDriveAuth(false);
+                    setIsUpdatingCredentials(false);
+                  } else {
+                    setShowDailySyncModal(false);
+                    setShowRealTimeSyncModal(false);
+                    setNeedsDriveAuth(false);
+                    setIsUpdatingCredentials(false);
+                  }
+                }
               } else {
-                // Already synced today or just redirected
                 setShowDailySyncModal(false);
+                setShowRealTimeSyncModal(false);
                 setNeedsDriveAuth(false);
                 setIsUpdatingCredentials(false);
               }
@@ -221,6 +338,7 @@ export default function App() {
               setIsUpdatingCredentials(false);
               setNeedsDriveAuth(false);
               setShowDailySyncModal(false);
+              setShowRealTimeSyncModal(false);
             }
           } catch (innerErr) {
             console.error("Auth helper error during init:", innerErr);
@@ -261,15 +379,20 @@ export default function App() {
       });
     }
 
-    // Subscribe to sync status
+    // Subscribe to sync status & data changes
     const stopSyncListen = StorageService.onSyncStatusChange((s) => {
       if (active) setSyncStatus(s);
+    });
+
+    const stopDataListen = StorageService.subscribeDataChange(() => {
+      if (active) setSyncStatus(StorageService.getCurrentSyncStatus());
     });
 
     return () => {
       active = false;
       if (authUnsubscribe) authUnsubscribe();
       stopSyncListen();
+      stopDataListen();
     };
   }, []);
 
@@ -357,6 +480,55 @@ export default function App() {
                 className="w-full py-2.5 text-slate-400 hover:text-slate-600 font-bold text-xs transition cursor-pointer"
               >
                 ⚡ 暫時跳過，今日保持離線
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Real-Time Sync Launch / Credential Verification Modal */}
+      {!isUpdatingCredentials && !showDailySyncModal && showRealTimeSyncModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="w-full max-w-sm bg-white rounded-[32px] p-6 shadow-2xl border border-slate-100 flex flex-col items-center text-center space-y-4 animate-in zoom-in-95 duration-300">
+            <div className="w-16 h-16 bg-sky-50 text-sky-600 rounded-2xl flex items-center justify-center shadow-inner relative">
+              <Zap className="w-8 h-8 text-sky-600 animate-pulse" />
+              <CloudCheck className="w-5 h-5 text-sky-500 absolute -bottom-1 -right-1 bg-white rounded-full p-0.5 border border-sky-100 shadow-xs" />
+            </div>
+
+            <div className="space-y-2">
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-sky-100/90 text-sky-800 rounded-full text-[10px] font-black tracking-wider uppercase">
+                ⚡ 即時自動同步 · 憑證連線
+              </div>
+              <h3 className="text-lg font-black text-slate-900">即時自動同步連線確認</h3>
+              <p className="text-xs text-slate-500 leading-relaxed px-2">
+                您目前已啟用<span className="font-bold text-sky-700">即時自動同步</span>模式。請驗證 Google 授權憑證，確保紀錄在異動時能自動即時備份至雲端。
+              </p>
+            </div>
+
+            <div className="w-full p-3 bg-sky-50/80 border border-sky-100 rounded-2xl text-left text-[11px] text-sky-900 leading-relaxed space-y-1">
+              <div className="font-extrabold text-sky-800 flex items-center gap-1.5">
+                <Zap className="w-3.5 h-3.5 text-sky-600 shrink-0" />
+                <span>即時自動同步運作說明</span>
+              </div>
+              <p className="text-sky-800/90">
+                每筆飲食、運動、水分與體重紀錄，將在您新增或修改時即時連線更新至您的 Google Drive，維持多裝置數據一致。
+              </p>
+            </div>
+
+            <div className="w-full space-y-2 pt-2">
+              <button 
+                onClick={handlePerformRealTimeSyncAuth}
+                className="w-full py-3.5 bg-sky-600 hover:bg-sky-700 text-white font-black text-xs rounded-2xl shadow-lg shadow-sky-200 transition active:scale-95 flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <Zap className="w-4 h-4 fill-white" />
+                驗證憑證並啟動即時同步
+              </button>
+
+              <button 
+                onClick={handleSkipRealTimeSync}
+                className="w-full py-2.5 text-slate-400 hover:text-slate-600 font-bold text-xs transition cursor-pointer"
+              >
+                暫時切換為離線暫存模式
               </button>
             </div>
           </div>

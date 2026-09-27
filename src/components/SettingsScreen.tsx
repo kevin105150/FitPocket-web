@@ -532,6 +532,9 @@ export const SettingsScreen: React.FC = () => {
 
   // Modals
   const [showGoalModal, setShowGoalModal] = useState(false);
+  const [showEnableRealTimeConfirmModal, setShowEnableRealTimeConfirmModal] = useState(false);
+  const [showDisableRealTimeConfirmModal, setShowDisableRealTimeConfirmModal] = useState(false);
+  const [isSyncingToggle, setIsSyncingToggle] = useState(false);
   const [presets, setPresets] = useState<Record<CarbCycleType, NutritionGoalPreset>>(() => StorageService.getPresets());
   const [showCustomFoodModal, setShowCustomFoodModal] = useState(false);
   const [showCustomFoodsListModal, setShowCustomFoodsListModal] = useState(false);
@@ -550,6 +553,8 @@ export const SettingsScreen: React.FC = () => {
   const [savedMessage, setSavedMessage] = useState('');
   const [apiKeyStatus, setApiKeyStatus] = useState<'none' | 'saved' | 'deleted'>('none');
 
+  useModalBackHandler(showEnableRealTimeConfirmModal, () => setShowEnableRealTimeConfirmModal(false));
+  useModalBackHandler(showDisableRealTimeConfirmModal, () => setShowDisableRealTimeConfirmModal(false));
   useModalBackHandler(showCustomFoodsListModal, () => setShowCustomFoodsListModal(false));
   useModalBackHandler(showExportHtmlModal, () => setShowExportHtmlModal(false));
   useModalBackHandler(showApiKeyModal, () => setShowApiKeyModal(false));
@@ -560,6 +565,45 @@ export const SettingsScreen: React.FC = () => {
     setShowEditAdminFoodModal(false);
     setEditingAdminFood(null);
   });
+
+  const handleConfirmEnableRealTimeSync = async () => {
+    setIsSyncingToggle(true);
+    try {
+      const result = await loginWithGoogle(false);
+      if (result?.accessToken || result?.user) {
+        setHasDriveToken(true);
+      }
+      StorageService.setRealTimeSyncEnabled(true);
+      setIsRealTimeSync(true);
+
+      // Perform cloud sync & backup
+      await StorageService.syncFromCloud();
+      await StorageService.saveToCloud(true);
+
+      flashMessage('✨ 已成功開啟即時自動同步！所有異動將實時備份至 Google Drive。');
+      setShowEnableRealTimeConfirmModal(false);
+    } catch (err: any) {
+      console.error('Failed to enable real-time sync:', err);
+      flashMessage(`開啟授權時發生狀況：${err?.message || '請確認允許彈跳視窗後重試'}`);
+    } finally {
+      setIsSyncingToggle(false);
+    }
+  };
+
+  const handleConfirmDisableRealTimeSync = async () => {
+    setIsSyncingToggle(true);
+    try {
+      StorageService.setRealTimeSyncEnabled(false);
+      setIsRealTimeSync(false);
+      flashMessage('已關閉即時自動同步 (切換為極速離線暫存模式)。');
+      setShowDisableRealTimeConfirmModal(false);
+    } catch (err: any) {
+      console.error('Failed to disable real-time sync:', err);
+      flashMessage(`操作發生錯誤：${err?.message || err}`);
+    } finally {
+      setIsSyncingToggle(false);
+    }
+  };
 
   const flashMessage = (msg: string) => {
     setSavedMessage(msg);
@@ -1330,10 +1374,11 @@ export const SettingsScreen: React.FC = () => {
               <button
                 type="button"
                 onClick={() => {
-                  const nextVal = !isRealTimeSync;
-                  setIsRealTimeSync(nextVal);
-                  StorageService.setRealTimeSyncEnabled(nextVal);
-                  flashMessage(nextVal ? '已開啟即時自動同步！' : '已關閉即時自動同步 (切換為極速離線暫存模式)');
+                  if (isRealTimeSync) {
+                    setShowDisableRealTimeConfirmModal(true);
+                  } else {
+                    setShowEnableRealTimeConfirmModal(true);
+                  }
                 }}
                 className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
                   isRealTimeSync ? 'bg-sky-600' : 'bg-slate-300'
@@ -4699,6 +4744,136 @@ export const SettingsScreen: React.FC = () => {
             <p className="text-[10px] text-slate-400 italic">
               提示：保持光線充足且對焦清晰可提升辨識準確率
             </p>
+          </div>
+        </div>
+      )}
+
+      {/* Enable Real-Time Sync Confirmation Modal */}
+      {showEnableRealTimeConfirmModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="w-full max-w-sm bg-white rounded-[32px] p-6 shadow-2xl border border-slate-100 flex flex-col items-center text-center space-y-4 animate-in zoom-in-95 duration-300">
+            <div className="w-16 h-16 bg-sky-50 text-sky-600 rounded-2xl flex items-center justify-center shadow-inner relative">
+              <Zap className="w-8 h-8 text-sky-600" />
+              <Cloud className="w-5 h-5 text-sky-500 absolute -bottom-1 -right-1 bg-white rounded-full p-0.5 border border-sky-100 shadow-xs" />
+            </div>
+
+            <div className="space-y-2">
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-sky-100/90 text-sky-800 rounded-full text-[10px] font-black tracking-wider uppercase">
+                ⚡ 即時自動同步 · 雲端實時備份
+              </div>
+              <h3 className="text-lg font-black text-slate-900">開啟即時自動同步</h3>
+              <p className="text-xs text-slate-500 leading-relaxed px-2">
+                開啟後，您在 FitPocket 紀錄的每一筆飲食、運動、水分與體重異動，都會在新增或修改時即時同步至您的 Google Drive 雲端備份。
+              </p>
+            </div>
+
+            <div className="w-full p-3.5 bg-sky-50/80 border border-sky-100 rounded-2xl text-left text-[11px] text-sky-900 leading-relaxed space-y-2">
+              <div className="font-extrabold text-sky-800 flex items-center gap-1.5">
+                <ShieldCheck className="w-4 h-4 text-sky-600 shrink-0" />
+                <span>即時自動同步三大特點</span>
+              </div>
+              <ul className="space-y-1 text-slate-600 text-[11px] pl-1">
+                <li className="flex items-start gap-1.5">
+                  <span className="text-sky-600 font-bold shrink-0">⚡</span>
+                  <span><strong>實時異動備份</strong>：新增/修改紀錄立即連線更新</span>
+                </li>
+                <li className="flex items-start gap-1.5">
+                  <span className="text-sky-600 font-bold shrink-0">📱</span>
+                  <span><strong>多裝置無縫一致</strong>：跨手機與電腦自動維持最新進度</span>
+                </li>
+                <li className="flex items-start gap-1.5">
+                  <span className="text-sky-600 font-bold shrink-0">🛡️</span>
+                  <span><strong>個人 Google 防護</strong>：資料全數安全加密存放於您的 Google Drive</span>
+                </li>
+              </ul>
+            </div>
+
+            <div className="w-full space-y-2 pt-2">
+              <button 
+                onClick={handleConfirmEnableRealTimeSync}
+                disabled={isSyncingToggle}
+                className="w-full py-3.5 bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white font-black text-xs rounded-2xl shadow-lg shadow-sky-200 transition active:scale-95 flex items-center justify-center gap-2 cursor-pointer"
+              >
+                {isSyncingToggle ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>正在驗證連線與同步...</span>
+                  </>
+                ) : (
+                  <>
+                    <Zap className="w-4 h-4 fill-white" />
+                    <span>確認開啟並驗證 Google 授權</span>
+                  </>
+                )}
+              </button>
+
+              <button 
+                onClick={() => setShowEnableRealTimeConfirmModal(false)}
+                disabled={isSyncingToggle}
+                className="w-full py-2 text-slate-400 hover:text-slate-600 font-bold text-xs transition cursor-pointer"
+              >
+                取消 / 保持關閉 (離線暫存模式)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Disable Real-Time Sync Confirmation Modal */}
+      {showDisableRealTimeConfirmModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="w-full max-w-sm bg-white rounded-[32px] p-6 shadow-2xl border border-slate-100 flex flex-col items-center text-center space-y-4 animate-in zoom-in-95 duration-300">
+            <div className="w-16 h-16 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center shadow-inner relative">
+              <ShieldAlert className="w-8 h-8 text-amber-600" />
+            </div>
+
+            <div className="space-y-2">
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-100/90 text-amber-800 rounded-full text-[10px] font-black tracking-wider uppercase">
+                ⚡ 切換為離線暫存模式
+              </div>
+              <h3 className="text-lg font-black text-slate-900">關閉即時自動同步</h3>
+              <p className="text-xs text-slate-500 leading-relaxed px-2">
+                確定要關閉即時自動同步嗎？關閉後，您的飲食與運動紀錄將改為<span className="font-bold text-amber-800">暫存於本機</span>，僅在點擊手動同步或重啟時備份至雲端。
+              </p>
+            </div>
+
+            <div className="w-full p-3 bg-amber-50/80 border border-amber-200/80 rounded-2xl text-left text-[11px] text-amber-900 leading-relaxed space-y-1">
+              <div className="font-extrabold text-amber-800 flex items-center gap-1.5">
+                <AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                <span>離線暫存提醒</span>
+              </div>
+              <p className="text-amber-800/90">
+                切換為離線模式後，若使用無痕視窗或清除瀏覽器快取前，請務必點擊「手動同步」以確保數據上傳喔！
+              </p>
+            </div>
+
+            <div className="w-full space-y-2 pt-2">
+              <button 
+                onClick={handleConfirmDisableRealTimeSync}
+                disabled={isSyncingToggle}
+                className="w-full py-3.5 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white font-black text-xs rounded-2xl shadow-lg shadow-amber-200 transition active:scale-95 flex items-center justify-center gap-2 cursor-pointer"
+              >
+                {isSyncingToggle ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>更新設定中...</span>
+                  </>
+                ) : (
+                  <>
+                    <Check className="w-4 h-4" />
+                    <span>確認關閉 (切換極速離線模式)</span>
+                  </>
+                )}
+              </button>
+
+              <button 
+                onClick={() => setShowDisableRealTimeConfirmModal(false)}
+                disabled={isSyncingToggle}
+                className="w-full py-2 text-slate-400 hover:text-slate-600 font-bold text-xs transition cursor-pointer"
+              >
+                保持開啟即時自動同步
+              </button>
+            </div>
           </div>
         </div>
       )}
