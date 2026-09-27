@@ -2412,12 +2412,22 @@ app.get('/api/openfoodfacts/search', async (req, res) => {
       )}&search_simple=1&action=process&json=1&page_size=30`;
 
       fetchPromises.push(
-        fetch(worldUrl, {
-          headers: { 'User-Agent': 'FitPocketWeb - Version 1.0 - www.fitpocket.app' },
-        })
-          .then((r) => (r.ok ? r.json() : { products: [] }))
-          .then((d) => d.products || [])
-          .catch(() => [])
+        (async () => {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 2500);
+          try {
+            const r = await fetch(worldUrl, {
+              headers: { 'User-Agent': 'FitPocketWeb - Version 1.0 - www.fitpocket.app' },
+              signal: controller.signal
+            });
+            clearTimeout(timeoutId);
+            const d = r.ok ? await r.json() : { products: [] };
+            return d.products || [];
+          } catch {
+            clearTimeout(timeoutId);
+            return [];
+          }
+        })()
       );
 
       const twUrl = `https://tw.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(
@@ -2425,12 +2435,22 @@ app.get('/api/openfoodfacts/search', async (req, res) => {
       )}&search_simple=1&action=process&json=1&page_size=20`;
 
       fetchPromises.push(
-        fetch(twUrl, {
-          headers: { 'User-Agent': 'FitPocketWeb - Version 1.0 - www.fitpocket.app' },
-        })
-          .then((r) => (r.ok ? r.json() : { products: [] }))
-          .then((d) => d.products || [])
-          .catch(() => [])
+        (async () => {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 2500);
+          try {
+            const r = await fetch(twUrl, {
+              headers: { 'User-Agent': 'FitPocketWeb - Version 1.0 - www.fitpocket.app' },
+              signal: controller.signal
+            });
+            clearTimeout(timeoutId);
+            const d = r.ok ? await r.json() : { products: [] };
+            return d.products || [];
+          } catch {
+            clearTimeout(timeoutId);
+            return [];
+          }
+        })()
       );
     }
 

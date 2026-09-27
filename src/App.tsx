@@ -16,22 +16,11 @@ import { useOnlineStatus } from './hooks/useOnlineStatus';
 
 const SyncStatusIndicator = ({ status }: { status: SyncStatus }) => {
   const isOnline = useOnlineStatus();
-  const today = getTodayString();
-  const isDailyOffline = localStorage.getItem('fitpocket_last_daily_sync_date') === today;
   
-  if (!isOnline) {
+  if (status === 'offline') {
     return (
       <div className="flex items-center gap-1.5 px-2 py-1 bg-slate-100 text-slate-500 rounded-full text-[10px] font-bold">
         <CloudLightning className="w-3 h-3" />
-        離線模式
-      </div>
-    );
-  }
-
-  if (isDailyOffline && status !== 'syncing') {
-    return (
-      <div className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 text-emerald-700 rounded-full text-[10px] font-bold border border-emerald-100">
-        <CloudCheck className="w-3 h-3 text-emerald-600" />
         離線模式
       </div>
     );

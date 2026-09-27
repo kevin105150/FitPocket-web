@@ -36,19 +36,31 @@ export const firebaseConfig = {
 
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 
+// Initialize Auth before use
+export const auth = getAuth(app);
+
 // Initialize Firestore targeting the exact database instance
 let firestoreInstance;
 try {
   firestoreInstance = initializeFirestore(app, {
     experimentalAutoDetectLongPolling: true,
   }, FIRESTORE_DATABASE_ID);
-} catch {
+} catch (e) {
+  console.error("Firestore initialization error, falling back:", e);
   firestoreInstance = getFirestore(app, FIRESTORE_DATABASE_ID);
 }
 
+// Add connection monitoring
+onAuthStateChanged(auth, (user) => {
+  if (user) {
+    console.log("Firebase Auth State: User is logged in.");
+  } else {
+    console.log("Firebase Auth State: User is logged out.");
+  }
+});
+
 export const db = firestoreInstance;
 
-export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 
 // Add Drive scope
