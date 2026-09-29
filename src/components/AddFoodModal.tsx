@@ -34,7 +34,7 @@ import {
 } from 'lucide-react';
 import { CustomFood, FoodSearchResult, MealType, FoodRecord } from '../types';
 import { StorageService } from '../services/storage';
-import { CloudFoodService } from '../services/cloudFoodService';
+import { CloudFoodService, normalizeBrandName } from '../services/cloudFoodService';
 import { OpenFoodService } from '../services/openFoodService';
 import { FamilyCacheService } from '../services/familyCacheService';
 import { McdonaldCacheService } from '../services/mcdonaldCacheService';
@@ -156,6 +156,49 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
   const [animatingHistoryId, setAnimatingHistoryId] = useState<string | null>(null);
   const contentBodyRef = useRef<HTMLDivElement>(null);
 
+  // Pagination limits (initial 100 items, load more +100)
+  const PAGE_LIMIT_STEP = 100;
+  const [historyLimit, setHistoryLimit] = useState(PAGE_LIMIT_STEP);
+  const [otherDbLimit, setOtherDbLimit] = useState(PAGE_LIMIT_STEP);
+  const [foodsLimit, setFoodsLimit] = useState(PAGE_LIMIT_STEP);
+
+  useEffect(() => {
+    setHistoryLimit(PAGE_LIMIT_STEP);
+    setOtherDbLimit(PAGE_LIMIT_STEP);
+    setFoodsLimit(PAGE_LIMIT_STEP);
+  }, [searchQuery, activeTab]);
+
+  // Pre-indexed O(1) lookup maps for custom and preset foods to avoid O(N) scans per history record
+  const { customById, customByNameBrand, presetById, presetByName, localFoodsSnapshot } = useMemo(() => {
+    const customFoods = StorageService.getCustomFoods();
+    const cById = new Map<string, CustomFood>();
+    const cByNameBrand = new Map<string, CustomFood>();
+    for (const c of customFoods) {
+      cById.set(c.id, c);
+      cById.set(`custom_${c.id}`, c);
+      const nbKey = `${c.name.trim().toLowerCase()}___${normalizeBrandName(c.brand || '').toLowerCase()}`;
+      if (!cByNameBrand.has(nbKey)) cByNameBrand.set(nbKey, c);
+    }
+
+    const presetFoods = StorageService.getPresetFoods();
+    const pById = new Map<string, FoodSearchResult>();
+    const pByName = new Map<string, FoodSearchResult>();
+    for (const p of presetFoods) {
+      pById.set(p.id, p);
+      const nKey = p.name.trim().toLowerCase();
+      if (!pByName.has(nKey)) pByName.set(nKey, p);
+    }
+
+    const localAll = StorageService.searchFoods('');
+    return {
+      customById: cById,
+      customByNameBrand: cByNameBrand,
+      presetById: pById,
+      presetByName: pByName,
+      localFoodsSnapshot: localAll,
+    };
+  }, []);
+
   const loadHistoryRecords = () => {
     const recent = StorageService.getRecentFoodHistory(selectedMealType, 7);
     setHistoryRecords(recent);
@@ -166,11 +209,11 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
   }, [selectedMealType]);
 
   const mapRecordToSearchResult = (r: FoodRecord): FoodSearchResult => {
-    // 1. Try to find original custom food
-    const customFoods = StorageService.getCustomFoods();
-    const custom = customFoods.find(
-      (c) => c.id === r.sourceFoodId || (c.name === r.name && c.brand === r.brand)
-    );
+    // 1. Try to find original custom food via O(1) Map lookup
+    const normRecKey = `${r.name.trim().toLowerCase()}___${normalizeBrandName(r.brand || '').toLowerCase()}`;
+    const custom =
+      (r.sourceFoodId ? customById.get(r.sourceFoodId) : undefined) ||
+      customByNameBrand.get(normRecKey);
     if (custom) {
       return {
         id: custom.id,
@@ -193,11 +236,10 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
       };
     }
 
-    // 2. Try to find original preset food
-    const presetFoods = StorageService.getPresetFoods();
-    const preset = presetFoods.find(
-      (p) => p.id === r.sourceFoodId || p.name === r.name
-    );
+    // 2. Try to find original preset food via O(1) Map lookup
+    const preset =
+      (r.sourceFoodId ? presetById.get(r.sourceFoodId) : undefined) ||
+      presetByName.get(r.name.trim().toLowerCase());
     if (preset) {
       return {
         ...preset,
@@ -1692,13 +1734,54 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
   };
 
   useEffect(() => {
-    if (activeTab === 'ALL' || activeTab === 'CLOUD') {
-      loadCloudFoods(searchQuery);
-    }
-    if (activeTab === 'OPEN_FOOD') {
-      loadOpenFoods(searchQuery);
-    }
+    const timer = setTimeout(() => {
+      if (activeTab === 'ALL' || activeTab === 'CLOUD' || (activeTab === 'HISTORY' && searchQuery.trim())) {
+        loadCloudFoods(searchQuery);
+      }
+      if (activeTab === 'OPEN_FOOD') {
+        loadOpenFoods(searchQuery);
+      }
+    }, searchQuery.trim() ? 200 : 0);
+    return () => clearTimeout(timer);
   }, [activeTab, searchQuery]);
+
+  // Helper to generate canonical deduplication identity keys for any food item
+  const getFoodIdentityKeys = (f: { id?: string; name: string; brand?: string; barcode?: string; calories?: number }): string[] => {
+    const keys: string[] = [];
+    const cleanName = (f.name || '').trim().toLowerCase();
+    const rawBrand = (f.brand || '').trim();
+    const normBrand = normalizeBrandName(rawBrand).toLowerCase();
+
+    // 1. Canonical Name + Normalized Brand key
+    keys.push(`nb_${cleanName}___${normBrand}`);
+
+    // 2. Generic brand fallback: if brand is generic ('自訂', '一般食材', '歷史紀錄', '台灣衛福部基礎食材庫', ''), match by name + rounded calories or name
+    const isGenericBrand =
+      !rawBrand ||
+      ['自訂', '自訂飲食', '一般食材', '歷史紀錄'].includes(rawBrand) ||
+      ['自訂', '一般食材', '歷史紀錄'].includes(normBrand);
+    if (isGenericBrand) {
+      keys.push(`gen_name_${cleanName}`);
+    }
+    if (f.calories !== undefined) {
+      keys.push(`name_cal_${cleanName}___${Math.round(Number(f.calories) || 0)}`);
+    }
+
+    // 3. Canonical ID key (stripping custom_ or hist_all_ prefixes)
+    if (f.id) {
+      const cleanId = f.id.replace(/^(custom_|hist_all_)+/, '').trim().toLowerCase();
+      if (cleanId) {
+        keys.push(`id_${cleanId}`);
+      }
+    }
+
+    // 4. Barcode key
+    if (f.barcode && f.barcode.trim()) {
+      keys.push(`bc_${f.barcode.trim().toLowerCase()}`);
+    }
+
+    return keys;
+  };
 
   // FamilyMart eaten history
   const familyHistoryRecords = useMemo(() => {
@@ -1721,35 +1804,28 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
   // Filter foods by tab and query (merging local + cloud on ALL tab)
   const filteredFoods = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    const local = StorageService.searchFoods('');
+    const local = localFoodsSnapshot;
     let list: FoodSearchResult[] = [];
 
     if (activeTab === 'ALL') {
-      const map = new Map<string, FoodSearchResult>();
-      
+      const seenKeys = new Set<string>();
+      const deduped: FoodSearchResult[] = [];
+
+      const addUnique = (item: FoodSearchResult) => {
+        const keys = getFoodIdentityKeys(item);
+        if (keys.some((k) => seenKeys.has(k))) return;
+        keys.forEach((k) => seenKeys.add(k));
+        deduped.push(item);
+      };
+
       // 1. Local foods (presets + custom)
-      local.forEach((f) => {
-        const key = f.barcode ? `bc_${f.barcode}` : `${f.name.trim().toLowerCase()}_${(f.brand || '').trim().toLowerCase()}`;
-        map.set(key, f);
-      });
-
+      local.forEach(addUnique);
       // 2. Cloud foods (cloud_foods)
-      cloudFoods.forEach((cf) => {
-        const key = cf.barcode ? `bc_${cf.barcode}` : `${cf.name.trim().toLowerCase()}_${(cf.brand || '').trim().toLowerCase()}`;
-        if (!map.has(key)) {
-          map.set(key, cf);
-        }
-      });
-
+      cloudFoods.forEach(addUnique);
       // 3. FamilyMart scraper results if available
-      familyResults.forEach((fr) => {
-        const key = `${fr.name.trim().toLowerCase()}_${(fr.brand || '').trim().toLowerCase()}`;
-        if (!map.has(key)) {
-          map.set(key, fr);
-        }
-      });
+      familyResults.forEach(addUnique);
 
-      list = Array.from(map.values());
+      list = deduped;
     } else if (activeTab === 'OFFICIAL') {
       list = local.filter(
         (f) =>
@@ -1778,40 +1854,41 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
       const matchBarcode = item.barcode && item.barcode.includes(q);
       return matchName || matchBrand || matchBarcode;
     });
-  }, [cloudFoods, familyResults, activeTab, searchQuery]);
+  }, [localFoodsSnapshot, cloudFoods, familyResults, openFoods, activeTab, searchQuery]);
 
   // All-time unique history items converted to FoodSearchResult, sorted by most recent
   const allTimeHistorySearchResult = useMemo(() => {
     const all = [...initialAllFoodRecords];
-    // Sort ascending by time so when we insert into Map, newer entries overwrite older ones
-    all.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+    // Sort descending by time (newest first) so we keep the most recent record per unique food
+    all.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 
-    const map = new Map<string, FoodRecord>();
+    const seenRawKeys = new Set<string>();
+    const uniqueRecords: FoodRecord[] = [];
     for (const r of all) {
-      let key = '';
-      if (r.sourceFoodId && r.sourceFoodId !== r.id) {
-        key = r.sourceFoodId;
-      } else if (r.barcode) {
-        key = 'bc_' + r.barcode;
-      } else {
-        key = `${r.name.trim().toLowerCase()}_${(r.brand || '').trim().toLowerCase()}`;
-      }
-      map.set(key, r);
-    }
-
-    const sortedHistory = Array.from(map.values()).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-    const mapped = sortedHistory.map((r) => mapRecordToSearchResult(r));
-
-    // Secondary deduplication after mapping to FoodSearchResult
-    const uniqueMap = new Map<string, FoodSearchResult>();
-    for (const item of mapped) {
-      const uKey = item.id || `${item.name.trim().toLowerCase()}_${(item.brand || '').trim().toLowerCase()}`;
-      if (!uniqueMap.has(uKey)) {
-        uniqueMap.set(uKey, item);
+      const rawKey =
+        r.sourceFoodId && r.sourceFoodId !== r.id
+          ? `src_${r.sourceFoodId}`
+          : r.barcode
+          ? `bc_${r.barcode}`
+          : `${r.name.trim().toLowerCase()}___${normalizeBrandName(r.brand || '').toLowerCase()}`;
+      if (!seenRawKeys.has(rawKey)) {
+        seenRawKeys.add(rawKey);
+        uniqueRecords.push(r);
       }
     }
-    return Array.from(uniqueMap.values());
-  }, [initialAllFoodRecords]);
+
+    const seenMappedKeys = new Set<string>();
+    const uniqueResults: FoodSearchResult[] = [];
+    for (const r of uniqueRecords) {
+      const item = mapRecordToSearchResult(r);
+      const keys = getFoodIdentityKeys(item);
+      if (!keys.some((k) => seenMappedKeys.has(k))) {
+        keys.forEach((k) => seenMappedKeys.add(k));
+        uniqueResults.push(item);
+      }
+    }
+    return uniqueResults;
+  }, [initialAllFoodRecords, customById, customByNameBrand, presetById, presetByName]);
 
   const matchedHistorySearchResult = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -1825,33 +1902,25 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
   }, [allTimeHistorySearchResult, searchQuery]);
 
   const globalFoods = useMemo(() => {
-    const local = StorageService.searchFoods('');
-    const map = new Map<string, FoodSearchResult>();
+    const seenKeys = new Set<string>();
+    const deduped: FoodSearchResult[] = [];
+
+    const addUnique = (item: FoodSearchResult) => {
+      const keys = getFoodIdentityKeys(item);
+      if (keys.some((k) => seenKeys.has(k))) return;
+      keys.forEach((k) => seenKeys.add(k));
+      deduped.push(item);
+    };
 
     // 1. Local presets & customs
-    local.forEach((f) => {
-      const key = f.barcode ? `bc_${f.barcode}` : `${f.name.trim().toLowerCase()}_${(f.brand || '').trim().toLowerCase()}`;
-      map.set(key, f);
-    });
-
+    localFoodsSnapshot.forEach(addUnique);
     // 2. Cloud foods
-    cloudFoods.forEach((cf) => {
-      const key = cf.barcode ? `bc_${cf.barcode}` : `${cf.name.trim().toLowerCase()}_${(cf.brand || '').trim().toLowerCase()}`;
-      if (!map.has(key)) {
-        map.set(key, cf);
-      }
-    });
-
+    cloudFoods.forEach(addUnique);
     // 3. FamilyMart scraper results
-    familyResults.forEach((fr) => {
-      const key = `${fr.name.trim().toLowerCase()}_${(fr.brand || '').trim().toLowerCase()}`;
-      if (!map.has(key)) {
-        map.set(key, fr);
-      }
-    });
+    familyResults.forEach(addUnique);
 
-    return Array.from(map.values());
-  }, [cloudFoods, familyResults]);
+    return deduped;
+  }, [localFoodsSnapshot, cloudFoods, familyResults]);
 
   const matchedGlobal = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -1869,18 +1938,28 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
     if (!q) return [];
 
     const historyKeys = new Set<string>();
+    // Exclude anything already in matchedHistorySearchResult or allTimeHistorySearchResult
     matchedHistorySearchResult.forEach((f) => {
-      const key = `${f.name.trim().toLowerCase()}_${(f.brand || '').trim().toLowerCase()}`;
-      historyKeys.add(key);
-      if (f.barcode) historyKeys.add('bc_' + f.barcode);
+      getFoodIdentityKeys(f).forEach((k) => historyKeys.add(k));
+    });
+    allTimeHistorySearchResult.forEach((f) => {
+      getFoodIdentityKeys(f).forEach((k) => historyKeys.add(k));
     });
 
-    return matchedGlobal.filter((f) => {
-      const key = `${f.name.trim().toLowerCase()}_${(f.brand || '').trim().toLowerCase()}`;
-      const barcodeKey = f.barcode ? 'bc_' + f.barcode : '';
-      return !historyKeys.has(key) && (!barcodeKey || !historyKeys.has(barcodeKey));
-    });
-  }, [matchedGlobal, matchedHistorySearchResult, searchQuery]);
+    const seenInResult = new Set<string>();
+    const result: FoodSearchResult[] = [];
+
+    for (const f of matchedGlobal) {
+      const keys = getFoodIdentityKeys(f);
+      if (keys.some((k) => historyKeys.has(k) || seenInResult.has(k))) {
+        continue;
+      }
+      keys.forEach((k) => seenInResult.add(k));
+      result.push(f);
+    }
+
+    return result;
+  }, [matchedGlobal, matchedHistorySearchResult, allTimeHistorySearchResult, searchQuery]);
 
   // Handle Online OpenFoodFacts Search
   const handleSearchOnline = async (overrideQuery?: string) => {
@@ -5499,7 +5578,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                 <div className="space-y-2.5">
                   {matchedHistorySearchResult.length > 0 ? (
                     <div className="space-y-2">
-                      {matchedHistorySearchResult.map((food, idx) => (
+                      {matchedHistorySearchResult.slice(0, historyLimit).map((food, idx) => (
                         <div
                           key={`hist_all_${food.id}_${idx}`}
                           onClick={() => handleSelectFoodWithHistory(food)}
@@ -5556,6 +5635,17 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                           </button>
                         </div>
                       ))}
+
+                      {matchedHistorySearchResult.length > historyLimit && (
+                        <button
+                          type="button"
+                          onClick={() => setHistoryLimit((prev) => prev + PAGE_LIMIT_STEP)}
+                          className="w-full py-2.5 mt-2 bg-sky-50 hover:bg-sky-100 text-sky-700 font-bold text-xs rounded-xl border border-sky-200/80 transition cursor-pointer flex items-center justify-center gap-1.5"
+                        >
+                          <ChevronDown className="w-4 h-4" />
+                          載入更多歷史紀錄（還有 {matchedHistorySearchResult.length - historyLimit} 筆）
+                        </button>
+                      )}
                     </div>
                   ) : !searchQuery ? (
                     <div className="py-12 text-center text-slate-400 text-xs">
@@ -5568,10 +5658,10 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                     <div className="space-y-2.5">
                       <div className="pt-4 pb-1 flex items-center gap-2">
                         <div className="h-px bg-slate-200 flex-1" />
-                        <span className="text-[11px] font-black text-slate-400">其他資料庫搜尋結果</span>
+                        <span className="text-[11px] font-black text-slate-400">其他資料庫搜尋結果 ({deduplicatedGlobal.length})</span>
                         <div className="h-px bg-slate-200 flex-1" />
                       </div>
-                      {deduplicatedGlobal.map((food, idx) => (
+                      {deduplicatedGlobal.slice(0, otherDbLimit).map((food, idx) => (
                         <div
                           key={`global_hist_${food.id}_${idx}`}
                           onClick={() => handleSelectFoodWithHistory(food)}
@@ -5628,6 +5718,17 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                           </button>
                         </div>
                       ))}
+
+                      {deduplicatedGlobal.length > otherDbLimit && (
+                        <button
+                          type="button"
+                          onClick={() => setOtherDbLimit((prev) => prev + PAGE_LIMIT_STEP)}
+                          className="w-full py-2.5 mt-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5"
+                        >
+                          <ChevronDown className="w-4 h-4" />
+                          載入更多搜尋結果（還有 {deduplicatedGlobal.length - otherDbLimit} 筆）
+                        </button>
+                      )}
                     </div>
                   )}
 
@@ -5660,7 +5761,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
 
                   {/* 已有紀錄 */}
                   <div className="space-y-2">
-                    {filteredHistoryRecords.map((record) => {
+                    {filteredHistoryRecords.slice(0, historyLimit).map((record) => {
                       const isAnimating = animatingHistoryId === record.id;
                       const isAdded = addedIds[record.id];
                       return (
@@ -5740,104 +5841,119 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                 </div>
               )}
 
-              {filteredFoods.length > 0 ? (
-                filteredFoods.map((food) => (
-                    <div key={food.id} onClick={() => handleSelectFoodWithHistory(food)} className="p-3 bg-white border border-slate-100 hover:border-sky-300 rounded-2xl hover:shadow-sm transition cursor-pointer flex items-start justify-between gap-3 group">
-                      <div className="min-w-0 flex-1">
-                        {/* 1. 名稱 & 膠囊 & 編輯 */}
-                        <div className="flex items-center gap-1.5 min-w-0 h-8">
-                          <h4 className="font-bold text-sm text-slate-900 group-hover:text-sky-800 truncate min-w-0 shrink">
-                            {food.name}
-                          </h4>
-                          <div className="inline-flex items-center gap-1 shrink-0">
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleSelectFoodWithHistory(food);
-                                }}
-                                className="p-1 text-slate-400 hover:text-sky-700 hover:bg-sky-50 rounded-lg transition cursor-pointer"
-                                title="點擊修改/設定份量"
-                              >
-                                <Pencil className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
+              {activeTab !== 'HISTORY' && (
+                filteredFoods.length > 0 ? (
+                  <div className="space-y-2">
+                    {filteredFoods.slice(0, foodsLimit).map((food) => (
+                      <div key={food.id} onClick={() => handleSelectFoodWithHistory(food)} className="p-3 bg-white border border-slate-100 hover:border-sky-300 rounded-2xl hover:shadow-sm transition cursor-pointer flex items-start justify-between gap-3 group">
+                        <div className="min-w-0 flex-1">
+                          {/* 1. 名稱 & 膠囊 & 編輯 */}
+                          <div className="flex items-center gap-1.5 min-w-0 h-8">
+                            <h4 className="font-bold text-sm text-slate-900 group-hover:text-sky-800 truncate min-w-0 shrink">
+                              {food.name}
+                            </h4>
+                            <div className="inline-flex items-center gap-1 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleSelectFoodWithHistory(food);
+                                  }}
+                                  className="p-1 text-slate-400 hover:text-sky-700 hover:bg-sky-50 rounded-lg transition cursor-pointer"
+                                  title="點擊修改/設定份量"
+                                >
+                                  <Pencil className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                          </div>
+
+                          {/* 2. 品牌 */}
+                          <div className="text-[11px] font-semibold text-slate-400 -mt-0.5 mb-1">
+                            {(() => {
+                              const isVision = food.aiSource === 'vision' || food.brand === 'AI 視覺辨識';
+                              const isEstimation = food.aiSource === 'estimation' || food.brand === 'AI 智慧估算';
+                              if (isVision || isEstimation) {
+                                return food.brand && food.brand !== 'AI 視覺辨識' && food.brand !== 'AI 智慧估算'
+                                  ? food.brand
+                                  : 'AI辨識';
+                              }
+                              return food.brand || '自訂';
+                            })()}
+                          </div>
+
+                          {/* 3. 重量 · 熱量 · CPF 一排 (與主頁格式完全相同) */}
+                          <div className="flex flex-wrap items-center gap-1.5 mt-1.5 pb-0.5">
+                            <span className="text-[11px] font-bold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                              {food.servingAmount}{food.servingUnit}
+                            </span>
+                            <span className="text-[11px] font-bold text-sky-800 bg-sky-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                              {food.calories} kcal
+                            </span>
+                            <span className="text-[10px] font-bold text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">C:{food.carbs}</span>
+                            <span className="text-[10px] font-bold text-blue-800 bg-blue-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">P:{food.protein}</span>
+                            <span className="text-[10px] font-bold text-rose-800 bg-rose-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">F:{food.fat}</span>
+                          </div>
                         </div>
 
-                        {/* 2. 品牌 */}
-                        <div className="text-[11px] font-semibold text-slate-400 -mt-0.5 mb-1">
-                          {(() => {
-                            const isVision = food.aiSource === 'vision' || food.brand === 'AI 視覺辨識';
-                            const isEstimation = food.aiSource === 'estimation' || food.brand === 'AI 智慧估算';
-                            if (isVision || isEstimation) {
-                              return food.brand && food.brand !== 'AI 視覺辨識' && food.brand !== 'AI 智慧估算'
-                                ? food.brand
-                                : 'AI辨識';
-                            }
-                            return food.brand || '自訂';
-                          })()}
-                        </div>
-
-                        {/* 3. 重量 · 熱量 · CPF 一排 (與主頁格式完全相同) */}
-                        <div className="flex flex-wrap items-center gap-1.5 mt-1.5 pb-0.5">
-                          <span className="text-[11px] font-bold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded-full whitespace-nowrap">
-                            {food.servingAmount}{food.servingUnit}
-                          </span>
-                          <span className="text-[11px] font-bold text-sky-800 bg-sky-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">
-                            {food.calories} kcal
-                          </span>
-                          <span className="text-[10px] font-bold text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">C:{food.carbs}</span>
-                          <span className="text-[10px] font-bold text-blue-800 bg-blue-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">P:{food.protein}</span>
-                          <span className="text-[10px] font-bold text-rose-800 bg-rose-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">F:{food.fat}</span>
-                        </div>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleFastAdd(food);
+                          }}
+                          className={`p-2.5 rounded-xl transition-all duration-200 shrink-0 cursor-pointer flex items-center justify-center ${getQuickAddButtonColor(food.brand, food.id, addedIds[food.id], activeTab, subStore)}`}
+                          title="快速新增至餐點（不關閉搜尋）"
+                        >
+                          {addedIds[food.id] ? (
+                            <Check className="w-5 h-5 animate-in zoom-in-50 duration-200" />
+                          ) : (
+                            <Plus className="w-5 h-5" />
+                          )}
+                        </button>
                       </div>
+                    ))}
 
+                    {filteredFoods.length > foodsLimit && (
                       <button
                         type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleFastAdd(food);
-                        }}
-                        className={`p-2.5 rounded-xl transition-all duration-200 shrink-0 cursor-pointer flex items-center justify-center ${getQuickAddButtonColor(food.brand, food.id, addedIds[food.id], activeTab, subStore)}`}
-                        title="快速新增至餐點（不關閉搜尋）"
+                        onClick={() => setFoodsLimit((prev) => prev + PAGE_LIMIT_STEP)}
+                        className="w-full py-2.5 mt-2 bg-sky-50 hover:bg-sky-100 text-sky-700 font-bold text-xs rounded-xl border border-sky-200/80 transition cursor-pointer flex items-center justify-center gap-1.5"
                       >
-                        {addedIds[food.id] ? (
-                          <Check className="w-5 h-5 animate-in zoom-in-50 duration-200" />
-                        ) : (
-                          <Plus className="w-5 h-5" />
-                        )}
+                        <ChevronDown className="w-4 h-4" />
+                        載入更多食品項目（還有 {filteredFoods.length - foodsLimit} 筆）
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <div className="py-8 text-center space-y-3">
+                    <p className="text-sm text-slate-500">找不到相符的本地食物項目</p>
+                    <div className="flex flex-wrap justify-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveTab('OPEN_FOOD');
+                          handleSearchOnline();
+                        }}
+                        disabled={isOnlineSearching}
+                        className="px-4 py-2 bg-amber-600 text-white rounded-xl text-xs font-semibold hover:bg-amber-700 transition flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <Globe className="w-3.5 h-3.5" />
+                        {isOnlineSearching ? '正在雲端搜尋...' : '開啟 Open Food 專區搜尋'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveTab('AI_SCAN');
+                          setAiPrompt(searchQuery);
+                        }}
+                        className="px-4 py-2 bg-purple-600 text-white rounded-xl text-xs font-semibold hover:bg-purple-700 transition flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <Sparkles className="w-3.5 h-3.5" />
+                        使用 Gemini AI 估算
                       </button>
                     </div>
-                ))
-              ) : (
-                <div className="py-8 text-center space-y-3">
-                  <p className="text-sm text-slate-500">找不到相符的本地食物項目</p>
-                  <div className="flex flex-wrap justify-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActiveTab('OPEN_FOOD');
-                        handleSearchOnline();
-                      }}
-                      disabled={isOnlineSearching}
-                      className="px-4 py-2 bg-amber-600 text-white rounded-xl text-xs font-semibold hover:bg-amber-700 transition flex items-center gap-1.5 cursor-pointer"
-                    >
-                      <Globe className="w-3.5 h-3.5" />
-                      {isOnlineSearching ? '正在雲端搜尋...' : '開啟 Open Food 專區搜尋'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActiveTab('AI_SCAN');
-                        setAiPrompt(searchQuery);
-                      }}
-                      className="px-4 py-2 bg-purple-600 text-white rounded-xl text-xs font-semibold hover:bg-purple-700 transition flex items-center gap-1.5 cursor-pointer"
-                    >
-                      <Sparkles className="w-3.5 h-3.5" />
-                      使用 Gemini AI 估算
-                    </button>
                   </div>
-                </div>
+                )
               )}
 
               {/* Online search results if any */}

@@ -180,9 +180,13 @@ export const StorageService = {
     }
   },
 
-  // Preset foods
+  // Preset foods (cached in memory after first parse)
+  _cachedPresetFoods: null as FoodSearchResult[] | null,
   getPresetFoods(): FoodSearchResult[] {
-    return (presetFoodsData as any[]).map((item) => {
+    if (this._cachedPresetFoods) {
+      return this._cachedPresetFoods;
+    }
+    this._cachedPresetFoods = (presetFoodsData as any[]).map((item) => {
       const isTfda = item.brand === '台灣衛福部基礎食材庫' || (item.id && item.id.startsWith('tfda_'));
       const defaultAmount = isTfda ? 100 : (item.defaultServingAmount || 100);
       const ratio = defaultAmount / 100;
@@ -207,6 +211,7 @@ export const StorageService = {
         barcode: item.barcode,
       };
     });
+    return this._cachedPresetFoods;
   },
 
   onSyncStatusChange(listener: (status: SyncStatus) => void) {
