@@ -63,7 +63,7 @@ interface AddFoodModalProps {
   onOpenCustomFoodModal: (prefilledData?: string | CustomFood) => void;
 }
 
-export type FoodTab = 'ALL' | 'OPEN_FOOD' | 'OFFICIAL' | 'CUSTOM' | 'CLOUD' | 'AI_SCAN' | 'BARCODE' | 'FAMILY' | 'OCR_SCAN';
+export type FoodTab = 'HISTORY' | 'ALL' | 'OPEN_FOOD' | 'OFFICIAL' | 'CUSTOM' | 'CLOUD' | 'AI_SCAN' | 'BARCODE' | 'FAMILY' | 'OCR_SCAN';
 
 export const AddFoodModal: React.FC<AddFoodModalProps> = ({
   initialMealType,
@@ -78,7 +78,20 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
   useModalBackHandler(true, onClose);
 
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeTab, setActiveTab] = useState<FoodTab>(initialTab);
+
+  const [historyRecords, setHistoryRecords] = useState<FoodRecord[]>([]);
+
+  const hasAnyHistory = useMemo(() => {
+    return StorageService.getAllFoodRecords().length > 0;
+  }, [historyRecords]);
+
+  const [activeTab, setActiveTab] = useState<FoodTab>(() => {
+    if (initialTab === 'ALL' && StorageService.getAllFoodRecords().length > 0) {
+      return 'HISTORY';
+    }
+    return initialTab;
+  });
+
   const [mainCategory, setMainCategory] = useState<'GENERAL' | 'AI' | 'ADVANCED'>(
     initialTab === 'AI_SCAN' || initialTab === 'BARCODE' || initialTab === 'OCR_SCAN'
       ? 'AI'
@@ -100,7 +113,6 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
   const [fastAddNotice, setFastAddNotice] = useState<string | null>(null);
 
   // History state & scroll ref
-  const [historyRecords, setHistoryRecords] = useState<FoodRecord[]>([]);
   const [animatingHistoryId, setAnimatingHistoryId] = useState<string | null>(null);
   const contentBodyRef = useRef<HTMLDivElement>(null);
 
@@ -224,7 +236,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
     // 1. Trigger Checkmark Animation immediately
     setAnimatingHistoryId(record.id);
 
-    // 2. Short wait before re-order
+    // 2. Short wait for haptic feedback feel
     await new Promise((resolve) => setTimeout(resolve, 150));
 
     // 3. Delegate ONLY to onFastAddFood / onSelectFood to prevent double insertion!
@@ -235,23 +247,14 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
       onSelectFood(searchItem, selectedMealType);
     }
 
-    // 4. Reload history list -> updates order & moves item to top (Index 0), replacing the original
-    const updated = StorageService.getRecentFoodHistory(selectedMealType, 7);
-    setHistoryRecords(updated);
-    const newTopId = updated[0]?.id;
-    setAddedIds((prev) => ({ ...prev, [record.id]: true, ...(newTopId ? { [newTopId]: true } : {}) }));
+    // 4. Set feedback state without re-ordering the list or scrolling during the active session
+    setAddedIds((prev) => ({ ...prev, [record.id]: true }));
     setFastAddNotice(`已快速新增「${record.name}」！`);
-
-    // 5. Scroll container smoothly to top (Position 0)
-    if (contentBodyRef.current) {
-      contentBodyRef.current.scrollTo({ top: 0, behavior: 'smooth' });
-    }
 
     setTimeout(() => {
       setAddedIds((prev) => ({
         ...prev,
         [record.id]: false,
-        ...(newTopId ? { [newTopId]: false } : {}),
       }));
       setAnimatingHistoryId(null);
     }, 500);
@@ -297,17 +300,14 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
       onSelectFood(food, selectedMealType);
       return;
     }
-    const updated = StorageService.getRecentFoodHistory(selectedMealType, 7);
-    setHistoryRecords(updated);
-    const newTopId = updated[0]?.id;
-    setAddedIds((prev) => ({ ...prev, [food.id]: true, ...(newTopId ? { [newTopId]: true } : {}) }));
+    // Set feedback state without re-ordering the list or scrolling during the active session
+    setAddedIds((prev) => ({ ...prev, [food.id]: true }));
     setFastAddNotice(`已快速新增「${food.name}」！`);
 
     setTimeout(() => {
       setAddedIds((prev) => ({
         ...prev,
         [food.id]: false,
-        ...(newTopId ? { [newTopId]: false } : {}),
       }));
     }, 500);
 
@@ -1740,6 +1740,108 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
     });
   }, [cloudFoods, familyResults, activeTab, searchQuery]);
 
+  // All-time unique history items converted to FoodSearchResult, sorted by most recent
+  const allTimeHistorySearchResult = useMemo(() => {
+    const all = StorageService.getAllFoodRecords();
+    // Sort ascending by time so when we insert into Map, newer entries overwrite older ones
+    all.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+
+    const map = new Map<string, FoodRecord>();
+    for (const r of all) {
+      let key = '';
+      if (r.sourceFoodId && r.sourceFoodId !== r.id) {
+        key = r.sourceFoodId;
+      } else if (r.barcode) {
+        key = 'bc_' + r.barcode;
+      } else {
+        key = `${r.name.trim().toLowerCase()}_${(r.brand || '').trim().toLowerCase()}`;
+      }
+      map.set(key, r);
+    }
+
+    const sortedHistory = Array.from(map.values()).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    const mapped = sortedHistory.map((r) => mapRecordToSearchResult(r));
+
+    // Secondary deduplication after mapping to FoodSearchResult
+    const uniqueMap = new Map<string, FoodSearchResult>();
+    for (const item of mapped) {
+      const uKey = item.id || `${item.name.trim().toLowerCase()}_${(item.brand || '').trim().toLowerCase()}`;
+      if (!uniqueMap.has(uKey)) {
+        uniqueMap.set(uKey, item);
+      }
+    }
+    return Array.from(uniqueMap.values());
+  }, [historyRecords]);
+
+  const matchedHistorySearchResult = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return allTimeHistorySearchResult;
+    return allTimeHistorySearchResult.filter((item) => {
+      const matchName = item.name.toLowerCase().includes(q);
+      const matchBrand = item.brand?.toLowerCase().includes(q);
+      const matchBarcode = item.barcode && item.barcode.includes(q);
+      return matchName || matchBrand || matchBarcode;
+    });
+  }, [allTimeHistorySearchResult, searchQuery]);
+
+  const globalFoods = useMemo(() => {
+    const local = StorageService.searchFoods('');
+    const map = new Map<string, FoodSearchResult>();
+
+    // 1. Local presets & customs
+    local.forEach((f) => {
+      const key = f.barcode ? `bc_${f.barcode}` : `${f.name.trim().toLowerCase()}_${(f.brand || '').trim().toLowerCase()}`;
+      map.set(key, f);
+    });
+
+    // 2. Cloud foods
+    cloudFoods.forEach((cf) => {
+      const key = cf.barcode ? `bc_${cf.barcode}` : `${cf.name.trim().toLowerCase()}_${(cf.brand || '').trim().toLowerCase()}`;
+      if (!map.has(key)) {
+        map.set(key, cf);
+      }
+    });
+
+    // 3. FamilyMart scraper results
+    familyResults.forEach((fr) => {
+      const key = `${fr.name.trim().toLowerCase()}_${(fr.brand || '').trim().toLowerCase()}`;
+      if (!map.has(key)) {
+        map.set(key, fr);
+      }
+    });
+
+    return Array.from(map.values());
+  }, [cloudFoods, familyResults]);
+
+  const matchedGlobal = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return [];
+    return globalFoods.filter((item) => {
+      const matchName = item.name.toLowerCase().includes(q);
+      const matchBrand = item.brand?.toLowerCase().includes(q);
+      const matchBarcode = item.barcode && item.barcode.includes(q);
+      return matchName || matchBrand || matchBarcode;
+    });
+  }, [globalFoods, searchQuery]);
+
+  const deduplicatedGlobal = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return [];
+
+    const historyKeys = new Set<string>();
+    matchedHistorySearchResult.forEach((f) => {
+      const key = `${f.name.trim().toLowerCase()}_${(f.brand || '').trim().toLowerCase()}`;
+      historyKeys.add(key);
+      if (f.barcode) historyKeys.add('bc_' + f.barcode);
+    });
+
+    return matchedGlobal.filter((f) => {
+      const key = `${f.name.trim().toLowerCase()}_${(f.brand || '').trim().toLowerCase()}`;
+      const barcodeKey = f.barcode ? 'bc_' + f.barcode : '';
+      return !historyKeys.has(key) && (!barcodeKey || !historyKeys.has(barcodeKey));
+    });
+  }, [matchedGlobal, matchedHistorySearchResult, searchQuery]);
+
   // Handle Online OpenFoodFacts Search
   const handleSearchOnline = async (overrideQuery?: string) => {
     const q = (overrideQuery !== undefined ? overrideQuery : searchQuery).trim();
@@ -2431,6 +2533,18 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
             </div>
             
             <div className="flex gap-1.5 overflow-x-auto no-scrollbar">
+              {hasAnyHistory && (
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('HISTORY')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition cursor-pointer flex items-center gap-1 ${
+                    activeTab === 'HISTORY' ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  <History className="w-3 h-3" />
+                  歷史紀錄
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => setActiveTab('ALL')}
@@ -5361,11 +5475,164 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
             </div>
           )}
 
-          {/* TAB: ALL, OFFICIAL, CUSTOM */}
+          {/* TAB: ALL, OFFICIAL, CUSTOM, HISTORY */}
           {activeTab !== 'AI_SCAN' && activeTab !== 'BARCODE' && activeTab !== 'OCR_SCAN' && activeTab !== 'CLOUD' && activeTab !== 'FAMILY' && activeTab !== 'OPEN_FOOD' && (
             <div className="space-y-2">
-              {/* 歷史紀錄區塊 (僅在「全部」ALL 頁籤，且有歷史紀錄時呈現) */}
-              {activeTab === 'ALL' && filteredHistoryRecords.length > 0 && (
+              {/* 歷史紀錄專屬頁籤 */}
+              {activeTab === 'HISTORY' && (
+                <div className="space-y-2.5">
+                  {matchedHistorySearchResult.length > 0 ? (
+                    <div className="space-y-2">
+                      {matchedHistorySearchResult.map((food, idx) => (
+                        <div
+                          key={`hist_all_${food.id}_${idx}`}
+                          onClick={() => handleSelectFoodWithHistory(food)}
+                          className="p-3 bg-white border border-slate-100 hover:border-sky-300 rounded-2xl hover:shadow-xs transition cursor-pointer flex items-start justify-between gap-3 group"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5 min-w-0 h-8">
+                              <h4 className="font-bold text-sm text-slate-900 group-hover:text-sky-800 truncate min-w-0 shrink">
+                                {food.name}
+                              </h4>
+                              <div className="inline-flex items-center gap-1 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleSelectFoodWithHistory(food);
+                                  }}
+                                  className="p-1 text-slate-400 hover:text-sky-700 hover:bg-sky-50 rounded-lg transition cursor-pointer"
+                                  title="設定份量並新增"
+                                >
+                                  <Pencil className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </div>
+                            <div className="text-[11px] font-semibold text-slate-400 -mt-0.5 mb-1">
+                              {food.brand || '歷史紀錄'}
+                            </div>
+                            <div className="flex flex-wrap items-center gap-1.5 mt-1.5 pb-0.5">
+                              <span className="text-[11px] font-bold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                                {food.servingAmount}{food.servingUnit}
+                              </span>
+                              <span className="text-[11px] font-bold text-sky-800 bg-sky-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                                {food.calories} kcal
+                              </span>
+                              <span className="text-[10px] font-bold text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">C:{food.carbs}</span>
+                              <span className="text-[10px] font-bold text-blue-800 bg-blue-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">P:{food.protein}</span>
+                              <span className="text-[10px] font-bold text-rose-800 bg-rose-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">F:{food.fat}</span>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleFastAdd(food);
+                            }}
+                            className={`p-2.5 rounded-xl transition-all duration-300 shrink-0 cursor-pointer flex items-center justify-center ${
+                              addedIds[food.id]
+                                ? 'bg-emerald-500 text-white scale-110 shadow-md ring-2 ring-emerald-300'
+                                : 'bg-sky-50 text-sky-700 hover:bg-sky-600 hover:text-white'
+                            }`}
+                            title="快速新增至當前餐點"
+                          >
+                            {addedIds[food.id] ? (
+                              <Check className="w-5 h-5 animate-in zoom-in-75 duration-200" />
+                            ) : (
+                              <Plus className="w-5 h-5" />
+                            )}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : !searchQuery ? (
+                    <div className="py-12 text-center text-slate-400 text-xs">
+                      暫無歷史飲食紀錄
+                    </div>
+                  ) : null}
+
+                  {/* 其他資料庫搜尋結果 (去重後) */}
+                  {searchQuery && deduplicatedGlobal.length > 0 && (
+                    <div className="space-y-2.5">
+                      <div className="pt-4 pb-1 flex items-center gap-2">
+                        <div className="h-px bg-slate-200 flex-1" />
+                        <span className="text-[11px] font-black text-slate-400">其他資料庫搜尋結果</span>
+                        <div className="h-px bg-slate-200 flex-1" />
+                      </div>
+                      {deduplicatedGlobal.map((food, idx) => (
+                        <div
+                          key={`global_hist_${food.id}_${idx}`}
+                          onClick={() => handleSelectFoodWithHistory(food)}
+                          className="p-3 bg-white border border-slate-100 hover:border-sky-300 rounded-2xl hover:shadow-xs transition cursor-pointer flex items-start justify-between gap-3 group"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5 min-w-0 h-8">
+                              <h4 className="font-bold text-sm text-slate-900 group-hover:text-sky-800 truncate min-w-0 shrink">
+                                {food.name}
+                              </h4>
+                              <div className="inline-flex items-center gap-1 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleSelectFoodWithHistory(food);
+                                  }}
+                                  className="p-1 text-slate-400 hover:text-sky-700 hover:bg-sky-50 rounded-lg transition cursor-pointer"
+                                  title="設定份量並新增"
+                                >
+                                  <Pencil className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </div>
+                            <div className="text-[11px] font-semibold text-slate-400 -mt-0.5 mb-1">
+                              {food.brand || '一般食材'}
+                            </div>
+                            <div className="flex flex-wrap items-center gap-1.5 mt-1.5 pb-0.5">
+                              <span className="text-[11px] font-bold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                                {food.servingAmount}{food.servingUnit}
+                              </span>
+                              <span className="text-[11px] font-bold text-sky-800 bg-sky-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                                {food.calories} kcal
+                              </span>
+                              <span className="text-[10px] font-bold text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">C:{food.carbs}</span>
+                              <span className="text-[10px] font-bold text-blue-800 bg-blue-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">P:{food.protein}</span>
+                              <span className="text-[10px] font-bold text-rose-800 bg-rose-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">F:{food.fat}</span>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleFastAdd(food);
+                            }}
+                            className={`p-2.5 rounded-xl transition-all duration-300 shrink-0 cursor-pointer flex items-center justify-center ${
+                              addedIds[food.id]
+                                ? 'bg-emerald-500 text-white scale-110 shadow-md ring-2 ring-emerald-300'
+                                : 'bg-sky-50 text-sky-700 hover:bg-sky-600 hover:text-white'
+                            }`}
+                            title="快速新增至當前餐點"
+                          >
+                            {addedIds[food.id] ? (
+                              <Check className="w-5 h-5 animate-in zoom-in-75 duration-200" />
+                            ) : (
+                              <Plus className="w-5 h-5" />
+                            )}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {searchQuery && matchedHistorySearchResult.length === 0 && deduplicatedGlobal.length === 0 && (
+                    <div className="py-12 text-center text-slate-400 text-xs">
+                      搜尋不到符合的食品項目
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* 歷史紀錄區塊 (僅在「全部」ALL 頁籤，且尚未開啟歷史專屬頁籤時呈現) */}
+              {activeTab === 'ALL' && !hasAnyHistory && filteredHistoryRecords.length > 0 && (
                 <div className="mb-6 space-y-2.5">
                   {/* Section Header */}
                   <div className="flex items-center justify-between px-1">
