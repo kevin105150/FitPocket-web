@@ -65,6 +65,41 @@ interface AddFoodModalProps {
 
 export type FoodTab = 'HISTORY' | 'ALL' | 'OPEN_FOOD' | 'OFFICIAL' | 'CUSTOM' | 'CLOUD' | 'AI_SCAN' | 'BARCODE' | 'FAMILY' | 'OCR_SCAN';
 
+// Helper to determine brand-specific or unified quick add button colors
+export const getQuickAddButtonColor = (
+  brand?: string,
+  id?: string,
+  isAdded?: boolean,
+  activeTab?: FoodTab,
+  subStore?: 'family' | 'mcd' | 'subway'
+) => {
+  if (isAdded) {
+    return 'bg-emerald-500 text-white scale-110 shadow-md ring-2 ring-emerald-300';
+  }
+
+  // Brand-specific pages / tabs:
+  if (activeTab === 'FAMILY') {
+    if (subStore === 'family') {
+      return 'bg-emerald-50 text-emerald-700 hover:bg-emerald-600 hover:text-white';
+    }
+    if (subStore === 'mcd') {
+      return 'bg-red-50 text-red-700 hover:bg-red-600 hover:text-white';
+    }
+    if (subStore === 'subway') {
+      return 'bg-yellow-50 text-yellow-800 hover:bg-yellow-600 hover:text-white';
+    }
+  }
+
+  // Open food tab has its own amber theme:
+  if (activeTab === 'OPEN_FOOD') {
+    return 'bg-amber-50 text-amber-700 hover:bg-amber-600 hover:text-white';
+  }
+
+  // All other pages/tabs (e.g. ALL, HISTORY, CLOUD, CUSTOM, AI_SCAN, BARCODE, OCR_SCAN, etc.) should use the general blue (sky-blue) theme
+  // and 7-11 is always blue as well!
+  return 'bg-sky-50 text-sky-700 hover:bg-sky-600 hover:text-white';
+};
+
 export const AddFoodModal: React.FC<AddFoodModalProps> = ({
   initialMealType,
   availableMeals,
@@ -79,14 +114,19 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
 
   const [searchQuery, setSearchQuery] = useState('');
 
-  const [historyRecords, setHistoryRecords] = useState<FoodRecord[]>([]);
+  // Static snapshot of all food records taken on modal mount to prevent re-ordering or layout shifts during the active session.
+  const [initialAllFoodRecords] = useState(() => StorageService.getAllFoodRecords());
+
+  const [historyRecords, setHistoryRecords] = useState<FoodRecord[]>(() =>
+    StorageService.getRecentFoodHistory(initialMealType, 7)
+  );
 
   const hasAnyHistory = useMemo(() => {
-    return StorageService.getAllFoodRecords().length > 0;
-  }, [historyRecords]);
+    return initialAllFoodRecords.length > 0;
+  }, [initialAllFoodRecords]);
 
   const [activeTab, setActiveTab] = useState<FoodTab>(() => {
-    if (initialTab === 'ALL' && StorageService.getAllFoodRecords().length > 0) {
+    if (initialTab === 'ALL' && initialAllFoodRecords.length > 0) {
       return 'HISTORY';
     }
     return initialTab;
@@ -1662,7 +1702,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
 
   // FamilyMart eaten history
   const familyHistoryRecords = useMemo(() => {
-    const all = StorageService.getAllFoodRecords();
+    const all = initialAllFoodRecords;
     const familyRecs = all.filter((r) => {
       const isBrandMatch = r.brand && (r.brand.includes('全家') || r.brand.toLowerCase().includes('family'));
       const isSourceMatch = r.sourceFoodId && r.sourceFoodId.startsWith('family_');
@@ -1676,7 +1716,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
       map.set(key, rec);
     }
     return Array.from(map.values()).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-  }, [historyRecords]);
+  }, [initialAllFoodRecords]);
 
   // Filter foods by tab and query (merging local + cloud on ALL tab)
   const filteredFoods = useMemo(() => {
@@ -1742,7 +1782,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
 
   // All-time unique history items converted to FoodSearchResult, sorted by most recent
   const allTimeHistorySearchResult = useMemo(() => {
-    const all = StorageService.getAllFoodRecords();
+    const all = [...initialAllFoodRecords];
     // Sort ascending by time so when we insert into Map, newer entries overwrite older ones
     all.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
 
@@ -1771,7 +1811,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
       }
     }
     return Array.from(uniqueMap.values());
-  }, [historyRecords]);
+  }, [initialAllFoodRecords]);
 
   const matchedHistorySearchResult = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -2823,11 +2863,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                                 handleQuickAddHistory(record);
                               }}
                               disabled={isAnimating}
-                              className={`p-2.5 rounded-xl transition-all duration-300 shrink-0 cursor-pointer flex items-center justify-center ${
-                                isAnimating || isAdded
-                                  ? 'bg-emerald-500 text-white scale-110 shadow-md ring-2 ring-emerald-300'
-                                  : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-600 hover:text-white'
-                              }`}
+                              className={`p-2.5 rounded-xl transition-all duration-300 shrink-0 cursor-pointer flex items-center justify-center ${getQuickAddButtonColor(record.brand, record.id, isAnimating || isAdded, activeTab, subStore)}`}
                               title="快速新增至當前餐點"
                             >
                               {isAnimating || isAdded ? (
@@ -2902,11 +2938,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                               e.stopPropagation();
                               handleFastAdd(food);
                             }}
-                            className={`p-2 rounded-xl transition-all duration-200 shrink-0 cursor-pointer flex items-center justify-center ${
-                              addedIds[food.id]
-                                ? 'bg-emerald-500 text-white scale-105 shadow-xs'
-                                : 'text-slate-400 group-hover:text-emerald-700 group-hover:bg-emerald-50'
-                            }`}
+                            className={`p-2.5 rounded-xl transition-all duration-300 shrink-0 cursor-pointer flex items-center justify-center ${getQuickAddButtonColor(food.brand, food.id, addedIds[food.id], activeTab, subStore)}`}
                             title="快速新增至餐點"
                           >
                             {addedIds[food.id] ? (
@@ -3074,11 +3106,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                               e.stopPropagation();
                               handleFastAdd(food);
                             }}
-                            className={`p-2 rounded-xl transition-all duration-200 shrink-0 cursor-pointer flex items-center justify-center ${
-                              addedIds[food.id]
-                                ? 'bg-red-500 text-white scale-105 shadow-xs'
-                                : 'text-slate-400 group-hover:text-red-700 group-hover:bg-red-50'
-                            }`}
+                            className={`p-2.5 rounded-xl transition-all duration-300 shrink-0 cursor-pointer flex items-center justify-center ${getQuickAddButtonColor(food.brand, food.id, addedIds[food.id], activeTab, subStore)}`}
                             title="快速新增至餐點"
                           >
                             {addedIds[food.id] ? (
@@ -3247,11 +3275,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                               e.stopPropagation();
                               handleFastAdd(food);
                             }}
-                            className={`p-2 rounded-xl transition-all duration-200 shrink-0 cursor-pointer flex items-center justify-center ${
-                              addedIds[food.id]
-                                ? 'bg-amber-500 text-white scale-105 shadow-xs'
-                                : 'text-slate-400 group-hover:text-amber-700 group-hover:bg-amber-50'
-                            }`}
+                            className={`p-2.5 rounded-xl transition-all duration-300 shrink-0 cursor-pointer flex items-center justify-center ${getQuickAddButtonColor(food.brand, food.id, addedIds[food.id], activeTab, subStore)}`}
                             title="快速新增至餐點"
                           >
                             {addedIds[food.id] ? (
@@ -5338,11 +5362,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                         e.stopPropagation();
                         handleFastAdd(food);
                       }}
-                      className={`p-2 rounded-xl transition-all duration-200 shrink-0 cursor-pointer flex items-center justify-center ${
-                        addedIds[food.id]
-                          ? 'bg-emerald-500 text-white scale-105 shadow-xs'
-                          : 'text-slate-400 group-hover:text-sky-600 group-hover:bg-sky-50'
-                      }`}
+                      className={`p-2.5 rounded-xl transition-all duration-300 shrink-0 cursor-pointer flex items-center justify-center ${getQuickAddButtonColor(food.brand, food.id, addedIds[food.id], activeTab, subStore)}`}
                       title="快速新增至餐點（不關閉搜尋）"
                     >
                       {addedIds[food.id] ? (
@@ -5447,11 +5467,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                           e.stopPropagation();
                           handleFastAddOpenFood(food);
                         }}
-                        className={`p-2 rounded-xl transition-all duration-200 shrink-0 cursor-pointer flex items-center justify-center ${
-                          addedIds[food.id]
-                            ? 'bg-emerald-500 text-white scale-105 shadow-xs'
-                            : 'text-slate-400 group-hover:text-amber-700 group-hover:bg-amber-50'
-                        }`}
+                        className={`p-2.5 rounded-xl transition-all duration-200 shrink-0 cursor-pointer flex items-center justify-center ${getQuickAddButtonColor(food.brand || 'Open Food Facts', food.id, addedIds[food.id], activeTab, subStore)}`}
                         title="快速新增至餐點並同步至 open_foods 集合"
                       >
                         {addedIds[food.id] ? (
@@ -5529,11 +5545,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                               e.stopPropagation();
                               handleFastAdd(food);
                             }}
-                            className={`p-2.5 rounded-xl transition-all duration-300 shrink-0 cursor-pointer flex items-center justify-center ${
-                              addedIds[food.id]
-                                ? 'bg-emerald-500 text-white scale-110 shadow-md ring-2 ring-emerald-300'
-                                : 'bg-sky-50 text-sky-700 hover:bg-sky-600 hover:text-white'
-                            }`}
+                            className={`p-2.5 rounded-xl transition-all duration-300 shrink-0 cursor-pointer flex items-center justify-center ${getQuickAddButtonColor(food.brand, food.id, addedIds[food.id], activeTab, subStore)}`}
                             title="快速新增至當前餐點"
                           >
                             {addedIds[food.id] ? (
@@ -5605,11 +5617,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                               e.stopPropagation();
                               handleFastAdd(food);
                             }}
-                            className={`p-2.5 rounded-xl transition-all duration-300 shrink-0 cursor-pointer flex items-center justify-center ${
-                              addedIds[food.id]
-                                ? 'bg-emerald-500 text-white scale-110 shadow-md ring-2 ring-emerald-300'
-                                : 'bg-sky-50 text-sky-700 hover:bg-sky-600 hover:text-white'
-                            }`}
+                            className={`p-2.5 rounded-xl transition-all duration-300 shrink-0 cursor-pointer flex items-center justify-center ${getQuickAddButtonColor(food.brand, food.id, addedIds[food.id], activeTab, subStore)}`}
                             title="快速新增至當前餐點"
                           >
                             {addedIds[food.id] ? (
@@ -5709,11 +5717,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                               handleQuickAddHistory(record);
                             }}
                             disabled={isAnimating}
-                            className={`p-2.5 rounded-xl transition-all duration-300 shrink-0 cursor-pointer flex items-center justify-center ${
-                              isAnimating || isAdded
-                                ? 'bg-emerald-500 text-white scale-110 shadow-md ring-2 ring-emerald-300'
-                                : 'bg-sky-50 text-sky-700 hover:bg-sky-600 hover:text-white'
-                            }`}
+                            className={`p-2.5 rounded-xl transition-all duration-300 shrink-0 cursor-pointer flex items-center justify-center ${getQuickAddButtonColor(record.brand, record.id, isAnimating || isAdded, activeTab, subStore)}`}
                             title="快速新增至當前餐點"
                           >
                             {isAnimating || isAdded ? (
@@ -5794,11 +5798,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                           e.stopPropagation();
                           handleFastAdd(food);
                         }}
-                        className={`p-2 rounded-xl transition-all duration-200 shrink-0 cursor-pointer flex items-center justify-center ${
-                          addedIds[food.id]
-                            ? 'bg-emerald-500 text-white scale-105 shadow-xs'
-                            : 'text-slate-400 group-hover:text-sky-700 group-hover:bg-sky-50'
-                        }`}
+                        className={`p-2.5 rounded-xl transition-all duration-200 shrink-0 cursor-pointer flex items-center justify-center ${getQuickAddButtonColor(food.brand, food.id, addedIds[food.id], activeTab, subStore)}`}
                         title="快速新增至餐點（不關閉搜尋）"
                       >
                         {addedIds[food.id] ? (
@@ -5895,11 +5895,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                           e.stopPropagation();
                           handleFastAdd(food);
                         }}
-                        className={`p-2 rounded-xl transition-all duration-200 shrink-0 cursor-pointer flex items-center justify-center ${
-                          addedIds[food.id]
-                            ? 'bg-emerald-500 text-white scale-105 shadow-xs'
-                            : 'text-blue-600 group-hover:bg-blue-100 rounded-xl'
-                        }`}
+                        className={`p-2.5 rounded-xl transition-all duration-200 shrink-0 cursor-pointer flex items-center justify-center ${getQuickAddButtonColor(food.brand || 'Open Food Facts', food.id, addedIds[food.id], activeTab, subStore)}`}
                         title="快速新增至餐點（不關閉搜尋）"
                       >
                         {addedIds[food.id] ? (
