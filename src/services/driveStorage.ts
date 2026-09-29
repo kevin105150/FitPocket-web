@@ -1,6 +1,7 @@
 import { getAccessToken, clearGoogleAccessToken } from '../lib/firebase';
 
-const DRIVE_FILE_NAME = 'fitpocket_data.json';
+const DRIVE_FILE_NAME = 'NutraiFit_Backup.json';
+const LEGACY_DRIVE_FILE_NAME = 'fitpocket_data.json';
 
 let cachedFileId: string | null = null;
 
@@ -20,7 +21,7 @@ export const DriveStorageService = {
     }
 
     try {
-      // Use spaces=drive to ensure we search the standard drive space
+      // 1. Search for the new backup filename 'NutraiFit_Backup.json'
       const query = encodeURIComponent(`name = '${DRIVE_FILE_NAME}' and trashed = false`);
       const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${query}&fields=files(id, name)&spaces=drive`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -29,7 +30,6 @@ export const DriveStorageService = {
       if (res.status === 401 || res.status === 403) {
         clearExpiredToken();
         console.warn('Google Drive token expired or unauthorized (401/403).');
-        // Throw a specific error that storage.ts can catch to show a better message
         throw new Error('AUTH_ERROR');
       }
 
@@ -44,6 +44,41 @@ export const DriveStorageService = {
         cachedFileId = data.files[0].id;
         return cachedFileId;
       }
+
+      // 2. If not found, search for the legacy backup filename 'fitpocket_data.json' for seamless migration
+      const legacyQuery = encodeURIComponent(`name = '${LEGACY_DRIVE_FILE_NAME}' and trashed = false`);
+      const legacyRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${legacyQuery}&fields=files(id, name)&spaces=drive`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (legacyRes.ok) {
+        const legacyData = await legacyRes.json();
+        if (legacyData.files && legacyData.files.length > 0) {
+          const legacyFileId = legacyData.files[0].id;
+          console.log(`[Drive Migrate] Found legacy backup file (${LEGACY_DRIVE_FILE_NAME}), starting automatic rename to ${DRIVE_FILE_NAME}...`);
+
+          // 3. Perform in-place PATCH rename to preserve file ID and data
+          const renameRes = await fetch(`https://www.googleapis.com/drive/v3/files/${legacyFileId}`, {
+            method: 'PATCH',
+            headers: { 
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ name: DRIVE_FILE_NAME }),
+          });
+
+          if (renameRes.ok) {
+            console.log('[Drive Migrate] Backup file successfully renamed to NutraiFit_Backup.json!');
+            cachedFileId = legacyFileId;
+            return cachedFileId;
+          } else {
+            console.warn('[Drive Migrate] Failed to rename legacy file, returning legacy ID directly as fallback');
+            cachedFileId = legacyFileId;
+            return cachedFileId;
+          }
+        }
+      }
+
       return null;
     } catch (e: any) {
       if (e.message === 'AUTH_ERROR') throw e;
