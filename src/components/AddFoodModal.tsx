@@ -117,10 +117,6 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
   // Static snapshot of all food records taken on modal mount to prevent re-ordering or layout shifts during the active session.
   const [initialAllFoodRecords] = useState(() => StorageService.getAllFoodRecords());
 
-  const [historyRecords, setHistoryRecords] = useState<FoodRecord[]>(() =>
-    StorageService.getRecentFoodHistory(initialMealType, 7)
-  );
-
   const hasAnyHistory = useMemo(() => {
     return initialAllFoodRecords.length > 0;
   }, [initialAllFoodRecords]);
@@ -155,6 +151,9 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
   // History state & scroll ref
   const [animatingHistoryId, setAnimatingHistoryId] = useState<string | null>(null);
   const contentBodyRef = useRef<HTMLDivElement>(null);
+  const historySentinelRef = useRef<HTMLDivElement>(null);
+  const otherDbSentinelRef = useRef<HTMLDivElement>(null);
+  const foodsSentinelRef = useRef<HTMLDivElement>(null);
 
   // Pagination limits (initial 100 items, load more +100)
   const PAGE_LIMIT_STEP = 100;
@@ -199,16 +198,14 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
     };
   }, []);
 
-  const loadHistoryRecords = () => {
-    const recent = StorageService.getRecentFoodHistory(selectedMealType, 7);
-    setHistoryRecords(recent);
-  };
-
-  useEffect(() => {
-    loadHistoryRecords();
-  }, [selectedMealType]);
-
   const mapRecordToSearchResult = (r: FoodRecord): FoodSearchResult => {
+    const lastAmount = r.loggedAmount;
+    const lastUnit = r.loggedUnit || r.baseServingUnit || 'g';
+    const lastCal = r.calories;
+    const lastC = r.carbs;
+    const lastP = r.protein;
+    const lastF = r.fat;
+
     // 1. Try to find original custom food via O(1) Map lookup
     const normRecKey = `${r.name.trim().toLowerCase()}___${normalizeBrandName(r.brand || '').toLowerCase()}`;
     const custom =
@@ -232,7 +229,12 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
         servingUnit: custom.servingUnit,
         aiSource: custom.aiSource || r.aiSource,
         isUserCustom: true,
-        lastLoggedAmount: r.loggedAmount,
+        lastLoggedAmount: lastAmount,
+        lastLoggedUnit: lastUnit,
+        lastLoggedCalories: lastCal,
+        lastLoggedCarbs: lastC,
+        lastLoggedProtein: lastP,
+        lastLoggedFat: lastF,
       };
     }
 
@@ -245,7 +247,12 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
         ...preset,
         id: preset.id,
         aiSource: r.aiSource,
-        lastLoggedAmount: r.loggedAmount,
+        lastLoggedAmount: lastAmount,
+        lastLoggedUnit: lastUnit,
+        lastLoggedCalories: lastCal,
+        lastLoggedCarbs: lastC,
+        lastLoggedProtein: lastP,
+        lastLoggedFat: lastF,
       };
     }
 
@@ -267,7 +274,12 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
         servingAmount: r.baseServingAmount,
         servingUnit: r.baseServingUnit || r.loggedUnit || 'g',
         aiSource: r.aiSource,
-        lastLoggedAmount: r.loggedAmount,
+        lastLoggedAmount: lastAmount,
+        lastLoggedUnit: lastUnit,
+        lastLoggedCalories: lastCal,
+        lastLoggedCarbs: lastC,
+        lastLoggedProtein: lastP,
+        lastLoggedFat: lastF,
       };
     }
 
@@ -295,7 +307,12 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
       servingAmount: baseServing,
       servingUnit: unit,
       aiSource: r.aiSource,
-      lastLoggedAmount: r.loggedAmount,
+      lastLoggedAmount: lastAmount,
+      lastLoggedUnit: lastUnit,
+      lastLoggedCalories: lastCal,
+      lastLoggedCarbs: lastC,
+      lastLoggedProtein: lastP,
+      lastLoggedFat: lastF,
     };
   };
 
@@ -364,16 +381,6 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
     }
     onSelectFood(foodToSelect, selectedMealType);
   };
-
-  const filteredHistoryRecords = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return historyRecords;
-    return historyRecords.filter((r) => {
-      const matchName = r.name.toLowerCase().includes(q);
-      const matchBrand = (r.brand || '').toLowerCase().includes(q);
-      return matchName || matchBrand;
-    });
-  }, [historyRecords, searchQuery]);
 
   const handleFastAdd = (food: FoodSearchResult) => {
     if (onFastAddFood) {
@@ -1960,6 +1967,74 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
 
     return result;
   }, [matchedGlobal, matchedHistorySearchResult, allTimeHistorySearchResult, searchQuery]);
+
+  // Auto load more via IntersectionObserver
+  useEffect(() => {
+    const rootEl = contentBodyRef.current;
+    if (!rootEl) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            if (entry.target === historySentinelRef.current) {
+              setHistoryLimit((prev) => (prev < matchedHistorySearchResult.length ? prev + PAGE_LIMIT_STEP : prev));
+            } else if (entry.target === otherDbSentinelRef.current) {
+              setOtherDbLimit((prev) => (prev < deduplicatedGlobal.length ? prev + PAGE_LIMIT_STEP : prev));
+            } else if (entry.target === foodsSentinelRef.current) {
+              setFoodsLimit((prev) => (prev < filteredFoods.length ? prev + PAGE_LIMIT_STEP : prev));
+            }
+          }
+        });
+      },
+      {
+        root: rootEl,
+        rootMargin: '250px',
+      }
+    );
+
+    if (historySentinelRef.current) observer.observe(historySentinelRef.current);
+    if (otherDbSentinelRef.current) observer.observe(otherDbSentinelRef.current);
+    if (foodsSentinelRef.current) observer.observe(foodsSentinelRef.current);
+
+    return () => observer.disconnect();
+  }, [
+    activeTab,
+    matchedHistorySearchResult.length,
+    historyLimit,
+    deduplicatedGlobal.length,
+    otherDbLimit,
+    filteredFoods.length,
+    foodsLimit,
+  ]);
+
+  // Auto load more when scrolling down near bottom of content container
+  useEffect(() => {
+    const el = contentBodyRef.current;
+    if (!el) return;
+
+    const handleScroll = () => {
+      const { scrollHeight, scrollTop, clientHeight } = el;
+      if (scrollHeight - scrollTop - clientHeight < 600) {
+        if (activeTab === 'HISTORY') {
+          setHistoryLimit((prev) => (prev < matchedHistorySearchResult.length ? prev + PAGE_LIMIT_STEP : prev));
+          setOtherDbLimit((prev) => (prev < deduplicatedGlobal.length ? prev + PAGE_LIMIT_STEP : prev));
+        } else {
+          setFoodsLimit((prev) => (prev < filteredFoods.length ? prev + PAGE_LIMIT_STEP : prev));
+          setOtherDbLimit((prev) => (prev < deduplicatedGlobal.length ? prev + PAGE_LIMIT_STEP : prev));
+        }
+      }
+    };
+
+    el.addEventListener('scroll', handleScroll, { passive: true });
+    return () => el.removeEventListener('scroll', handleScroll);
+  }, [
+    activeTab,
+    searchQuery,
+    matchedHistorySearchResult.length,
+    deduplicatedGlobal.length,
+    filteredFoods.length,
+  ]);
 
   // Handle Online OpenFoodFacts Search
   const handleSearchOnline = async (overrideQuery?: string) => {
@@ -5578,73 +5653,84 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                 <div className="space-y-2.5">
                   {matchedHistorySearchResult.length > 0 ? (
                     <div className="space-y-2">
-                      {matchedHistorySearchResult.slice(0, historyLimit).map((food, idx) => (
-                        <div
-                          key={`hist_all_${food.id}_${idx}`}
-                          onClick={() => handleSelectFoodWithHistory(food)}
-                          className="p-3 bg-white border border-slate-100 hover:border-sky-300 rounded-2xl hover:shadow-xs transition cursor-pointer flex items-start justify-between gap-3 group"
-                        >
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-1.5 min-w-0 h-8">
-                              <h4 className="font-bold text-sm text-slate-900 group-hover:text-sky-800 truncate min-w-0 shrink">
-                                {food.name}
-                              </h4>
-                              <div className="inline-flex items-center gap-1 shrink-0">
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleSelectFoodWithHistory(food);
-                                  }}
-                                  className="p-1 text-slate-400 hover:text-sky-700 hover:bg-sky-50 rounded-lg transition cursor-pointer"
-                                  title="設定份量並新增"
-                                >
-                                  <Pencil className="w-3.5 h-3.5" />
-                                </button>
+                      {matchedHistorySearchResult.slice(0, historyLimit).map((food, idx) => {
+                        const displayAmount = (food.lastLoggedAmount !== undefined && food.lastLoggedAmount !== null) ? food.lastLoggedAmount : food.servingAmount;
+                        const displayUnit = food.lastLoggedUnit || food.servingUnit || 'g';
+                        const displayCalories = (food.lastLoggedCalories !== undefined && food.lastLoggedCalories !== null) ? food.lastLoggedCalories : food.calories;
+                        const displayCarbs = (food.lastLoggedCarbs !== undefined && food.lastLoggedCarbs !== null) ? food.lastLoggedCarbs : food.carbs;
+                        const displayProtein = (food.lastLoggedProtein !== undefined && food.lastLoggedProtein !== null) ? food.lastLoggedProtein : food.protein;
+                        const displayFat = (food.lastLoggedFat !== undefined && food.lastLoggedFat !== null) ? food.lastLoggedFat : food.fat;
+
+                        return (
+                          <div
+                            key={`hist_all_${food.id}_${idx}`}
+                            onClick={() => handleSelectFoodWithHistory(food)}
+                            className="p-3 bg-white border border-slate-100 hover:border-sky-300 rounded-2xl hover:shadow-xs transition cursor-pointer flex items-start justify-between gap-3 group"
+                          >
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-1.5 min-w-0 h-8">
+                                <h4 className="font-bold text-sm text-slate-900 group-hover:text-sky-800 truncate min-w-0 shrink">
+                                  {food.name}
+                                </h4>
+                                <div className="inline-flex items-center gap-1 shrink-0">
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleSelectFoodWithHistory(food);
+                                    }}
+                                    className="p-1 text-slate-400 hover:text-sky-700 hover:bg-sky-50 rounded-lg transition cursor-pointer"
+                                    title="設定份量並新增"
+                                  >
+                                    <Pencil className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </div>
+                              <div className="text-[11px] font-semibold text-slate-400 -mt-0.5 mb-1">
+                                {food.brand || '歷史紀錄'}
+                              </div>
+                              <div className="flex flex-wrap items-center gap-1.5 mt-1.5 pb-0.5">
+                                <span className="text-[11px] font-bold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                                  {displayAmount}{displayUnit}
+                                </span>
+                                <span className="text-[11px] font-bold text-sky-800 bg-sky-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                                  {displayCalories} kcal
+                                </span>
+                                <span className="text-[10px] font-bold text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">C:{displayCarbs}</span>
+                                <span className="text-[10px] font-bold text-blue-800 bg-blue-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">P:{displayProtein}</span>
+                                <span className="text-[10px] font-bold text-rose-800 bg-rose-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">F:{displayFat}</span>
                               </div>
                             </div>
-                            <div className="text-[11px] font-semibold text-slate-400 -mt-0.5 mb-1">
-                              {food.brand || '歷史紀錄'}
-                            </div>
-                            <div className="flex flex-wrap items-center gap-1.5 mt-1.5 pb-0.5">
-                              <span className="text-[11px] font-bold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded-full whitespace-nowrap">
-                                {food.servingAmount}{food.servingUnit}
-                              </span>
-                              <span className="text-[11px] font-bold text-sky-800 bg-sky-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">
-                                {food.calories} kcal
-                              </span>
-                              <span className="text-[10px] font-bold text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">C:{food.carbs}</span>
-                              <span className="text-[10px] font-bold text-blue-800 bg-blue-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">P:{food.protein}</span>
-                              <span className="text-[10px] font-bold text-rose-800 bg-rose-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">F:{food.fat}</span>
-                            </div>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleFastAdd(food);
+                              }}
+                              className={`p-2.5 rounded-xl transition-all duration-300 shrink-0 cursor-pointer flex items-center justify-center ${getQuickAddButtonColor(food.brand, food.id, addedIds[food.id], activeTab, subStore)}`}
+                              title="快速新增至當前餐點"
+                            >
+                              {addedIds[food.id] ? (
+                                <Check className="w-5 h-5 animate-in zoom-in-75 duration-200" />
+                              ) : (
+                                <Plus className="w-5 h-5" />
+                              )}
+                            </button>
                           </div>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleFastAdd(food);
-                            }}
-                            className={`p-2.5 rounded-xl transition-all duration-300 shrink-0 cursor-pointer flex items-center justify-center ${getQuickAddButtonColor(food.brand, food.id, addedIds[food.id], activeTab, subStore)}`}
-                            title="快速新增至當前餐點"
-                          >
-                            {addedIds[food.id] ? (
-                              <Check className="w-5 h-5 animate-in zoom-in-75 duration-200" />
-                            ) : (
-                              <Plus className="w-5 h-5" />
-                            )}
-                          </button>
-                        </div>
-                      ))}
+                        );
+                      })}
 
                       {matchedHistorySearchResult.length > historyLimit && (
-                        <button
-                          type="button"
-                          onClick={() => setHistoryLimit((prev) => prev + PAGE_LIMIT_STEP)}
-                          className="w-full py-2.5 mt-2 bg-sky-50 hover:bg-sky-100 text-sky-700 font-bold text-xs rounded-xl border border-sky-200/80 transition cursor-pointer flex items-center justify-center gap-1.5"
-                        >
-                          <ChevronDown className="w-4 h-4" />
-                          載入更多歷史紀錄（還有 {matchedHistorySearchResult.length - historyLimit} 筆）
-                        </button>
+                        <div ref={historySentinelRef} className="pt-1">
+                          <button
+                            type="button"
+                            onClick={() => setHistoryLimit((prev) => prev + PAGE_LIMIT_STEP)}
+                            className="w-full py-2.5 mt-2 bg-sky-50 hover:bg-sky-100 text-sky-700 font-bold text-xs rounded-xl border border-sky-200/80 transition cursor-pointer flex items-center justify-center gap-1.5"
+                          >
+                            <ChevronDown className="w-4 h-4" />
+                            載入更多歷史紀錄（還有 {matchedHistorySearchResult.length - historyLimit} 筆 · 向下滑動亦可自動載入）
+                          </button>
+                        </div>
                       )}
                     </div>
                   ) : !searchQuery ? (
@@ -5720,14 +5806,16 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                       ))}
 
                       {deduplicatedGlobal.length > otherDbLimit && (
-                        <button
-                          type="button"
-                          onClick={() => setOtherDbLimit((prev) => prev + PAGE_LIMIT_STEP)}
-                          className="w-full py-2.5 mt-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5"
-                        >
-                          <ChevronDown className="w-4 h-4" />
-                          載入更多搜尋結果（還有 {deduplicatedGlobal.length - otherDbLimit} 筆）
-                        </button>
+                        <div ref={otherDbSentinelRef} className="pt-1">
+                          <button
+                            type="button"
+                            onClick={() => setOtherDbLimit((prev) => prev + PAGE_LIMIT_STEP)}
+                            className="w-full py-2.5 mt-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5"
+                          >
+                            <ChevronDown className="w-4 h-4" />
+                            載入更多搜尋結果（還有 {deduplicatedGlobal.length - otherDbLimit} 筆 · 向下滑動亦可自動載入）
+                          </button>
+                        </div>
                       )}
                     </div>
                   )}
@@ -5737,107 +5825,6 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                       搜尋不到符合的食品項目
                     </div>
                   )}
-                </div>
-              )}
-
-              {/* 歷史紀錄區塊 (僅在「全部」ALL 頁籤，且尚未開啟歷史專屬頁籤時呈現) */}
-              {activeTab === 'ALL' && !hasAnyHistory && filteredHistoryRecords.length > 0 && (
-                <div className="mb-6 space-y-2.5">
-                  {/* Section Header */}
-                  <div className="flex items-center justify-between px-1">
-                    <div className="flex items-center gap-2">
-                      <div className="w-6 h-6 rounded-lg bg-sky-100 flex items-center justify-center text-sky-700">
-                        <History className="w-3.5 h-3.5" />
-                      </div>
-                      <h3 className="font-extrabold text-sm text-slate-800 tracking-tight">歷史紀錄</h3>
-                      <span className="text-[10px] font-bold px-2 py-0.5 bg-sky-50 text-sky-800 border border-sky-100 rounded-full">
-                        近 7 天 · {selectedMealName}
-                      </span>
-                    </div>
-                    <span className="text-[11px] font-semibold text-slate-400">
-                      共 {filteredHistoryRecords.length} 項
-                    </span>
-                  </div>
-
-                  {/* 已有紀錄 */}
-                  <div className="space-y-2">
-                    {filteredHistoryRecords.slice(0, historyLimit).map((record) => {
-                      const isAnimating = animatingHistoryId === record.id;
-                      const isAdded = addedIds[record.id];
-                      return (
-                        <div
-                          key={`hist_${record.id}`}
-                          onClick={() => handleSelectFoodWithHistory(mapRecordToSearchResult(record))}
-                          className="p-3 bg-white border border-slate-100 hover:border-sky-300 rounded-2xl hover:shadow-xs transition cursor-pointer flex items-start justify-between gap-3 group"
-                        >
-                          <div className="min-w-0 flex-1">
-                            {/* 1. 名稱 & 膠囊 & 編輯 */}
-                            <div className="flex items-center gap-1.5 min-w-0 h-8">
-                              <h4 className="font-bold text-sm text-slate-900 group-hover:text-sky-800 truncate min-w-0 shrink">
-                                {record.name}
-                              </h4>
-                              <div className="inline-flex items-center gap-1 shrink-0">
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleSelectFoodWithHistory(mapRecordToSearchResult(record));
-                                  }}
-                                  className="p-1 text-slate-400 hover:text-sky-700 hover:bg-sky-50 rounded-lg transition cursor-pointer"
-                                  title="設定份量並新增"
-                                >
-                                  <Pencil className="w-3.5 h-3.5" />
-                                </button>
-                              </div>
-                            </div>
-
-                            {/* 2. 品牌 */}
-                            <div className="text-[11px] font-semibold text-slate-400 -mt-0.5 mb-1">
-                              {record.brand || '自訂'}
-                            </div>
-
-                            {/* 3. 重量(上次份量) · 熱量 · CPF 一排 */}
-                            <div className="flex flex-wrap items-center gap-1.5 mt-1.5 pb-0.5">
-                              <span className="text-[11px] font-bold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded-full whitespace-nowrap">
-                                {record.loggedAmount}{record.loggedUnit}
-                              </span>
-                              <span className="text-[11px] font-bold text-sky-800 bg-sky-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">
-                                {record.calories} kcal
-                              </span>
-                              <span className="text-[10px] font-bold text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">C:{record.carbs}</span>
-                              <span className="text-[10px] font-bold text-blue-800 bg-blue-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">P:{record.protein}</span>
-                              <span className="text-[10px] font-bold text-rose-800 bg-rose-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">F:{record.fat}</span>
-                            </div>
-                          </div>
-
-                          {/* 4. Quick Add Button with Animation */}
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleQuickAddHistory(record);
-                            }}
-                            disabled={isAnimating}
-                            className={`p-2.5 rounded-xl transition-all duration-300 shrink-0 cursor-pointer flex items-center justify-center ${getQuickAddButtonColor(record.brand, record.id, isAnimating || isAdded, activeTab, subStore)}`}
-                            title="快速新增至當前餐點"
-                          >
-                            {isAnimating || isAdded ? (
-                              <Check className="w-5 h-5 animate-in zoom-in-75 duration-200" />
-                            ) : (
-                              <Plus className="w-5 h-5" />
-                            )}
-                          </button>
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  {/* Section Divider */}
-                  <div className="pt-2 pb-1 flex items-center gap-2">
-                    <div className="h-px bg-slate-200 flex-1" />
-                    <span className="text-[11px] font-bold text-slate-400">全庫食品與自訂項目</span>
-                    <div className="h-px bg-slate-200 flex-1" />
-                  </div>
                 </div>
               )}
 
@@ -5914,14 +5901,16 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                     ))}
 
                     {filteredFoods.length > foodsLimit && (
-                      <button
-                        type="button"
-                        onClick={() => setFoodsLimit((prev) => prev + PAGE_LIMIT_STEP)}
-                        className="w-full py-2.5 mt-2 bg-sky-50 hover:bg-sky-100 text-sky-700 font-bold text-xs rounded-xl border border-sky-200/80 transition cursor-pointer flex items-center justify-center gap-1.5"
-                      >
-                        <ChevronDown className="w-4 h-4" />
-                        載入更多食品項目（還有 {filteredFoods.length - foodsLimit} 筆）
-                      </button>
+                      <div ref={foodsSentinelRef} className="pt-1">
+                        <button
+                          type="button"
+                          onClick={() => setFoodsLimit((prev) => prev + PAGE_LIMIT_STEP)}
+                          className="w-full py-2.5 mt-2 bg-sky-50 hover:bg-sky-100 text-sky-700 font-bold text-xs rounded-xl border border-sky-200/80 transition cursor-pointer flex items-center justify-center gap-1.5"
+                        >
+                          <ChevronDown className="w-4 h-4" />
+                          載入更多食品項目（還有 {filteredFoods.length - foodsLimit} 筆 · 向下滑動亦可自動載入）
+                        </button>
+                      </div>
                     )}
                   </div>
                 ) : (

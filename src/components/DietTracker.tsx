@@ -823,6 +823,24 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
       OpenFoodService.uploadInBackground(food);
     }
 
+    const hasLastLoggedExact =
+      food.lastLoggedAmount !== undefined &&
+      food.lastLoggedAmount === amountToLog &&
+      food.lastLoggedCalories !== undefined;
+
+    const loggedCalories = hasLastLoggedExact
+      ? food.lastLoggedCalories!
+      : Math.round(food.calories * ratio * 10) / 10;
+    const loggedCarbs = hasLastLoggedExact && food.lastLoggedCarbs !== undefined
+      ? food.lastLoggedCarbs
+      : Math.round(food.carbs * ratio * 10) / 10;
+    const loggedProtein = hasLastLoggedExact && food.lastLoggedProtein !== undefined
+      ? food.lastLoggedProtein
+      : Math.round(food.protein * ratio * 10) / 10;
+    const loggedFat = hasLastLoggedExact && food.lastLoggedFat !== undefined
+      ? food.lastLoggedFat
+      : Math.round(food.fat * ratio * 10) / 10;
+
     const record: FoodRecord = {
       id: 'record_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
       sourceFoodId: food.id,
@@ -831,16 +849,16 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
       barcode: food.barcode,
       mealType: targetMeal,
       date: currentDate,
-      calories: Math.round(food.calories * ratio * 10) / 10,
-      carbs: Math.round(food.carbs * ratio * 10) / 10,
-      protein: Math.round(food.protein * ratio * 10) / 10,
-      fat: Math.round(food.fat * ratio * 10) / 10,
+      calories: loggedCalories,
+      carbs: loggedCarbs,
+      protein: loggedProtein,
+      fat: loggedFat,
       sugars: food.sugars ? Math.round(food.sugars * ratio * 10) / 10 : 0,
       fiber: food.fiber ? Math.round(food.fiber * ratio * 10) / 10 : 0,
       sodium: food.sodium ? Math.round(food.sodium * ratio * 10) / 10 : 0,
       potassium: food.potassium ? Math.round(food.potassium * ratio * 10) / 10 : 0,
       loggedAmount: amountToLog,
-      loggedUnit: food.servingUnit || 'g',
+      loggedUnit: food.lastLoggedUnit || food.servingUnit || 'g',
       baseServingAmount: baseServing,
       baseServingUnit: food.servingUnit || 'g',
       baseCalories: food.calories,

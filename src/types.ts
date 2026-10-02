@@ -115,6 +115,11 @@ export interface FoodSearchResult {
   barcode?: string;
   aiSource?: 'vision' | 'estimation';
   lastLoggedAmount?: number;
+  lastLoggedUnit?: string;
+  lastLoggedCalories?: number;
+  lastLoggedCarbs?: number;
+  lastLoggedProtein?: number;
+  lastLoggedFat?: number;
   isOpenFood?: boolean;
 }
 

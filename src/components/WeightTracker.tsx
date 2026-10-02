@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Scale, TrendingDown, TrendingUp, Minus, Calendar, Plus, Trash2, Edit2, Check, X } from 'lucide-react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { Scale, TrendingDown, TrendingUp, Minus, Calendar, Plus, Trash2, Edit2, Check, X, ChevronDown } from 'lucide-react';
 import { WeightRecord } from '../types';
 import { StorageService } from '../services/storage';
 import { DateNavigator } from './DateNavigator';
@@ -23,6 +23,58 @@ export const WeightTracker: React.FC<WeightTrackerProps> = ({
     const hour = new Date().getHours();
     return hour < 12 ? 'morning' : 'evening';
   });
+
+  // Interactive Chart Selection & Infinite Scroll
+  const [selectedPointIndex, setSelectedPointIndex] = useState<number | null>(null);
+  const [weightLimit, setWeightLimit] = useState<number>(100);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setSelectedPointIndex(null);
+  }, [chartDays, activeChartTab]);
+
+  const reversedRecords = useMemo(
+    () => [...weightRecords].reverse(),
+    [weightRecords]
+  );
+  const displayedWeightRecords = useMemo(
+    () => reversedRecords.slice(0, weightLimit),
+    [reversedRecords, weightLimit]
+  );
+
+  // Auto load more via IntersectionObserver
+  useEffect(() => {
+    if (!sentinelRef.current) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          setWeightLimit((prev) => (prev < weightRecords.length ? prev + 100 : prev));
+        }
+      },
+      { rootMargin: '300px' }
+    );
+    observer.observe(sentinelRef.current);
+    return () => observer.disconnect();
+  }, [weightRecords.length, weightLimit]);
+
+  // Window scroll fallback for auto load more
+  useEffect(() => {
+    const handleScroll = () => {
+      const scrollHeight = document.documentElement.scrollHeight;
+      const scrollTop = window.scrollY || document.documentElement.scrollTop;
+      const clientHeight = window.innerHeight;
+      if (scrollHeight - scrollTop - clientHeight < 350) {
+        setWeightLimit((prev) => {
+          if (prev < weightRecords.length) {
+            return prev + 100;
+          }
+          return prev;
+        });
+      }
+    };
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, [weightRecords.length]);
 
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
@@ -159,9 +211,9 @@ export const WeightTracker: React.FC<WeightTrackerProps> = ({
     return sortedRecords
       .map((r) => {
         const val = type === 'morning' ? r.morningWeightKg : r.eveningWeightKg;
-        return val ? { date: r.date.slice(5), weight: val } : null;
+        return val ? { date: r.date.slice(5), fullDate: r.date, weight: val } : null;
       })
-      .filter(Boolean) as { date: string; weight: number }[];
+      .filter(Boolean) as { date: string; fullDate: string; weight: number }[];
   };
 
   const allValidPoints = getChartPoints(activeChartTab);
@@ -231,7 +283,38 @@ export const WeightTracker: React.FC<WeightTrackerProps> = ({
           <div className="flex items-center justify-between gap-2">
             <h3 className="font-bold text-slate-900 text-sm">體重趨勢圖表</h3>
 
-            {/* 早上 / 晚上 (右上角) */}
+            {/* Instruction Text on Top-Right */}
+            <span className="text-[11px] text-slate-400 font-medium">
+              點擊折線圖上的數據點可顯示日期與體重
+            </span>
+          </div>
+
+          {/* Second Row: Days Filter (Left) & Morning/Evening Toggle (Right) */}
+          <div className="flex items-center justify-between gap-2">
+            {/* Days Filter */}
+            <div className="flex gap-1 bg-slate-100 p-0.5 sm:p-1 rounded-xl">
+              {[
+                { label: '7天', val: 7 },
+                { label: '30天', val: 30 },
+                { label: '90天', val: 90 },
+                { label: '全部', val: 0 },
+              ].map((tab) => (
+                <button
+                  key={tab.val}
+                  type="button"
+                  onClick={() => setChartDays(tab.val)}
+                  className={`px-2 py-0.5 sm:px-2.5 sm:py-1 text-xs font-bold rounded-lg transition cursor-pointer ${
+                    chartDays === tab.val
+                      ? 'bg-white text-sky-800 shadow-2xs'
+                      : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Morning / Evening Toggle */}
             <div className="flex bg-slate-100 p-0.5 sm:p-1 rounded-xl text-xs font-bold">
               <button
                 type="button"
@@ -257,33 +340,13 @@ export const WeightTracker: React.FC<WeightTrackerProps> = ({
               </button>
             </div>
           </div>
-
-          {/* Days Filter (Left) */}
-          <div className="flex gap-1 bg-slate-100 p-0.5 sm:p-1 rounded-xl self-start -ml-0.5 sm:-ml-1">
-            {[
-              { label: '7天', val: 7 },
-              { label: '30天', val: 30 },
-              { label: '90天', val: 90 },
-              { label: '全部', val: 0 },
-            ].map((tab) => (
-              <button
-                key={tab.val}
-                type="button"
-                onClick={() => setChartDays(tab.val)}
-                className={`px-2 py-0.5 sm:px-2.5 sm:py-1 text-xs font-bold rounded-lg transition cursor-pointer ${
-                  chartDays === tab.val
-                    ? 'bg-white text-sky-800 shadow-2xs'
-                    : 'text-slate-500 hover:text-slate-800'
-                }`}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
         </div>
 
         {validChartPoints.length > 1 ? (
-          <div className="w-full h-48 relative pt-4">
+          <div
+            className="w-full h-48 relative pt-4 cursor-default select-none"
+            onClick={() => setSelectedPointIndex(null)}
+          >
             <svg className="w-full h-full overflow-visible" viewBox="0 0 300 120">
               {/* Target Line */}
               {userProfile.targetWeightKg && (
@@ -316,32 +379,166 @@ export const WeightTracker: React.FC<WeightTrackerProps> = ({
               {validChartPoints.map((p, i) => {
                 const x = (i / (validChartPoints.length - 1)) * 300;
                 const y = 120 - ((p.weight - minW) / rangeW) * 100;
+                const isHeadOrTail = i === 0 || i === validChartPoints.length - 1;
+                const isSelected = selectedPointIndex === i;
+                const showLabel = chartDays === 7 || isHeadOrTail || isSelected;
+
                 return (
                   <g key={i}>
-                    <circle cx={x} cy={y} r="3.5" fill={activeChartTab === 'morning' ? '#d97706' : '#4f46e5'} />
-                    <text
-                      x={x}
-                      y={y - 8}
-                      fontSize="9"
-                      fontWeight="bold"
-                      fill="#334155"
-                      textAnchor="middle"
-                    >
-                      {p.weight}
-                    </text>
-                    <text
-                      x={x}
-                      y={120}
-                      fontSize="8"
-                      fill="#94a3b8"
-                      textAnchor="middle"
-                    >
-                      {p.date}
-                    </text>
+                    {/* Vertical guideline when point is selected */}
+                    {isSelected && (
+                      <line
+                        x1={x}
+                        y1={0}
+                        x2={x}
+                        y2={120}
+                        stroke={activeChartTab === 'morning' ? '#d97706' : '#4f46e5'}
+                        strokeDasharray="3 3"
+                        strokeWidth="1.5"
+                        opacity="0.6"
+                      />
+                    )}
+
+                    {/* Data circle */}
+                    <circle
+                      cx={x}
+                      cy={y}
+                      r={isSelected ? 6 : isHeadOrTail ? 4 : chartDays === 7 ? 3.5 : 2.5}
+                      fill={
+                        isSelected
+                          ? activeChartTab === 'morning'
+                            ? '#b45309'
+                            : '#4338ca'
+                          : activeChartTab === 'morning'
+                          ? '#d97706'
+                          : '#4f46e5'
+                      }
+                      stroke={isSelected ? '#ffffff' : 'none'}
+                      strokeWidth={isSelected ? 2 : 0}
+                    />
+
+                    {/* Text Label */}
+                    {showLabel && (
+                      <g>
+                        {isSelected && (!isHeadOrTail || chartDays !== 7) ? (
+                          // Highlighted tooltip badge for clicked point
+                          <g>
+                            <rect
+                              x={Math.max(4, Math.min(226, x - 35))}
+                              y={Math.max(2, y - 30)}
+                              width="70"
+                              height="20"
+                              rx="6"
+                              fill="#0f172a"
+                              opacity="0.95"
+                            />
+                            <text
+                              x={Math.max(39, Math.min(261, x))}
+                              y={Math.max(2, y - 30) + 13}
+                              fontSize="9.5"
+                              fontWeight="bold"
+                              fill="#ffffff"
+                              textAnchor="middle"
+                            >
+                              {p.date} · {p.weight}kg
+                            </text>
+                            <text
+                              x={x}
+                              y={120}
+                              fontSize="8"
+                              fontWeight="bold"
+                              fill={activeChartTab === 'morning' ? '#b45309' : '#4338ca'}
+                              textAnchor="middle"
+                            >
+                              {p.date}
+                            </text>
+                          </g>
+                        ) : (
+                          // Head/Tail or 7-day labels
+                          <g>
+                            <text
+                              x={x}
+                              y={y - 8}
+                              fontSize="9"
+                              fontWeight="bold"
+                              fill="#334155"
+                              textAnchor={
+                                chartDays !== 7 && i === 0
+                                  ? 'start'
+                                  : chartDays !== 7 && i === validChartPoints.length - 1
+                                  ? 'end'
+                                  : 'middle'
+                              }
+                            >
+                              {p.weight}
+                            </text>
+                            <text
+                              x={x}
+                              y={120}
+                              fontSize="8"
+                              fill="#94a3b8"
+                              textAnchor={
+                                chartDays !== 7 && i === 0
+                                  ? 'start'
+                                  : chartDays !== 7 && i === validChartPoints.length - 1
+                                  ? 'end'
+                                  : 'middle'
+                              }
+                            >
+                              {p.date}
+                            </text>
+                          </g>
+                        )}
+                      </g>
+                    )}
+
+                    {/* Large touch/click target for easy mobile tapping */}
+                    <circle
+                      cx={x}
+                      cy={y}
+                      r="18"
+                      fill="transparent"
+                      className="cursor-pointer"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedPointIndex((prev) => (prev === i ? null : i));
+                      }}
+                    />
                   </g>
                 );
               })}
             </svg>
+
+            {/* Selected Point Bottom Banner */}
+            {selectedPointIndex !== null && validChartPoints[selectedPointIndex] && (
+              <div
+                onClick={(e) => e.stopPropagation()}
+                className="mt-3 flex items-center justify-between px-3.5 py-2 bg-slate-900 text-white rounded-2xl text-xs shadow-md animate-in fade-in slide-in-from-bottom-2 duration-150"
+              >
+                <div className="flex items-center gap-2">
+                  <span className={`w-2.5 h-2.5 rounded-full ${activeChartTab === 'morning' ? 'bg-amber-400' : 'bg-indigo-400'}`} />
+                  <span className="font-bold">
+                    {validChartPoints[selectedPointIndex].fullDate || validChartPoints[selectedPointIndex].date}
+                  </span>
+                  <span className="text-slate-400 font-medium">
+                    {activeChartTab === 'morning' ? '晨間體重' : '晚間體重'}
+                  </span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="font-black text-amber-300 text-sm">
+                    {validChartPoints[selectedPointIndex].weight} <span className="text-xs font-semibold text-slate-300">kg</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedPointIndex(null)}
+                    className="p-1 text-slate-400 hover:text-white rounded-lg transition cursor-pointer"
+                    title="關閉選取"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         ) : (
           <div className="py-10 text-center text-xs text-slate-400">
@@ -357,7 +554,7 @@ export const WeightTracker: React.FC<WeightTrackerProps> = ({
           <span className="text-[11px] text-slate-400">點擊筆圖示可快速編輯</span>
         </div>
         <div className="divide-y divide-slate-100">
-          {[...weightRecords].reverse().slice(0, 10).map((rec) => (
+          {displayedWeightRecords.map((rec) => (
             <div key={rec.id} className="relative overflow-hidden py-1">
               {/* Beneath Action Row */}
               <div className="absolute inset-y-1.5 right-1 flex items-stretch gap-1 z-0">
@@ -475,6 +672,16 @@ export const WeightTracker: React.FC<WeightTrackerProps> = ({
             </div>
           ))}
         </div>
+
+        {reversedRecords.length > weightLimit && (
+          <div
+            ref={sentinelRef}
+            className="py-3 text-center text-xs text-slate-400 font-bold flex items-center justify-center gap-1.5"
+          >
+            <div className="w-3.5 h-3.5 border-2 border-sky-600 border-t-transparent rounded-full animate-spin" />
+            <span>向下滑動自動載入更多...（已顯示 {displayedWeightRecords.length} / 共 {reversedRecords.length} 筆）</span>
+          </div>
+        )}
       </div>
 
       {/* Floating Action Button (+) */}
