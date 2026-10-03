@@ -10,7 +10,7 @@ import { auth, getAccessToken, logout, handleRedirectResult, loginWithGoogle } f
 import { onAuthStateChanged } from 'firebase/auth';
 import { StorageService, SyncStatus } from './services/storage';
 import { LoginScreen } from './components/LoginScreen';
-import { LogOut, User as UserIcon, AlertCircle, RefreshCw, CloudCheck, CloudLightning, DownloadCloud, HardDrive, CheckCircle2, Zap } from 'lucide-react';
+import { LogOut, User as UserIcon, AlertCircle, RefreshCw, CloudCheck, CloudLightning, DownloadCloud, HardDrive, CheckCircle2, Zap, Flame } from 'lucide-react';
 import { usePWAInstall } from './hooks/usePWAInstall';
 import { useOnlineStatus } from './hooks/useOnlineStatus';
 
@@ -107,6 +107,28 @@ export default function App() {
   const [isUpdatingCredentials, setIsUpdatingCredentials] = useState(false);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>(StorageService.getCurrentSyncStatus());
   const [syncToastMessage, setSyncToastMessage] = useState<string | null>(null);
+  const [logoSrc, setLogoSrc] = useState<string>(() => {
+    return localStorage.getItem('fitpocket_cached_logo') || '/favicon.jpg';
+  });
+
+  useEffect(() => {
+    if (!localStorage.getItem('fitpocket_cached_logo')) {
+      fetch('/favicon.jpg')
+        .then((res) => res.blob())
+        .then((blob) => {
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            const base64data = reader.result as string;
+            if (base64data) {
+              localStorage.setItem('fitpocket_cached_logo', base64data);
+              setLogoSrc(base64data);
+            }
+          };
+          reader.readAsDataURL(blob);
+        })
+        .catch(() => {});
+    }
+  }, []);
   
   const { isInstallable, install } = usePWAInstall();
 
@@ -585,9 +607,13 @@ export default function App() {
         <div className="max-w-2xl mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <img 
-              src="/favicon.jpg" 
+              src={logoSrc} 
               alt="NutraiFit Logo" 
               className="w-10 h-10 rounded-2xl object-cover shadow-xs"
+              onError={() => {
+                setLogoSrc('/favicon.jpg');
+                localStorage.removeItem('fitpocket_cached_logo');
+              }}
               referrerPolicy="no-referrer"
             />
             <div>

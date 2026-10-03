@@ -10,7 +10,9 @@ interface LoginScreenProps {
 export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [imgError, setImgError] = useState(false);
+  const [logoSrc, setLogoSrc] = useState<string>(() => {
+    return localStorage.getItem('fitpocket_cached_logo') || '/favicon.jpg';
+  });
 
   const handleLogin = async (forcedMethod?: 'popup' | 'redirect') => {
     setIsLoading(true);
@@ -59,19 +61,16 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
       >
         {/* App Logo */}
         <div className="mb-6 flex flex-col items-center justify-center">
-          {!imgError ? (
-            <img
-              src="/favicon.jpg"
-              alt="NutraiFit Logo"
-              className="w-16 h-16 rounded-2xl object-cover shadow-md mb-3"
-              onError={() => setImgError(true)}
-              referrerPolicy="no-referrer"
-            />
-          ) : (
-            <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-sky-500 to-cyan-500 flex items-center justify-center shadow-lg shadow-sky-500/30 mb-3 text-white">
-              <Flame className="w-8 h-8" />
-            </div>
-          )}
+          <img
+            src={logoSrc}
+            alt="NutraiFit Logo"
+            className="w-16 h-16 rounded-2xl object-cover shadow-md mb-3"
+            onError={() => {
+              setLogoSrc('/favicon.jpg');
+              localStorage.removeItem('fitpocket_cached_logo');
+            }}
+            referrerPolicy="no-referrer"
+          />
           <h1 className="text-2xl font-black text-slate-900 tracking-tight">NutraiFit</h1>
         </div>
 
