@@ -34,6 +34,7 @@ import { CARB_CYCLE_INFO, getCarbCycleBadgeStyle } from '../data/defaults';
 import { DateNavigator } from './DateNavigator';
 import { AddFoodModal, FoodTab } from './AddFoodModal';
 import { checkAiKeyOrWarn, getAiRequestParams } from '../utils/aiHelper';
+import { getCurrentDefaultMealType } from '../utils/mealUtils';
 import { PortionModal } from './PortionModal';
 import { CustomFoodModal } from './CustomFoodModal';
 import { GoalSettingModal } from './GoalSettingModal';
@@ -367,7 +368,7 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
 }) => {
   // State
   const [foodRecords, setFoodRecords] = useState<FoodRecord[]>([]);
-  const [activeMeals, setActiveMeals] = useState<MealConfig[]>([]);
+  const [activeMeals, setActiveMeals] = useState<MealConfig[]>(() => StorageService.getActiveMeals(currentDate));
   const [activeCycle, setActiveCycle] = useState<CarbCycleType>('MEDIUM');
   const [presets, setPresets] = useState<Record<CarbCycleType, NutritionGoalPreset>>(
     StorageService.getPresets()
@@ -389,18 +390,24 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
     handleUpdateNetCarbsMode(next);
   };
 
+  // 依目前時段與使用者現有餐別智慧推算預設餐別 (04-11:早餐, 11-16:午餐, 16-21:晚餐, 21-04:點心/宵夜)
+  const getSmartMealType = (): MealType => {
+    const currentMeals = activeMeals && activeMeals.length > 0 ? activeMeals : StorageService.getActiveMeals(currentDate);
+    return getCurrentDefaultMealType(currentMeals);
+  };
+
   // Direct AI Photo upload state
   const [isAiPhotoLoading, setIsAiPhotoLoading] = useState(false);
   const [aiPhotoProgress, setAiPhotoProgress] = useState(0);
   const [aiPhotoStatus, setAiPhotoStatus] = useState('');
   const [aiPhotoError, setAiPhotoError] = useState('');
   const directCameraRef = useRef<HTMLInputElement>(null);
-  const directPhotoMealTypeRef = useRef<MealType>('BREAKFAST');
+  const directPhotoMealTypeRef = useRef<MealType>(getCurrentDefaultMealType(StorageService.getActiveMeals(currentDate)));
 
   // Modals state
   const [showAddFood, setShowAddFood] = useState(false);
   const [addFoodInitialTab, setAddFoodInitialTab] = useState<FoodTab>('ALL');
-  const [selectedMealForAdd, setSelectedMealForAdd] = useState<MealType>('BREAKFAST');
+  const [selectedMealForAdd, setSelectedMealForAdd] = useState<MealType>(() => getCurrentDefaultMealType(StorageService.getActiveMeals(currentDate)));
   const [foodForPortion, setFoodForPortion] = useState<FoodSearchResult | null>(null);
   const [showCustomFoodModal, setShowCustomFoodModal] = useState(false);
   const [prefilledBarcodeForCustom, setPrefilledBarcodeForCustom] = useState<string>('');
@@ -411,10 +418,11 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
   const [mealTypeToClear, setMealTypeToClear] = useState<string | null>(null);
 
   // Trigger direct camera capture
-  const triggerDirectPhoto = (mealType: MealType = 'BREAKFAST') => {
+  const triggerDirectPhoto = (mealType?: MealType) => {
     if (!checkAiKeyOrWarn()) return;
-    setSelectedMealForAdd(mealType);
-    directPhotoMealTypeRef.current = mealType;
+    const targetMeal = mealType || getSmartMealType();
+    setSelectedMealForAdd(targetMeal);
+    directPhotoMealTypeRef.current = targetMeal;
     directCameraRef.current?.click();
   };
 
@@ -745,17 +753,17 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
   };
 
   // Handle open add food modal
-  const handleOpenAddFood = (mealType: MealType, initialTab: FoodTab = 'ALL') => {
-    setSelectedMealForAdd(mealType);
+  const handleOpenAddFood = (mealType?: MealType, initialTab: FoodTab = 'ALL') => {
+    const targetMeal = mealType || getSmartMealType();
+    setSelectedMealForAdd(targetMeal);
     setAddFoodInitialTab(initialTab);
     setShowAddFood(true);
   };
 
   // Handle food selected from search
   const handleSelectFood = (food: FoodSearchResult, mealType?: MealType) => {
-    if (mealType) {
-      setSelectedMealForAdd(mealType);
-    }
+    const targetMeal = mealType || selectedMealForAdd || getSmartMealType();
+    setSelectedMealForAdd(targetMeal);
     // Always route through foodForPortion so AddFoodModal remains active underneath
     // and closing/saving reliably stays on the search modal instead of dropping to home
     setFoodForPortion(food);
@@ -1001,7 +1009,7 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
         <input
           type="text"
           readOnly
-          onClick={() => handleOpenAddFood('BREAKFAST')}
+          onClick={() => handleOpenAddFood(getSmartMealType())}
           placeholder="點擊搜尋、拍照或 AI 智慧辨識..."
           className="w-full pl-12 pr-4 py-4 bg-white border border-slate-200/80 rounded-2xl shadow-sm text-sm font-bold text-slate-700 focus:outline-none cursor-pointer hover:border-sky-400 hover:shadow-md transition-all"
         />
@@ -1011,7 +1019,7 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
               onClick={(e) => {
                 e.stopPropagation();
                 if (!checkAiKeyOrWarn()) return;
-                handleOpenAddFood('BREAKFAST', 'AI_SCAN');
+                handleOpenAddFood(getSmartMealType(), 'AI_SCAN');
               }}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-white text-purple-700 hover:bg-purple-50 rounded-lg transition font-black text-[10px] shadow-2xs active:scale-95 border border-purple-100"
             >
@@ -1356,13 +1364,14 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
       {/* Modals */}
       {showAddFood && (
         <AddFoodModal
-          initialMealType={selectedMealForAdd}
+          initialMealType={selectedMealForAdd || getSmartMealType()}
           availableMeals={activeMeals.map(m => ({ type: m.mealType, name: m.customName }))}
           currentDate={currentDate}
           initialTab={addFoodInitialTab}
           onClose={() => setShowAddFood(false)}
-          onSelectFood={(food, mealType) => handleSelectFood(food, mealType)}
-          onFastAddFood={(food, mealType) => handleFastAddFood(food, mealType)}
+          onMealTypeChange={(mealType) => setSelectedMealForAdd(mealType)}
+          onSelectFood={(food, mealType) => handleSelectFood(food, mealType || selectedMealForAdd || getSmartMealType())}
+          onFastAddFood={(food, mealType) => handleFastAddFood(food, mealType || selectedMealForAdd || getSmartMealType())}
           onOpenCustomFoodModal={(prefilledData) => {
             if (typeof prefilledData === 'string') {
               setPrefilledBarcodeForCustom(prefilledData);
@@ -1382,6 +1391,8 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
       {foodForPortion && (
         <CustomFoodModal
           mode="ADD_RECORD"
+          initialMealType={selectedMealForAdd || getSmartMealType()}
+          availableMeals={activeMeals.map(m => ({ type: m.mealType, name: m.customName }))}
           initialFood={{
              id: foodForPortion.id,
              name: foodForPortion.name,
@@ -1427,7 +1438,8 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
             setFoodForPortion(null);
             setShowAddFood(true);
           }}
-          onSave={(food, consumedAmount) => {
+          onSave={(food, consumedAmount, mealType) => {
+             const targetMeal = mealType || selectedMealForAdd || getSmartMealType();
              // AI 辨識或自訂食品時，只有按下儲存確認，才會存入自訂食品資料庫與雲端
              const isAiOrCustom = food.aiSource || food.id?.startsWith('ai_') || food.id?.startsWith('custom_') || foodForPortion?.isUserCustom || foodForPortion?.aiSource;
              let targetSourceId = food.id;
@@ -1459,7 +1471,7 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
                 name: food.name,
                 brand: food.brand,
                 barcode: food.barcode,
-                mealType: selectedMealForAdd!,
+                mealType: targetMeal,
                 date: currentDate,
                 calories: Math.round(food.calories * ratio * 10) / 10,
                 carbs: Math.round(food.carbs * ratio * 10) / 10,
@@ -1518,6 +1530,8 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
       {aiReviewFood && (
         <CustomFoodModal
           mode="AI_REVIEW"
+          initialMealType={directPhotoMealTypeRef.current || selectedMealForAdd || getSmartMealType()}
+          availableMeals={activeMeals.map(m => ({ type: m.mealType, name: m.customName }))}
           initialFood={{
              id: aiReviewFood.id,
              name: aiReviewFood.name,
@@ -1536,7 +1550,8 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
           }}
           initialConsumedAmount={aiReviewFood.servingAmount || 100}
           onClose={() => setAiReviewFood(null)}
-          onSave={(food, consumedAmount) => {
+          onSave={(food, consumedAmount, mealType) => {
+             const targetMeal = mealType || directPhotoMealTypeRef.current || selectedMealForAdd || getSmartMealType();
              // 1. Save to custom foods preset
              StorageService.saveCustomFood(food);
              // 2. Add as a food record
@@ -1546,7 +1561,7 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
                 name: food.name,
                 brand: food.brand,
                 barcode: food.barcode,
-                mealType: selectedMealForAdd!,
+                mealType: targetMeal,
                 date: currentDate,
                 calories: Math.round(food.calories * ratio * 10) / 10,
                 carbs: Math.round(food.carbs * ratio * 10) / 10,

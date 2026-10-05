@@ -1,17 +1,20 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Save, Sparkles, AlertCircle, ChevronDown, CloudUpload, AlertTriangle, CheckCircle2, Plus, Minus, Camera, HardDrive } from 'lucide-react';
-import { CloudFood, CustomFood } from '../types';
+import { X, Save, Sparkles, AlertCircle, ChevronDown, CloudUpload, AlertTriangle, CheckCircle2, Plus, Minus, Camera, HardDrive, Check } from 'lucide-react';
+import { CloudFood, CustomFood, MealType } from '../types';
 import { MacroCalorieVerifier } from './MacroCalorieVerifier';
 import { CloudFoodService, isTfdaFood, normalizeBrandName, isFoodInfoModified } from '../services/cloudFoodService';
 import { BarcodeScannerModal } from './BarcodeScannerModal';
 import { useModalBackHandler } from '../hooks/useModalBackHandler';
+import { getCurrentDefaultMealType } from '../utils/mealUtils';
 
 interface CustomFoodModalProps {
   onClose: () => void;
-  onSave: (food: CustomFood, consumedAmount: number) => void;
+  onSave: (food: CustomFood, consumedAmount: number, mealType?: MealType) => void;
   initialFood?: CustomFood;
   initialConsumedAmount?: number;
   mode?: "CUSTOM" | "EDIT_RECORD" | "AI_REVIEW" | "ADD_RECORD";
+  initialMealType?: MealType;
+  availableMeals?: { type: MealType; name: string }[];
 }
 
 const isAllFieldsIdentical = (food: CustomFood, existing: CloudFood): boolean => {
@@ -46,8 +49,22 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
   initialFood,
   initialConsumedAmount,
   mode = "CUSTOM",
+  initialMealType,
+  availableMeals,
 }) => {
   useModalBackHandler(true, onClose);
+
+  const [currentMealType, setCurrentMealType] = useState<MealType>(() => {
+    return initialMealType || getCurrentDefaultMealType(availableMeals);
+  });
+
+  useEffect(() => {
+    if (initialMealType) {
+      setCurrentMealType(initialMealType);
+    } else {
+      setCurrentMealType(getCurrentDefaultMealType(availableMeals));
+    }
+  }, [initialMealType, availableMeals]);
 
   const [name, setName] = useState(initialFood?.name || '');
   const [brand, setBrand] = useState(() => {
@@ -183,7 +200,7 @@ export const CustomFoodModal: React.FC<CustomFoodModalProps> = ({
     }
 
     // 2. Immediately persist locally and close modal without delay
-    onSave(foodToSave, consumed);
+    onSave(foodToSave, consumed, currentMealType);
     onClose();
   };
 
