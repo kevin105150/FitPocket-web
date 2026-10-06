@@ -489,18 +489,29 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
         setAiPhotoProgress(88);
         setAiPhotoStatus('分析完成！');
 
-        if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          throw new Error(errData.error || '照片辨識失敗');
+        const resText = await res.text().catch(() => '');
+        let resJson: any = null;
+        if (resText) {
+          try {
+            resJson = JSON.parse(resText);
+          } catch {}
         }
 
-        // Download and parse JSON safely
-        let result: any;
-        try {
-          result = await res.json();
-        } catch {
+        if (!res.ok) {
+          const errMsg = resJson?.error || resJson?.message || '';
+          if (res.status === 503 || errMsg.includes('503') || errMsg.includes('high demand') || errMsg.includes('忙碌')) {
+            throw new Error('AI 伺服器忙碌中，請稍後重試');
+          }
+          if (res.status === 429 || errMsg.includes('429')) {
+            throw new Error('Gemini API 額度已達上限，請稍後重試或至設定更換 API Key');
+          }
+          throw new Error(errMsg || '照片辨識失敗');
+        }
+
+        if (!resJson) {
           throw new Error('AI 伺服器回應格式異常，請稍後重試。');
         }
+        const result = resJson;
         if (result._usage) {
           StorageService.recordApiUsage(result._usage);
         }
@@ -1585,6 +1596,7 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
       {editingRecord && (
         <CustomFoodModal
           mode="EDIT_RECORD"
+          initialMealType={editingRecord.mealType}
           initialFood={(() => {
              const isTfda = isTfdaFood({ id: editingRecord.id, brand: editingRecord.brand });
              if (isTfda) {

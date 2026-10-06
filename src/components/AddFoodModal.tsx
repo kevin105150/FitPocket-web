@@ -44,7 +44,7 @@ import { BarcodeScannerModal } from './BarcodeScannerModal';
 import { AiCameraModal } from './AiCameraModal';
 import { OcrCameraModal } from './OcrCameraModal';
 import { optimizeImageForAi } from '../utils/imageOptimizer';
-import { checkAiKeyOrWarn, getAiRequestParams } from '../utils/aiHelper';
+import { checkAiKeyOrWarn, getAiRequestParams, getOrdered3xModels } from '../utils/aiHelper';
 import { getTodayString } from '../utils/dateUtils';
 import { getCurrentDefaultMealType } from '../utils/mealUtils';
 import { auth } from '../lib/firebase';
@@ -147,7 +147,6 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
   const [selectedMealType, setSelectedMealType] = useState<MealType>(() => {
     return initialMealType || getCurrentDefaultMealType(availableMeals);
   });
-  const userHasManuallyChangedMealRef = useRef(false);
   const [showMealSelector, setShowMealSelector] = useState(false);
 
   useEffect(() => {
@@ -155,14 +154,6 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
       setSelectedMealType(initialMealType);
     }
   }, [initialMealType]);
-
-  // 取得有效餐別：若使用者在此次 Modal 內手動指定過，以使用者自選為準；否則維持當下時段智慧預設
-  const getEffectiveMealType = (): MealType => {
-    if (userHasManuallyChangedMealRef.current) {
-      return selectedMealType;
-    }
-    return getCurrentDefaultMealType(availableMeals);
-  };
 
   // Fast add animation & feedback
   const [addedIds, setAddedIds] = useState<Record<string, boolean>>({});
@@ -2251,85 +2242,42 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
 
       const aiParams = getAiRequestParams();
       const preferredModel = StorageService.getSelectedAiModel();
-      
-      const ALLOWED_3X_MODELS = [
-        'gemini-3.8-flash',
-        'gemini-3.6-flash',
-        'gemini-3.5-flash',
-        'gemini-3.1-flash-lite',
-      ];
-      
-      const targetModel = ALLOWED_3X_MODELS.includes(preferredModel) ? preferredModel : 'gemini-3.8-flash';
-      const modelsToTry = [
-        targetModel,
-        ...ALLOWED_3X_MODELS.filter(m => m !== targetModel),
-      ];
+      const modelsToTry = getOrdered3xModels(preferredModel);
+      const targetModel = modelsToTry[0];
+
+      setAiProgress(35);
+      setAiStatus(`[${targetModel}] 正在進行 AI 影像分析...`);
+
+      // Smooth progression timer
+      let currentProgress = 35;
+      const progressInterval = setInterval(() => {
+        if (currentProgress < 82) {
+          currentProgress += 1.5;
+          setAiProgress(Math.min(Math.round(currentProgress), 82));
+        }
+      }, 250);
 
       let lastResult: any = null;
-      let finalModelUsed = targetModel;
-      const fallbackReasons: string[] = [];
+      try {
+        const res = await fetch('/api/ai/estimate-image', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            imageBase64: optimizedBase64,
+            mimeType: 'image/jpeg',
+            customApiKey: aiParams.customApiKey,
+            apiKeySource: aiParams.apiKeySource,
+            userEmail: aiParams.userEmail,
+            userUid: aiParams.userUid,
+            model: targetModel,
+          }),
+        });
 
-      for (let i = 0; i < modelsToTry.length; i++) {
-        const currentModel = modelsToTry[i];
-        finalModelUsed = currentModel;
-        
-        setAiProgress(30 + (i * 15));
-        const lastReason = fallbackReasons.length > 0 ? fallbackReasons[fallbackReasons.length - 1] : '';
-        const retryMsg = i > 0 ? `(${lastReason} ➔ 自動切換第 ${i} 次) ` : '';
-        setAiStatus(`${retryMsg}[${currentModel}] 正在進行 AI 影像分析...`);
-
-        // Smooth progression timer
-        let currentProgress = 30 + (i * 15);
-        const maxSubProgress = 30 + ((i + 1) * 15);
-        const progressInterval = setInterval(() => {
-          if (currentProgress < maxSubProgress - 2) {
-            currentProgress += 1;
-            setAiProgress(Math.min(Math.round(currentProgress), 85));
-          }
-        }, 300);
-
-        try {
-          const res = await fetch('/api/ai/estimate-image', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              imageBase64: optimizedBase64,
-              mimeType: 'image/jpeg',
-              customApiKey: aiParams.customApiKey,
-              apiKeySource: aiParams.apiKeySource,
-              userEmail: aiParams.userEmail,
-              userUid: aiParams.userUid,
-              model: currentModel,
-              disableFallback: true // 讓前端掌握 Fallback 視覺顯示
-            }),
-          });
-
-          clearInterval(progressInterval);
-          
-          lastResult = await parseApiResponse(res);
-          break; // Success!
-        } catch (err: any) {
-          clearInterval(progressInterval);
-          const errStatus = err.status || 0;
-          const errMsg = String(err.message || '');
-          const reasonText = errStatus ? `${errStatus} ${errMsg}` : errMsg;
-          fallbackReasons.push(`${currentModel}: ${reasonText}`);
-
-          const isAuthError = errStatus === 401 || errStatus === 403 || 
-                             errMsg.includes('權限') || errMsg.includes('Permission') || 
-                             errMsg.includes('登入') || errMsg.includes('金鑰無效');
-
-          if (!isAuthError && i < modelsToTry.length - 1) {
-            console.warn(`[AI Fallback] ${currentModel} returned error (${errMsg}), trying next 3.x model...`);
-            continue;
-          }
-
-          if (i === modelsToTry.length - 1 && !isAuthError) {
-            throw new Error('AI 伺服器忙碌中，請稍後重試');
-          }
-
-          throw err;
-        }
+        clearInterval(progressInterval);
+        lastResult = await parseApiResponse(res);
+      } catch (err: any) {
+        clearInterval(progressInterval);
+        throw err;
       }
 
       if (!lastResult) {
@@ -2344,10 +2292,10 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
         StorageService.recordApiUsage(result._usage);
       }
 
-      const usedModel = result._modelUsed || finalModelUsed;
+      const usedModel = result._modelUsed || targetModel;
       setAiProgress(96);
-      if (fallbackReasons.length > 0) {
-        setAiStatus(`[${usedModel}] 資料擷取中... (切換原因: ${fallbackReasons.join(', ')})`);
+      if (usedModel !== targetModel) {
+        setAiStatus(`[${usedModel}] 資料擷取中... (由 ${targetModel} 自動切換後援)`);
       } else {
         setAiStatus(`[${usedModel}] 資料擷取中...`);
       }
@@ -2395,14 +2343,8 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
         aiSource: 'vision',
       };
 
-      const targetMealForLog = getEffectiveMealType();
-      if (!userHasManuallyChangedMealRef.current && selectedMealType !== targetMealForLog) {
-        setSelectedMealType(targetMealForLog);
-        onMealTypeChange?.(targetMealForLog);
-      }
-
       if (isMountedRef.current) {
-        onSelectFood(foodItem, targetMealForLog);
+        onSelectFood(foodItem, selectedMealType);
       }
     } catch (e: any) {
       if (isMountedRef.current) {
@@ -2429,66 +2371,30 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
     try {
       const aiParams = getAiRequestParams();
       const preferredModel = StorageService.getSelectedAiModel();
-      
-      const ALLOWED_3X_MODELS = [
-        'gemini-3.8-flash',
-        'gemini-3.6-flash',
-        'gemini-3.5-flash',
-        'gemini-3.1-flash-lite',
-      ];
-      
-      const targetModel = ALLOWED_3X_MODELS.includes(preferredModel) ? preferredModel : 'gemini-3.1-flash-lite';
-      const modelsToTry = [
-        targetModel,
-        ...ALLOWED_3X_MODELS.filter(m => m !== targetModel),
-      ];
+      const modelsToTry = getOrdered3xModels(preferredModel);
+      const targetModel = modelsToTry[0];
+
+      setAiProgress(40);
+      setAiStatus(`[${targetModel}] 正在由 AI 營養師估算中...`);
 
       let lastResult: any = null;
-      let finalModelUsed = targetModel;
+      try {
+        const res = await fetch('/api/ai/estimate-nutrition', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            query: aiPrompt.trim(), 
+            customApiKey: aiParams.customApiKey,
+            apiKeySource: aiParams.apiKeySource,
+            userEmail: aiParams.userEmail,
+            userUid: aiParams.userUid,
+            model: targetModel,
+          }),
+        });
 
-      for (let i = 0; i < modelsToTry.length; i++) {
-        const currentModel = modelsToTry[i];
-        finalModelUsed = currentModel;
-        
-        setAiProgress(40 + (i * 10));
-        const retryMsg = i > 0 ? `(正在自動切換後援第 ${i} 次) ` : '';
-        setAiStatus(`${retryMsg}[${currentModel}] 正在由 AI 營養師估算中...`);
-
-        try {
-          const res = await fetch('/api/ai/estimate-nutrition', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-              query: aiPrompt.trim(), 
-              customApiKey: aiParams.customApiKey,
-              apiKeySource: aiParams.apiKeySource,
-              userEmail: aiParams.userEmail,
-              userUid: aiParams.userUid,
-              model: currentModel,
-              disableFallback: true
-            }),
-          });
-
-          lastResult = await parseApiResponse(res);
-          break; // Success!
-        } catch (err: any) {
-          const errStatus = err.status || 0;
-          const errMsg = String(err.message || '');
-          const isAuthError = errStatus === 401 || errStatus === 403 || 
-                             errMsg.includes('權限') || errMsg.includes('Permission') || 
-                             errMsg.includes('登入') || errMsg.includes('金鑰無效');
-
-          if (!isAuthError && i < modelsToTry.length - 1) {
-            console.warn(`[AI Fallback] ${currentModel} returned error (${errMsg}), trying next 3.x model...`);
-            continue;
-          }
-
-          if (i === modelsToTry.length - 1 && !isAuthError) {
-            throw new Error('AI 伺服器忙碌中，請稍後重試');
-          }
-
-          throw err;
-        }
+        lastResult = await parseApiResponse(res);
+      } catch (err: any) {
+        throw err;
       }
 
       if (!lastResult) {
@@ -2499,10 +2405,14 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
       if (result._usage) {
         StorageService.recordApiUsage(result._usage);
       }
-      const usedModel = result._modelUsed || finalModelUsed;
+      const usedModel = result._modelUsed || targetModel;
 
       setAiProgress(85);
-      setAiStatus(`[${usedModel}] 正在生成營養成分清單...`);
+      if (usedModel !== targetModel) {
+        setAiStatus(`[${usedModel}] 正在生成營養成分清單... (由 ${targetModel} 自動切換後援)`);
+      } else {
+        setAiStatus(`[${usedModel}] 正在生成營養成分清單...`);
+      }
 
       const parseNum = (val: any, fallback: number) => {
         const n = Number(val);
@@ -2543,13 +2453,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
         aiSource: 'estimation',
       };
 
-      const targetMealForLog = getEffectiveMealType();
-      if (!userHasManuallyChangedMealRef.current && selectedMealType !== targetMealForLog) {
-        setSelectedMealType(targetMealForLog);
-        onMealTypeChange?.(targetMealForLog);
-      }
-
-      onSelectFood(foodItem, targetMealForLog);
+      onSelectFood(foodItem, selectedMealType);
     } catch (e: any) {
       setAiError(e.message || 'AI 辨識發生錯誤，請重試');
     } finally {
@@ -2598,9 +2502,6 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                 title="點擊切換記錄餐別"
               >
                 <span>{selectedMealName}</span>
-                {!userHasManuallyChangedMealRef.current && (
-                  <span className="text-[10px] text-sky-600 font-medium">⚡時段預設</span>
-                )}
                 <ChevronDown className="w-3 h-3" />
               </button>
             </div>
@@ -2615,7 +2516,6 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                     key={m.type}
                     onClick={() => {
                       setSelectedMealType(m.type);
-                      userHasManuallyChangedMealRef.current = true;
                       setShowMealSelector(false);
                       onMealTypeChange?.(m.type);
                     }}
@@ -2663,11 +2563,6 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
             onClick={() => {
               setMainCategory('AI');
               setActiveTab(aiSubTab);
-              if (!userHasManuallyChangedMealRef.current) {
-                const smartMeal = getCurrentDefaultMealType(availableMeals);
-                setSelectedMealType(smartMeal);
-                onMealTypeChange?.(smartMeal);
-              }
             }}
             className={`flex-1 py-2.5 rounded-2xl text-xs font-black transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
               mainCategory === 'AI'
@@ -5286,12 +5181,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                                       fiber: 0,
                                       potassium: 0,
                                     };
-                                    const targetMealForLog = getEffectiveMealType();
-                                    if (!userHasManuallyChangedMealRef.current && selectedMealType !== targetMealForLog) {
-                                      setSelectedMealType(targetMealForLog);
-                                      onMealTypeChange?.(targetMealForLog);
-                                    }
-                                    onSelectFood(customOcrFood, targetMealForLog);
+                                    onSelectFood(customOcrFood, selectedMealType);
                                   }}
                                   className="w-full py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-2xl text-xs font-bold transition active:scale-95 cursor-pointer flex items-center justify-center gap-1.5 shadow-xs"
                                 >

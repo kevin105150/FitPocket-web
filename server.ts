@@ -21,7 +21,7 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 const ADMIN_EMAIL = 'kevin10611@gmail.com';
 
-// Helper to get GoogleGenAI client
+// Helper to get GoogleGenAI client (15s timeout)
 function getGenAIClient(apiKey: string): GoogleGenAI {
   return new GoogleGenAI({
     apiKey,
@@ -29,6 +29,7 @@ function getGenAIClient(apiKey: string): GoogleGenAI {
       headers: {
         'User-Agent': 'aistudio-build',
       },
+      timeout: 15000,
     },
   });
 }
@@ -552,15 +553,7 @@ async function validateAndAuthoriseAiRequest(
   };
 }
 
-// Multi-model fallback runner to guarantee uptime within the Gemini 3.x family
-async function generateWithFallback(
-  ai: GoogleGenAI,
-  preferredModel: string,
-  contents: any,
-  useSearch = false,
-  disableInternalFallback = false,
-  isJson = true
-): Promise<{
+interface ModelGenerationResult {
   text: string;
   modelUsed: string;
   usageMetadata?: {
@@ -568,167 +561,267 @@ async function generateWithFallback(
     candidatesTokenCount: number;
     totalTokenCount: number;
   };
-}> {
-  // STRICTLY Gemini 3.x models only as per AGENTS.md
-  // 系統僅允許使用 gemini-3.8-flash, gemini-3.6-flash, gemini-3.5-flash, gemini-3.1-flash-lite
+}
+
+function formatGenAiContents(contents: any): any {
+  if (typeof contents === 'string') {
+    return contents;
+  }
+  if (Array.isArray(contents)) {
+    return contents;
+  }
+  if (contents && typeof contents === 'object') {
+    return contents;
+  }
+  return String(contents || '');
+}
+
+// 執行單一模型呼叫並帶有特定逾時控制與工具後援
+async function executeSingleModelAttempt(
+  ai: GoogleGenAI,
+  modelName: string,
+  contents: any,
+  isJson: boolean,
+  useSearch: boolean,
+  timeoutMs: number
+): Promise<ModelGenerationResult> {
+  const isLite = modelName.includes('lite');
+  const formattedContents = formatGenAiContents(contents);
+
+  const makeConfig = (withSearch: boolean) => ({
+    model: modelName,
+    contents: formattedContents,
+    config: {
+      ...(isJson ? { responseMimeType: 'application/json' } : {}),
+      temperature: isLite ? 0.3 : 0.4,
+      ...(withSearch ? { tools: [{ googleSearch: {} }] } : {}),
+    },
+  });
+
+  let timeoutHandle: NodeJS.Timeout | null = null;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutHandle = setTimeout(() => {
+      const err = new Error(`AI 模型 [${modelName}] 回應超過 ${Math.round(timeoutMs / 1000)} 秒 (ETIMEDOUT)`);
+      (err as any).status = 504;
+      (err as any).code = 'ETIMEDOUT';
+      reject(err);
+    }, timeoutMs);
+  });
+
+  try {
+    let response: any;
+    try {
+      response = await Promise.race([
+        ai.models.generateContent(makeConfig(useSearch)),
+        timeoutPromise,
+      ]);
+    } catch (callErr: any) {
+      // 若因搜尋工具配額 (429) 或不支援工具報錯，即刻降級為純模型推論重試
+      if (useSearch && !String(callErr?.message || '').includes('ETIMEDOUT')) {
+        console.warn(`[SingleModel] Search tool failed on [${modelName}], retrying without search tool...`);
+        response = await Promise.race([
+          ai.models.generateContent(makeConfig(false)),
+          timeoutPromise,
+        ]);
+      } else {
+        throw callErr;
+      }
+    }
+
+    const text = response?.text;
+    if (text && typeof text === 'string' && text.trim().length > 0) {
+      const promptTokens = Number(response.usageMetadata?.promptTokenCount) || 0;
+      const candidatesTokens = Number(response.usageMetadata?.candidatesTokenCount) || 0;
+      const totalTokens = Number(response.usageMetadata?.totalTokenCount) || (promptTokens + candidatesTokens);
+
+      return {
+        text: text.trim(),
+        modelUsed: modelName,
+        usageMetadata: {
+          promptTokenCount: promptTokens,
+          candidatesTokenCount: candidatesTokens,
+          totalTokenCount: totalTokens,
+        },
+      };
+    }
+    throw new Error(`AI 模型 [${modelName}] 回應內容為空`);
+  } finally {
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+    }
+  }
+}
+
+// 取得以使用者所選模型為第一首發、並依序循環排程的 Gemini 3.x 候選清單
+function getOrdered3xModels(preferredModel?: string): string[] {
   const ALLOWED_3X_MODELS = [
     'gemini-3.8-flash',
     'gemini-3.6-flash',
     'gemini-3.5-flash',
     'gemini-3.1-flash-lite',
   ];
-  const targetModel = ALLOWED_3X_MODELS.includes(preferredModel) ? preferredModel : 'gemini-3.8-flash';
-  const candidateModels = disableInternalFallback 
-    ? [targetModel]
-    : [
-        targetModel,
-        ...ALLOWED_3X_MODELS.filter(m => m !== targetModel),
-      ];
+  const targetModel = preferredModel && ALLOWED_3X_MODELS.includes(preferredModel)
+    ? preferredModel
+    : 'gemini-3.8-flash';
+  const startIndex = ALLOWED_3X_MODELS.indexOf(targetModel);
 
-  let lastError: any = null;
+  const ordered: string[] = [];
+  for (let i = 0; i < ALLOWED_3X_MODELS.length; i++) {
+    const idx = (startIndex + i) % ALLOWED_3X_MODELS.length;
+    ordered.push(ALLOWED_3X_MODELS[idx]);
+  }
+  return ordered;
+}
 
-  for (const modelName of candidateModels) {
-    const isLite = modelName.includes('lite');
-    // Try with search if requested; if search fails, try without search as fallback
-    const searchOptions = useSearch ? [true, false] : [false];
+// Multi-model fallback runner using Hedged Requests (階梯式延遲並聯) within the Gemini 3.x family
+async function generateWithFallback(
+  ai: GoogleGenAI,
+  preferredModel: string,
+  contents: any,
+  useSearch = false,
+  disableInternalFallback = false,
+  isJson = true
+): Promise<ModelGenerationResult> {
+  // STRICTLY Gemini 3.x models only as per AGENTS.md
+  // 依使用者選擇的模型為第一首發，隨後依序循環剩餘 3.x 家族模型
+  const candidateModels = getOrdered3xModels(preferredModel);
+  const targetModel = candidateModels[0];
 
-    for (const searchFlag of searchOptions) {
-      // Retry up to 2 attempts for 503/transient high demand spikes per candidate model
-      for (let attempt = 0; attempt < 2; attempt++) {
-        try {
-          console.log(`[Gemini Request] Attempting model: ${modelName} (Search: ${searchFlag}, Attempt: ${attempt + 1})...`);
-          const config: any = {
-            model: modelName,
-            contents: Array.isArray(contents) ? contents : [{ role: 'user', parts: [{ text: contents }] }],
-            config: {
-              ...(isJson ? { responseMimeType: 'application/json' } : {}),
-              temperature: isLite ? 0.3 : 0.4,
-            },
-            generationConfig: {
-              ...(isJson ? { responseMimeType: 'application/json' } : {}),
-              temperature: isLite ? 0.3 : 0.4,
+  // 若前端明確指定單一模型測試 (例如由前端掌握視覺進度輪詢時)
+  if (disableInternalFallback) {
+    try {
+      return await executeSingleModelAttempt(ai, targetModel, contents, isJson, useSearch, 15000);
+    } catch (err: any) {
+      const msg = String(err.message || '');
+      const status = Number(err.status || 0);
+      if (status === 403 || msg.includes('PERMISSION_DENIED') || msg.includes('denied access')) {
+        throw new Error('Gemini API 存取遭受拒絕 (Permission Denied)。該 API Key 所屬 Google Cloud 專案未開通權限或遭限制，請前往 Google AI Studio (https://aistudio.google.com/app/apikey) 建立新專案金鑰，或直接使用系統共享 AI 額度。');
+      }
+      if (status === 401 || msg.includes('API_KEY_INVALID') || msg.includes('API key not valid')) {
+        throw new Error('Gemini API Key 無效 (401)，請至「設定」確認您的 API Key。');
+      }
+      const busyErr = new Error('AI 伺服器忙碌中，請稍後重試') as any;
+      busyErr.status = 503;
+      throw busyErr;
+    }
+  }
+
+  const TOTAL_TIMEOUT_MS = 15000; // 全局 15 秒上限
+  const HEDGE_DELAY_MS = 3000;    // 階梯間隔：首發 3.0 秒未回傳時，補發下一個備援模型並聯超車
+
+  return new Promise<ModelGenerationResult>((resolve, reject) => {
+    let isSettled = false;
+    let completedCount = 0;
+    const startTime = Date.now();
+    const activeTimers: NodeJS.Timeout[] = [];
+    const launched = new Set<string>();
+
+    const cleanup = () => {
+      isSettled = true;
+      activeTimers.forEach(t => clearTimeout(t));
+    };
+
+    // 全局 15 秒硬性超時保護
+    const globalTimeoutTimer = setTimeout(() => {
+      if (!isSettled) {
+        cleanup();
+        console.log(`[Hedged AI] Total timeout reached (${TOTAL_TIMEOUT_MS / 1000}s). Returning busy state.`);
+        const err = new Error('AI 伺服器忙碌中，請稍後重試') as any;
+        err.status = 503;
+        reject(err);
+      }
+    }, TOTAL_TIMEOUT_MS);
+    activeTimers.push(globalTimeoutTimer);
+
+    const startAttempt = async (modelName: string, attemptTag = 'R1') => {
+      const launchKey = `${attemptTag}:${modelName}`;
+      if (isSettled || launched.has(launchKey)) return;
+      launched.add(launchKey);
+      console.log(`[Hedged AI] Launching [${modelName}] (${attemptTag}, Search: ${useSearch})...`);
+
+      try {
+        const result = await executeSingleModelAttempt(ai, modelName, contents, isJson, useSearch, TOTAL_TIMEOUT_MS);
+        if (!isSettled) {
+          console.log(`[Hedged AI Success] Model [${modelName}] (${attemptTag}) won and delivered response!`);
+          cleanup();
+          resolve(result);
+        }
+      } catch (err: any) {
+        completedCount++;
+        const errMsg = String(err.message || '');
+        const errStatus = Number(err.status || 0);
+
+        // 若為權限或金鑰錯誤，即刻中止全體並報錯
+        if (
+          errStatus === 403 ||
+          errMsg.includes('PERMISSION_DENIED') ||
+          errMsg.includes('denied access')
+        ) {
+          cleanup();
+          reject(new Error('Gemini API 存取遭受拒絕 (Permission Denied)。該 API Key 所屬 Google Cloud 專案未開通權限或遭限制，請前往 Google AI Studio (https://aistudio.google.com/app/apikey) 建立新專案金鑰，或直接使用系統共享 AI 額度。'));
+          return;
+        }
+
+        if (
+          errStatus === 401 ||
+          errMsg.includes('API_KEY_INVALID') ||
+          errMsg.includes('API key not valid')
+        ) {
+          cleanup();
+          reject(new Error('Gemini API Key 無效 (401)，請至「設定」確認您的 API Key。'));
+          return;
+        }
+
+        console.log(`[Hedged AI Failover] Model [${modelName}] (${attemptTag}) busy/unavailable (503/transient). Switching to next candidate...`);
+
+        // 即時後援：若此模型立即報錯（如 503），且尚有未啟動的候選模型，立刻啟動下一款（不乾等階梯計時器）
+        if (!isSettled) {
+          const nextModel = candidateModels.find(m => !launched.has(`R1:${m}`));
+          if (nextModel) {
+            console.log(`[Hedged AI] Immediate failover trigger ➔ Launching [${nextModel}]`);
+            startAttempt(nextModel, 'R1');
+          } else {
+            // 第一輪全部 4 款模型皆已嘗試完畢但全遇到瞬間高峰，若時間尚充裕（已用時間 < 11 秒），經 500ms 緩衝後啟動第二輪重試
+            const elapsed = Date.now() - startTime;
+            if (elapsed < 11000 && !launched.has(`R2:${candidateModels[0]}`)) {
+              const retryTimer = setTimeout(() => {
+                if (!isSettled) {
+                  console.log(`[Hedged AI] Starting second pass retry on [${candidateModels[0]}] after demand spike...`);
+                  startAttempt(candidateModels[0], 'R2');
+                }
+              }, 500);
+              activeTimers.push(retryTimer);
             }
-          };
-
-          if (searchFlag) {
-            config.config.tools = [{ googleSearch: {} }];
-            config.tools = [{ googleSearch: {} }];
           }
+        }
 
-          const response = await ai.models.generateContent(config);
-          const text = response.text;
-          if (text && text.trim().length > 0) {
-            console.log(`[Gemini Success] Successfully generated with ${modelName} (Search: ${searchFlag})`);
-            const promptTokens = Number(response.usageMetadata?.promptTokenCount) || 0;
-            const candidatesTokens = Number(response.usageMetadata?.candidatesTokenCount) || 0;
-            const totalTokens = Number(response.usageMetadata?.totalTokenCount) || (promptTokens + candidatesTokens);
-
-            return {
-              text: text.trim(),
-              modelUsed: modelName,
-              usageMetadata: {
-                promptTokenCount: promptTokens,
-                candidatesTokenCount: candidatesTokens,
-                totalTokenCount: totalTokens,
-              },
-            };
-          }
-        } catch (err: any) {
-          lastError = err;
-          let status = err.status || err.code || 0;
-          const message = err.message || '';
-
-          if (!status && message) {
-            const match = message.match(/503|429|500|400|401|403/);
-            if (match) {
-              status = parseInt(match[0], 10);
-            }
-          }
-
-          // If explicitly an authorization/permission error, fail-fast immediately
-          if (
-            status === 403 ||
-            message.includes('PERMISSION_DENIED') ||
-            message.includes('denied access')
-          ) {
-            throw new Error('Gemini API 存取遭受拒絕 (Permission Denied)。該 API Key 所屬 Google Cloud 專案未開通權限或遭限制，請前往 Google AI Studio (https://aistudio.google.com/app/apikey) 建立新專案金鑰，或直接使用系統共享 AI 額度。');
-          }
-
-          if (
-            status === 401 ||
-            message.includes('API_KEY_INVALID') ||
-            message.includes('API key not valid')
-          ) {
-            throw new Error('Gemini API Key 無效 (401)，請至「設定」確認您的 API Key。');
-          }
-
-          // If search grounding fails (e.g. 429 quota exhausted or unsupported tool), immediately fallback without search
-          if (searchFlag) {
-            console.warn(`[Gemini Search] Search grounding failed for ${modelName} (${message.slice(0, 80)}), falling back without search...`);
-            break;
-          }
-
-          const isBusy = status === 503 ||
-            message.includes('503') ||
-            message.includes('high demand') ||
-            message.includes('UNAVAILABLE') ||
-            message.includes('overloaded') ||
-            message.includes('Spikes in demand');
-
-          if (isBusy && attempt === 0) {
-            // Wait 800ms before retrying on the same model candidate
-            await new Promise(r => setTimeout(r, 800));
-            continue;
-          }
-
-          // Move to next candidate model or search flag
-          break;
+        // 若全部可能嘗試皆已結束且無其他進行中請求
+        if (completedCount >= (candidateModels.length * 2) && !isSettled) {
+          cleanup();
+          const finalErr = new Error('AI 伺服器忙碌中，請稍後重試') as any;
+          finalErr.status = 503;
+          reject(finalErr);
         }
       }
-    }
-  }
+    };
 
-  if (lastError) {
-    const msg = lastError.message || '';
-    let status = lastError.status || 0;
-    if (!status && msg) {
-      const match = msg.match(/503|429|500|400|401|403/);
-      if (match) status = parseInt(match[0], 10);
-    }
+    // 1. 首發模型 (T=0s)
+    startAttempt(candidateModels[0], 'R1');
 
-    const isBusy = status === 503 ||
-      msg.includes('503') ||
-      msg.includes('high demand') ||
-      msg.includes('UNAVAILABLE') ||
-      msg.includes('overloaded') ||
-      msg.includes('Spikes in demand');
-
-    if (isBusy) {
-      const err = new Error('AI 伺服器忙碌中，請稍後重試') as any;
-      err.status = 503;
-      throw err;
-    }
-
-    if (msg.includes('RESOURCE_EXHAUSTED') || msg.includes('exceeded your current quota') || status === 429) {
-      const err = new Error('Gemini API 額度已達上限 (Quota Exceeded)，請稍後再試或至「設定」改用個人 API Key。') as any;
-      err.status = 429;
-      throw err;
-    }
-    if (msg.includes('PERMISSION_DENIED') || msg.includes('denied access') || status === 403) {
-      const err = new Error('Gemini API 存取遭受拒絕 (Permission Denied)。請前往 Google AI Studio (https://aistudio.google.com/app/apikey) 申請具備 API 存取權限的 Gemini API Key。') as any;
-      err.status = 403;
-      throw err;
-    }
-    if (msg) {
-      const err = new Error(`AI 服務暫時無法回應，請稍後重試 (${status || 500})`) as any;
-      err.status = status || 500;
-      throw err;
-    }
-  }
-
-  const finalErr = new Error('AI 伺服器忙碌中，請稍後重試') as any;
-  finalErr.status = 503;
-  throw finalErr;
+    // 2. 階梯式備援計時器 (T=3.0s, 6.0s, 9.0s)：若前面模型仍在運算未回傳，補發下一個候選模型競速
+    [HEDGE_DELAY_MS, HEDGE_DELAY_MS * 2, HEDGE_DELAY_MS * 3].forEach((delay) => {
+      const timer = setTimeout(() => {
+        if (!isSettled) {
+          const nextModel = candidateModels.find(m => !launched.has(`R1:${m}`));
+          if (nextModel) {
+            console.log(`[Hedged AI] Hedge timer (${delay}ms) fired ➔ Launching [${nextModel}]`);
+            startAttempt(nextModel, 'R1');
+          }
+        }
+      }, delay);
+      activeTimers.push(timer);
+    });
+  });
 }
 
 // Helper to extract JSON from AI response text

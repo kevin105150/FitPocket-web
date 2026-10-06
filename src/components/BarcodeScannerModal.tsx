@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 import { Camera, Image, X, Flashlight, RefreshCw, AlertCircle, Loader2, Sparkles, CheckCircle2, ChevronDown, Check } from 'lucide-react';
 import { StorageService } from '../services/storage';
-import { getAiRequestParams } from '../utils/aiHelper';
+import { getAiRequestParams, getOrdered3xModels } from '../utils/aiHelper';
 import { useModalBackHandler } from '../hooks/useModalBackHandler';
 
 interface BarcodeScannerModalProps {
@@ -528,12 +528,8 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
 
         try {
           const aiParams = getAiRequestParams();
-          const ALLOWED_3X_MODELS = [
-            'gemini-3.1-flash-lite',
-            'gemini-3.8-flash',
-            'gemini-3.6-flash',
-            'gemini-3.5-flash',
-          ];
+          const preferredModel = StorageService.getSelectedAiModel();
+          const ALLOWED_3X_MODELS = getOrdered3xModels(preferredModel);
           
           let lastResultRes: Response | null = null;
           for (let i = 0; i < ALLOWED_3X_MODELS.length; i++) {
