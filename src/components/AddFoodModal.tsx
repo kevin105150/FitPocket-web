@@ -2717,7 +2717,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
 
         {/* Conditional Sub-Bar for ADVANCED search */}
         {mainCategory === 'ADVANCED' && (
-          <div className="px-4 pt-3 pb-2 space-y-2">
+          <div className={`px-4 pt-2.5 ${advancedSubTab === 'FAMILY' ? 'pb-1' : 'pb-2'} space-y-2`}>
             <div className="flex bg-slate-100 p-1 rounded-2xl gap-1">
               <button
                 type="button"
@@ -2798,10 +2798,10 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
         {/* Smart Tool Switcher (Removed as tabs are now in main header) */}
 
         {/* Content Body */}
-        <div ref={contentBodyRef} className="flex-1 overflow-y-auto p-4">
+        <div ref={contentBodyRef} className={`flex-1 overflow-y-auto px-4 ${activeTab === 'FAMILY' ? 'pt-1 pb-4' : 'p-4'}`}>
           {/* TAB: FAMILY SEARCH */}
           {activeTab === 'FAMILY' && (
-            <div className="space-y-4 max-w-md mx-auto py-2">
+            <div className="space-y-3 max-w-md mx-auto pt-0 pb-2">
               {/* Store Switcher Segmented Control */}
               <div className="flex bg-slate-100 p-1 rounded-2xl gap-1">
                 <button
@@ -2886,43 +2886,41 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                     />
                   )}
 
-                  {/* 關鍵字搜尋框 */}
-                  <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-3">
-                    <label className="block text-xs font-bold text-slate-700">搜尋全家食品關鍵字</label>
-                    <div className="flex gap-2">
-                      <div className="relative flex-1 flex items-center">
-                        <input
-                          type="text"
-                          placeholder="例如: 飯糰、地瓜、茶、雞胸肉"
-                          value={familyKeyword}
-                          onChange={(e) => setFamilyKeyword(e.target.value)}
-                          onKeyDown={(e) => e.key === 'Enter' && handleFamilySearch()}
-                          className="w-full pl-3 pr-8 py-2.5 bg-white rounded-xl border border-slate-200 text-sm focus:outline-emerald-600"
-                        />
-                        {familyKeyword && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setFamilyKeyword('');
-                              handleClearFamilyHistory();
-                            }}
-                            className="absolute right-2.5 p-1 text-slate-400 hover:text-slate-600 cursor-pointer"
-                            title="清除關鍵字與搜尋結果"
-                          >
-                            <X className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => handleFamilySearch()}
-                        disabled={isFamilySearching || !familyKeyword.trim()}
-                        className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 whitespace-nowrap"
-                      >
-                        {isFamilySearching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
-                        搜尋全家
-                      </button>
+                  {/* 關鍵字搜尋框 (單排緊湊設計) */}
+                  <div className="flex gap-2 items-center">
+                    <div className="relative flex-1 flex items-center">
+                      <Search className="w-4 h-4 text-slate-400 absolute left-3 pointer-events-none" />
+                      <input
+                        type="text"
+                        placeholder="搜尋全家食品 (如: 飯糰、地瓜、雞胸肉)..."
+                        value={familyKeyword}
+                        onChange={(e) => setFamilyKeyword(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && handleFamilySearch()}
+                        className="w-full pl-9 pr-8 py-2 bg-slate-100 hover:bg-slate-100/90 focus:bg-white rounded-xl border border-transparent focus:border-emerald-300 text-sm text-slate-800 placeholder-slate-400 focus:outline-emerald-600 transition"
+                      />
+                      {familyKeyword && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFamilyKeyword('');
+                            handleClearFamilyHistory();
+                          }}
+                          className="absolute right-2 p-1 text-slate-400 hover:text-slate-600 cursor-pointer"
+                          title="清除關鍵字與搜尋結果"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </div>
+                    <button
+                      type="button"
+                      onClick={() => handleFamilySearch()}
+                      disabled={isFamilySearching || !familyKeyword.trim()}
+                      className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition flex items-center justify-center gap-1 cursor-pointer disabled:opacity-50 whitespace-nowrap shrink-0"
+                    >
+                      {isFamilySearching ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
+                      <span>搜尋</span>
+                    </button>
                   </div>
 
                   {familyError && (
@@ -3158,28 +3156,38 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                     )}
                   </div>
 
-                  {/* 關鍵字搜尋框 */}
-                  <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-3">
-                    <label className="block text-xs font-bold text-slate-700">搜尋麥當勞食品關鍵字</label>
-                    <div className="flex gap-2">
+                  {/* 關鍵字搜尋框 (單排緊湊設計) */}
+                  <div className="flex gap-2 items-center">
+                    <div className="relative flex-1 flex items-center">
+                      <Search className="w-4 h-4 text-slate-400 absolute left-3 pointer-events-none" />
                       <input
                         type="text"
-                        placeholder="例如: 大麥克、薯條、麥克鷄塊、極選"
+                        placeholder="搜尋麥當勞食品 (如: 大麥克、薯條、麥克鷄塊)..."
                         value={mcdKeyword}
                         onChange={(e) => setMcdKeyword(e.target.value)}
                         onKeyDown={(e) => e.key === 'Enter' && handleMcdSearch()}
-                        className="flex-1 px-3 py-2.5 bg-white rounded-xl border border-slate-200 text-sm focus:outline-red-600"
+                        className="w-full pl-9 pr-8 py-2 bg-slate-100 hover:bg-slate-100/90 focus:bg-white rounded-xl border border-transparent focus:border-red-300 text-sm text-slate-800 placeholder-slate-400 focus:outline-red-600 transition"
                       />
-                      <button
-                        type="button"
-                        onClick={() => handleMcdSearch()}
-                        disabled={isMcdSearching || !mcdKeyword.trim()}
-                        className="px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-xl shadow-xs transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 whitespace-nowrap"
-                      >
-                        {isMcdSearching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
-                        搜尋麥當勞
-                      </button>
+                      {mcdKeyword && (
+                        <button
+                          type="button"
+                          onClick={() => setMcdKeyword('')}
+                          className="absolute right-2 p-1 text-slate-400 hover:text-slate-600 cursor-pointer"
+                          title="清除關鍵字"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </div>
+                    <button
+                      type="button"
+                      onClick={() => handleMcdSearch()}
+                      disabled={isMcdSearching || !mcdKeyword.trim()}
+                      className="px-3.5 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-xl shadow-xs transition flex items-center justify-center gap-1 cursor-pointer disabled:opacity-50 whitespace-nowrap shrink-0"
+                    >
+                      {isMcdSearching ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
+                      <span>搜尋</span>
+                    </button>
                   </div>
 
                   {mcdError && (
@@ -3326,28 +3334,38 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                     )}
                   </div>
 
-                  {/* 關鍵字搜尋框 */}
-                  <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-3">
-                    <label className="block text-xs font-bold text-slate-700">搜尋 Subway 食品關鍵字</label>
-                    <div className="flex gap-2">
+                  {/* 關鍵字搜尋框 (單排緊湊設計) */}
+                  <div className="flex gap-2 items-center">
+                    <div className="relative flex-1 flex items-center">
+                      <Search className="w-4 h-4 text-slate-400 absolute left-3 pointer-events-none" />
                       <input
                         type="text"
-                        placeholder="例如: 牛肉、嫩雞、潛艇堡、餅乾、沙拉"
+                        placeholder="搜尋 Subway 食品 (如: 牛肉、嫩雞、潛艇堡)..."
                         value={subwayKeyword}
                         onChange={(e) => setSubwayKeyword(e.target.value)}
                         onKeyDown={(e) => e.key === 'Enter' && handleSubwaySearch()}
-                        className="flex-1 px-3 py-2.5 bg-white rounded-xl border border-slate-200 text-sm focus:outline-amber-600"
+                        className="w-full pl-9 pr-8 py-2 bg-slate-100 hover:bg-slate-100/90 focus:bg-white rounded-xl border border-transparent focus:border-amber-300 text-sm text-slate-800 placeholder-slate-400 focus:outline-amber-600 transition"
                       />
-                      <button
-                        type="button"
-                        onClick={() => handleSubwaySearch()}
-                        disabled={isSubwaySearching || !subwayKeyword.trim()}
-                        className="px-4 py-2.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-xl shadow-xs transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 whitespace-nowrap"
-                      >
-                        {isSubwaySearching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
-                        搜尋 Subway
-                      </button>
+                      {subwayKeyword && (
+                        <button
+                          type="button"
+                          onClick={() => setSubwayKeyword('')}
+                          className="absolute right-2 p-1 text-slate-400 hover:text-slate-600 cursor-pointer"
+                          title="清除關鍵字"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </div>
+                    <button
+                      type="button"
+                      onClick={() => handleSubwaySearch()}
+                      disabled={isSubwaySearching || !subwayKeyword.trim()}
+                      className="px-3.5 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-xl shadow-xs transition flex items-center justify-center gap-1 cursor-pointer disabled:opacity-50 whitespace-nowrap shrink-0"
+                    >
+                      {isSubwaySearching ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
+                      <span>搜尋</span>
+                    </button>
                   </div>
 
                   {subwayError && (
