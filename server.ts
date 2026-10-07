@@ -616,9 +616,15 @@ async function executeSingleModelAttempt(
         timeoutPromise,
       ]);
     } catch (callErr: any) {
-      // 若因搜尋工具配額 (429) 或不支援工具報錯，即刻降級為純模型推論重試
-      if (useSearch && !String(callErr?.message || '').includes('ETIMEDOUT')) {
-        console.warn(`[SingleModel] Search tool failed on [${modelName}], retrying without search tool...`);
+      const errMsg = String(callErr?.message || '');
+      const errStatus = Number(callErr?.status || 0);
+
+      // 如果是 503 / UNAVAILABLE / high demand，代表模型忙碌，直接拋出讓 Fallback 機制迅速切換至下一款 3.x 候選模型
+      const isServerBusy = errStatus === 503 || errMsg.includes('503') || errMsg.includes('high demand') || errMsg.includes('UNAVAILABLE') || errMsg.includes('overloaded');
+
+      // 若啟用了搜尋工具，且因工具配額 (429) 或不支援工具報錯（非伺服器忙碌與超時），即刻降級為純模型內部知識庫推論
+      if (useSearch && !isServerBusy && !errMsg.includes('ETIMEDOUT') && (errStatus === 429 || errMsg.includes('tools') || errMsg.includes('search') || errMsg.includes('grounding') || errMsg.includes('RESOURCE_EXHAUSTED'))) {
+        console.log(`[SingleModel] Search tool limit on [${modelName}], retrying with internal knowledge base...`);
         response = await Promise.race([
           ai.models.generateContent(makeConfig(false)),
           timeoutPromise,
@@ -706,12 +712,12 @@ async function generateWithFallback(
     }
   }
 
-  const TOTAL_TIMEOUT_MS = 15000; // 全局 15 秒上限
-  const HEDGE_DELAY_MS = 3000;    // 階梯間隔：首發 3.0 秒未回傳時，補發下一個備援模型並聯超車
+  const TOTAL_TIMEOUT_MS = 15000; // 全局 15 秒硬性上限
+  const HEDGE_DELAY_MS = 2500;    // 階梯間隔：首發 2.5 秒未回傳時，補發下一個備援模型並聯超車
 
   return new Promise<ModelGenerationResult>((resolve, reject) => {
     let isSettled = false;
-    let completedCount = 0;
+    let inFlight = 0;
     const startTime = Date.now();
     const activeTimers: NodeJS.Timeout[] = [];
     const launched = new Set<string>();
@@ -737,6 +743,7 @@ async function generateWithFallback(
       const launchKey = `${attemptTag}:${modelName}`;
       if (isSettled || launched.has(launchKey)) return;
       launched.add(launchKey);
+      inFlight++;
       console.log(`[Hedged AI] Launching [${modelName}] (${attemptTag}, Search: ${useSearch})...`);
 
       try {
@@ -747,7 +754,7 @@ async function generateWithFallback(
           resolve(result);
         }
       } catch (err: any) {
-        completedCount++;
+        inFlight--;
         const errMsg = String(err.message || '');
         const errStatus = Number(err.status || 0);
 
@@ -780,27 +787,23 @@ async function generateWithFallback(
           if (nextModel) {
             console.log(`[Hedged AI] Immediate failover trigger ➔ Launching [${nextModel}]`);
             startAttempt(nextModel, 'R1');
-          } else {
-            // 第一輪全部 4 款模型皆已嘗試完畢但全遇到瞬間高峰，若時間尚充裕（已用時間 < 11 秒），經 500ms 緩衝後啟動第二輪重試
+          } else if (inFlight === 0) {
+            // 第一輪全部 4 款模型皆已嘗試完畢且無在途請求
             const elapsed = Date.now() - startTime;
-            if (elapsed < 11000 && !launched.has(`R2:${candidateModels[0]}`)) {
-              const retryTimer = setTimeout(() => {
-                if (!isSettled) {
-                  console.log(`[Hedged AI] Starting second pass retry on [${candidateModels[0]}] after demand spike...`);
-                  startAttempt(candidateModels[0], 'R2');
-                }
-              }, 500);
-              activeTimers.push(retryTimer);
+            const r2Candidate = candidateModels.includes('gemini-3.1-flash-lite')
+              ? 'gemini-3.1-flash-lite'
+              : candidateModels[0];
+            if (elapsed < 7000 && !launched.has(`R2:${r2Candidate}`)) {
+              console.log(`[Hedged AI] Quick retry on [${r2Candidate}] (R2) after transient spike...`);
+              startAttempt(r2Candidate, 'R2');
+            } else {
+              // 所有嘗試皆已完成且無在途請求，立即以 503 結束，切勿讓使用者乾等 15 秒！
+              cleanup();
+              const finalErr = new Error('AI 伺服器忙碌中，請稍後重試') as any;
+              finalErr.status = 503;
+              reject(finalErr);
             }
           }
-        }
-
-        // 若全部可能嘗試皆已結束且無其他進行中請求
-        if (completedCount >= (candidateModels.length * 2) && !isSettled) {
-          cleanup();
-          const finalErr = new Error('AI 伺服器忙碌中，請稍後重試') as any;
-          finalErr.status = 503;
-          reject(finalErr);
         }
       }
     };
@@ -808,7 +811,7 @@ async function generateWithFallback(
     // 1. 首發模型 (T=0s)
     startAttempt(candidateModels[0], 'R1');
 
-    // 2. 階梯式備援計時器 (T=3.0s, 6.0s, 9.0s)：若前面模型仍在運算未回傳，補發下一個候選模型競速
+    // 2. 階梯式備援計時器 (T=2.5s, 5.0s, 7.5s)：若前面模型仍在運算未回傳，補發下一個候選模型競速
     [HEDGE_DELAY_MS, HEDGE_DELAY_MS * 2, HEDGE_DELAY_MS * 3].forEach((delay) => {
       const timer = setTimeout(() => {
         if (!isSettled) {
@@ -1649,7 +1652,7 @@ app.post('/api/ai/estimate-nutrition', async (req, res) => {
     };
     res.json(parsed);
   } catch (error: any) {
-    console.warn('[Gemini estimate notice]:', error?.message);
+    console.log('[Gemini estimate notice]:', error?.message);
     const status = error.status && error.status >= 400 && error.status < 600 ? error.status : 400;
     res.status(status).json({ 
       error: error.message || 'AI 辨識失敗',
@@ -1784,7 +1787,7 @@ app.post('/api/ai/estimate-image', async (req, res) => {
     };
     res.json(parsed);
   } catch (error: any) {
-    console.warn('[Gemini image analyze notice]:', error?.message);
+    console.log('[Gemini image analyze notice]:', error?.message);
     const status = error.status && error.status >= 400 && error.status < 600 ? error.status : 400;
     res.status(status).json({ 
       error: error.message || '圖片辨識失敗',
@@ -1934,7 +1937,7 @@ If no readable barcode numbers are visible in the image, reply ONLY with 'NONE'.
       },
     });
   } catch (error: any) {
-    console.warn('[AI Read Barcode notice]:', error?.message);
+    console.log('[AI Read Barcode notice]:', error?.message);
     res.status(400).json({ error: error.message || '條碼辨識失敗', barcode: null });
   }
 });
@@ -2378,7 +2381,7 @@ app.post('/api/ai/workout-suggest', async (req, res) => {
       },
     });
   } catch (error: any) {
-    console.warn('[Workout suggest notice]:', error?.message);
+    console.log('[Workout suggest notice]:', error?.message);
     res.json({ exercises: ['慢跑', '棒式', '深蹲', '伏地挺身'] });
   }
 });
