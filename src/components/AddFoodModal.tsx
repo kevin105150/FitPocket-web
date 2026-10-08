@@ -31,6 +31,8 @@ import {
   Wrench,
   RotateCw,
   RotateCcw,
+  Copy,
+  Trash2,
 } from 'lucide-react';
 import { CustomFood, FoodSearchResult, MealType, FoodRecord } from '../types';
 import { StorageService } from '../services/storage';
@@ -430,6 +432,44 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
   const [selectedImageBase64, setSelectedImageBase64] = useState<string | null>(null);
   const [lastImageMimeType, setLastImageMimeType] = useState<string>('image/jpeg');
   const [retryAction, setRetryAction] = useState<(() => void) | null>(null);
+
+  // AI Developer Logs state
+  const [aiDevLogs, setAiDevLogs] = useState<{
+    id: string;
+    timestamp: string;
+    level: 'info' | 'success' | 'warn' | 'error' | 'process';
+    stage: 'UPLOAD' | 'COMPRESS' | 'PREPARE' | 'REQUEST' | 'FAILOVER' | 'PARSE' | 'SUCCESS' | 'ERROR';
+    message: string;
+    details?: string;
+  }[]>([]);
+  const [isAiDevLogsOpen, setIsAiDevLogsOpen] = useState(true);
+  const [aiDevLogsCopied, setAiDevLogsCopied] = useState(false);
+  const aiDevLogsBottomRef = useRef<HTMLDivElement>(null);
+
+  const addAiDevLog = (
+    stage: 'UPLOAD' | 'COMPRESS' | 'PREPARE' | 'REQUEST' | 'FAILOVER' | 'PARSE' | 'SUCCESS' | 'ERROR',
+    message: string,
+    level: 'info' | 'success' | 'warn' | 'error' | 'process' = 'info',
+    details?: string
+  ) => {
+    const now = new Date();
+    const timeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}.${now.getMilliseconds().toString().padStart(3, '0')}`;
+    const newEntry = {
+      id: `${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      timestamp: timeStr,
+      level,
+      stage,
+      message,
+      details,
+    };
+    setAiDevLogs((prev) => [...prev, newEntry]);
+  };
+
+  useEffect(() => {
+    if (isAiDevLogsOpen && aiDevLogs.length > 0) {
+      aiDevLogsBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [aiDevLogs, isAiDevLogsOpen]);
 
   const [isAiCameraModalOpen, setIsAiCameraModalOpen] = useState(false);
   const cameraInputRef = useRef<HTMLInputElement>(null);
@@ -2196,6 +2236,7 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
       console.warn('[API] Response was OK but returned non-JSON body:', text.slice(0, 200));
       const err = new Error('AI 伺服器回應格式異常，請稍後重試。') as any;
       err.status = 500;
+      err.details = text;
       throw err;
     }
 
@@ -2204,49 +2245,79 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
     if (res.status === 503 || errMsg.includes('503') || errMsg.includes('high demand') || errMsg.includes('Busy') || errMsg.includes('UNAVAILABLE')) {
       const err = new Error('AI 伺服器忙碌中，請稍後重試') as any;
       err.status = 503;
+      err.details = json || text;
       throw err;
     }
 
     if (res.status === 429 || errMsg.includes('Quota Exceeded') || errMsg.includes('429')) {
       const err = new Error('Gemini API 額度已達上限，請稍後重試或至設定更換 API Key') as any;
       err.status = 429;
+      err.details = json || text;
       throw err;
     }
 
     if (errMsg) {
       const err = new Error(errMsg) as any;
       err.status = res.status;
+      err.details = json || text;
       throw err;
     }
 
     const genericErr = new Error(`AI 伺服器暫時無法回應 (${res.status})`) as any;
     genericErr.status = res.status;
+    genericErr.details = json || text;
     throw genericErr;
   };
 
   // Separate AI call logic for reusability (Retries)
   const performImageAnalysis = async (base64: string, mime: string) => {
+    const analysisStartTime = Date.now();
     setAiLoading(true);
     setAiError('');
     setAiProgress(10);
     setAiStatus('正在初始化 AI 辨識系統...');
+    setIsAiDevLogsOpen(true); // 自動展開 Log 區域
+
+    addAiDevLog('PREPARE', '啟動 AI 影像辨識流程...', 'process');
 
     try {
       setAiProgress(20);
       setAiStatus('正在優化圖片以加快辨識速度...');
+      addAiDevLog('COMPRESS', '開始前端影像智慧壓縮與方向校正 (目標 1280x1280, 品質 0.85)...', 'info');
 
       // 核心優化：在前端先校正方向與壓縮圖片 (帶有 fallback 機制)
       let optimizedBase64 = base64;
+      const compressStart = Date.now();
       try {
         optimizedBase64 = await optimizeImageForAi(base64, 1280, 1280, 0.85);
-      } catch (optErr) {
-        console.warn('[Image Optimizer] 圖片壓縮失敗，改用原圖 Base64進行辨識:', optErr);
+        const compressCost = Date.now() - compressStart;
+        const origLenKb = Math.round(base64.length / 1024);
+        const optLenKb = Math.round(optimizedBase64.length / 1024);
+        const ratio = origLenKb > 0 ? (((origLenKb - optLenKb) / origLenKb) * 100).toFixed(1) : '0';
+        addAiDevLog(
+          'COMPRESS',
+          `圖片壓縮完成 (耗時 ${compressCost}ms)：原圖 ${origLenKb} KB ➔ 壓縮後 ${optLenKb} KB (節省體積 ${ratio}%)`,
+          'success'
+        );
+      } catch (optErr: any) {
+        addAiDevLog(
+          'COMPRESS',
+          `圖片壓縮警告 (改用原圖 Base64): ${optErr?.message || optErr}`,
+          'warn'
+        );
       }
 
       const aiParams = getAiRequestParams();
       const preferredModel = StorageService.getSelectedAiModel();
       const modelsToTry = getOrdered3xModels(preferredModel);
       const targetModel = modelsToTry[0];
+      const authDesc = aiParams.customApiKey ? '個人自訂 API Key' : (aiParams.userEmail ? `共享額度 (${aiParams.userEmail})` : '系統共享額度');
+
+      addAiDevLog(
+        'PREPARE',
+        `模型排程：首發模型 [${targetModel}] | 備援階梯 [${modelsToTry.join(' ➔ ')}] | 認證模式: ${authDesc}`,
+        'info'
+      );
 
       setAiProgress(35);
       setAiStatus(`[${targetModel}] 正在進行 AI 影像分析...`);
@@ -2260,9 +2331,13 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
         }
       }, 250);
 
-      let lastResult: any = null;
+      const payloadKb = (optimizedBase64.length / 1024).toFixed(1);
+      addAiDevLog('REQUEST', `發送 HTTP POST /api/ai/estimate-image (酬載大小: ${payloadKb} KB, 首發: ${targetModel})...`, 'process');
+      const fetchStartTime = Date.now();
+
+      let res: Response;
       try {
-        const res = await fetch('/api/ai/estimate-image', {
+        res = await fetch('/api/ai/estimate-image', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -2275,16 +2350,39 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
             model: targetModel,
           }),
         });
-
+      } catch (netErr: any) {
         clearInterval(progressInterval);
+        const fetchCost = Date.now() - fetchStartTime;
+        addAiDevLog('ERROR', `網路傳輸異常 (耗時 ${fetchCost}ms): ${netErr?.message || 'Failed to fetch'}`, 'error');
+        throw netErr;
+      }
+
+      clearInterval(progressInterval);
+      const fetchCost = Date.now() - fetchStartTime;
+
+      addAiDevLog(
+        res.ok ? 'REQUEST' : 'ERROR',
+        `伺服器回應 HTTP ${res.status} ${res.statusText || ''} (往返延遲: ${fetchCost}ms)`,
+        res.ok ? 'info' : 'error'
+      );
+
+      let lastResult: any = null;
+      try {
         lastResult = await parseApiResponse(res);
       } catch (err: any) {
-        clearInterval(progressInterval);
+        addAiDevLog(
+          'ERROR',
+          `API 解析報錯 (HTTP ${res.status}): ${err.message || '未知錯誤'}`,
+          'error',
+          err.details ? (typeof err.details === 'object' ? JSON.stringify(err.details, null, 2) : String(err.details)) : undefined
+        );
         throw err;
       }
 
       if (!lastResult) {
-        throw new Error('AI 伺服器目前忙碌中，請稍後重試。');
+        const err = new Error('AI 伺服器目前忙碌中，請稍後重試。');
+        addAiDevLog('ERROR', '伺服器未回傳有效 JSON 資料', 'error');
+        throw err;
       }
 
       setAiProgress(88);
@@ -2293,16 +2391,34 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
       const result = lastResult;
       if (result._usage) {
         StorageService.recordApiUsage(result._usage);
+        addAiDevLog(
+          'PARSE',
+          `Token 統計：Prompt ${result._usage.promptTokens} | Candidates ${result._usage.candidatesTokens} | 總計 ${result._usage.totalTokens} Tokens`,
+          'info'
+        );
+      }
+
+      if (result._developerQuota) {
+        addAiDevLog(
+          'PARSE',
+          `配額狀態：今日已用 ${result._developerQuota.todayUsage || 0} / 剩餘 ${result._developerQuota.remaining || 0} 次`,
+          'info'
+        );
       }
 
       const usedModel = result._modelUsed || targetModel;
       setAiProgress(96);
       if (usedModel !== targetModel) {
         setAiStatus(`[${usedModel}] 資料擷取中... (由 ${targetModel} 自動切換後援)`);
+        addAiDevLog(
+          'FAILOVER',
+          `⚡ 自動備援生效：首發 [${targetModel}] 尖峰忙碌或延遲，由 3.x 家族備援模型 [${usedModel}] 成功接棒回應！`,
+          'warn'
+        );
       } else {
         setAiStatus(`[${usedModel}] 資料擷取中...`);
+        addAiDevLog('PARSE', `由首選模型 [${usedModel}] 成功產出營養數據`, 'info');
       }
-
 
       const parseNum = (val: any, fallback: number) => {
         const n = Number(val);
@@ -2325,6 +2441,21 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
         ? CloudFoodService.normalizeBrand(rawBrand)
         : 'AI辨識';
       const detectedBarcode = result.barcode ? String(result.barcode).trim() : undefined;
+
+      const totalElapsed = ((Date.now() - analysisStartTime) / 1000).toFixed(2);
+      addAiDevLog(
+        'SUCCESS',
+        `✅ 影像辨識成功 (總耗時 ${totalElapsed}s)：品名「${result.name || '相片辨識料理'}」| 熱量 ${calories} kcal (${defaultAmount}${result.servingUnit || 'g'}) | P:${protein}g C:${carbs}g F:${fat}g`,
+        'success',
+        JSON.stringify({
+          name: result.name,
+          brand: normalizedBrand,
+          caloriesPer100g: result.caloriesPer100g,
+          defaultServingAmount: defaultAmount,
+          servingUnit: result.servingUnit || 'g',
+          modelUsed: usedModel,
+        }, null, 2)
+      );
 
       const foodItem: FoodSearchResult = {
         id: 'ai_photo_' + Date.now(),
@@ -2350,6 +2481,13 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
         onSelectFood(foodItem, selectedMealType);
       }
     } catch (e: any) {
+      const totalElapsed = ((Date.now() - analysisStartTime) / 1000).toFixed(2);
+      addAiDevLog(
+        'ERROR',
+        `❌ 辨識流程終止 (總耗時 ${totalElapsed}s)：${e.message || 'AI 辨識發生錯誤'}`,
+        'error',
+        e.details ? (typeof e.details === 'object' ? JSON.stringify(e.details, null, 2) : String(e.details)) : (e.stack || undefined)
+      );
       if (isMountedRef.current) {
         setAiError(e.message || 'AI 辨識發生錯誤');
         setRetryAction(() => () => performImageAnalysis(base64, mime));
@@ -2365,24 +2503,38 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
   const handleAiTextAnalyze = async () => {
     if (!checkAiKeyOrWarn()) return;
     if (!aiPrompt.trim()) return;
+    const textStartTime = Date.now();
     setAiLoading(true);
     setAiError('');
     setAiProgress(20);
     setAiStatus('正在解析您的文字描述...');
     setRetryAction(() => handleAiTextAnalyze);
+    setIsAiDevLogsOpen(true);
+
+    addAiDevLog('PREPARE', `啟動文字飲食估算，輸入文字: "${aiPrompt.trim()}"`, 'process');
     
     try {
       const aiParams = getAiRequestParams();
       const preferredModel = StorageService.getSelectedAiModel();
       const modelsToTry = getOrdered3xModels(preferredModel);
       const targetModel = modelsToTry[0];
+      const authDesc = aiParams.customApiKey ? '個人自訂 API Key' : (aiParams.userEmail ? `共享額度 (${aiParams.userEmail})` : '系統共享額度');
+
+      addAiDevLog(
+        'PREPARE',
+        `模型排程：首選 [${targetModel}] | 備援階梯 [${modelsToTry.join(' ➔ ')}] | 認證: ${authDesc}`,
+        'info'
+      );
 
       setAiProgress(40);
       setAiStatus(`[${targetModel}] 正在由 AI 營養師估算中...`);
 
-      let lastResult: any = null;
+      addAiDevLog('REQUEST', `發送 HTTP POST /api/ai/estimate-nutrition (首發: ${targetModel})...`, 'process');
+      const fetchStart = Date.now();
+
+      let res: Response;
       try {
-        const res = await fetch('/api/ai/estimate-nutrition', {
+        res = await fetch('/api/ai/estimate-nutrition', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ 
@@ -2394,27 +2546,55 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
             model: targetModel,
           }),
         });
+      } catch (netErr: any) {
+        const fetchCost = Date.now() - fetchStart;
+        addAiDevLog('ERROR', `網路傳輸異常 (耗時 ${fetchCost}ms): ${netErr?.message}`, 'error');
+        throw netErr;
+      }
 
+      const fetchCost = Date.now() - fetchStart;
+      addAiDevLog(
+        res.ok ? 'REQUEST' : 'ERROR',
+        `伺服器回應 HTTP ${res.status} ${res.statusText || ''} (延遲: ${fetchCost}ms)`,
+        res.ok ? 'info' : 'error'
+      );
+
+      let lastResult: any = null;
+      try {
         lastResult = await parseApiResponse(res);
       } catch (err: any) {
+        addAiDevLog('ERROR', `API 回傳錯誤 (HTTP ${res.status}): ${err.message}`, 'error', err.details ? JSON.stringify(err.details, null, 2) : undefined);
         throw err;
       }
 
       if (!lastResult) {
-        throw new Error('AI 伺服器目前忙碌中，請稍後重試。');
+        const err = new Error('AI 伺服器目前忙碌中，請稍後重試。');
+        addAiDevLog('ERROR', '伺服器未回傳有效 JSON 資料', 'error');
+        throw err;
       }
 
       const result = lastResult;
       if (result._usage) {
         StorageService.recordApiUsage(result._usage);
+        addAiDevLog(
+          'PARSE',
+          `Token 統計：總計 ${result._usage.totalTokens} Tokens`,
+          'info'
+        );
       }
       const usedModel = result._modelUsed || targetModel;
 
       setAiProgress(85);
       if (usedModel !== targetModel) {
         setAiStatus(`[${usedModel}] 正在生成營養成分清單... (由 ${targetModel} 自動切換後援)`);
+        addAiDevLog(
+          'FAILOVER',
+          `⚡ 自動備援生效：首發 [${targetModel}] 忙碌，由 3.x 備援模型 [${usedModel}] 完成估算`,
+          'warn'
+        );
       } else {
         setAiStatus(`[${usedModel}] 正在生成營養成分清單...`);
+        addAiDevLog('PARSE', `由模型 [${usedModel}] 回傳數據`, 'info');
       }
 
       const parseNum = (val: any, fallback: number) => {
@@ -2437,6 +2617,21 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
         ? CloudFoodService.normalizeBrand(rawBrand)
         : 'AI辨識';
 
+      const totalElapsed = ((Date.now() - textStartTime) / 1000).toFixed(2);
+      addAiDevLog(
+        'SUCCESS',
+        `✅ 文字估算成功 (總耗時 ${totalElapsed}s)：品名「${result.name || aiPrompt.trim()}」| 熱量 ${calories} kcal (${defaultAmount}${result.servingUnit || 'g'}) | P:${protein}g C:${carbs}g F:${fat}g`,
+        'success',
+        JSON.stringify({
+          name: result.name,
+          brand: normalizedBrand,
+          caloriesPer100g: result.caloriesPer100g,
+          defaultServingAmount: defaultAmount,
+          servingUnit: result.servingUnit || 'g',
+          modelUsed: usedModel,
+        }, null, 2)
+      );
+
       const foodItem: FoodSearchResult = {
         id: 'ai_' + Date.now(),
         name: result.name || aiPrompt.trim(),
@@ -2458,6 +2653,13 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
 
       onSelectFood(foodItem, selectedMealType);
     } catch (e: any) {
+      const totalElapsed = ((Date.now() - textStartTime) / 1000).toFixed(2);
+      addAiDevLog(
+        'ERROR',
+        `❌ 文字估算失敗 (總耗時 ${totalElapsed}s)：${e.message || 'AI 辨識發生錯誤'}`,
+        'error',
+        e.details ? JSON.stringify(e.details, null, 2) : undefined
+      );
       setAiError(e.message || 'AI 辨識發生錯誤，請重試');
     } finally {
       setAiLoading(false);
@@ -2472,12 +2674,29 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
 
     const mime = file.type || 'image/jpeg';
     setLastImageMimeType(mime);
+    const sizeKb = Math.round(file.size / 1024);
+    const sizeMb = (file.size / (1024 * 1024)).toFixed(2);
+    const displaySize = sizeKb > 1024 ? `${sizeMb} MB` : `${sizeKb} KB`;
+
+    addAiDevLog(
+      'UPLOAD',
+      `使用者選取檔案: ${file.name} (大小: ${displaySize}, 格式: ${mime})`,
+      'process'
+    );
 
     const reader = new FileReader();
     reader.onload = async () => {
       const base64 = reader.result as string;
       setSelectedImageBase64(base64);
+      addAiDevLog(
+        'UPLOAD',
+        `圖片讀取完成，原始 Base64 長度: ${(base64.length / 1024).toFixed(1)} KB 字元`,
+        'info'
+      );
       await performImageAnalysis(base64, mime);
+    };
+    reader.onerror = (err) => {
+      addAiDevLog('ERROR', `讀取檔案失敗: ${err}`, 'error');
     };
     reader.readAsDataURL(file);
   };
@@ -3636,6 +3855,145 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
                   )}
                 </div>
               )}
+
+              {/* Section 4: 開發者即時診斷日誌 (Dev Logs) */}
+              <div className="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-md transition-all">
+                {/* Header with status badge, toggle and actions */}
+                <div 
+                  onClick={() => setIsAiDevLogsOpen(!isAiDevLogsOpen)}
+                  className="p-3.5 bg-slate-950/90 border-b border-slate-800 flex items-center justify-between cursor-pointer select-none group hover:bg-slate-950 transition"
+                >
+                  <div className="flex items-center gap-2">
+                    <div className="w-6 h-6 rounded-lg bg-purple-950/80 border border-purple-500/40 text-purple-300 flex items-center justify-center shadow-xs">
+                      <Terminal className="w-3.5 h-3.5" />
+                    </div>
+                    <span className="text-xs font-black text-slate-100 flex items-center gap-1.5">
+                      開發者診斷日誌
+                      <span className="text-[10px] font-mono text-purple-400 font-normal">Dev Logs</span>
+                    </span>
+                    <span className="text-[10px] px-1.5 py-0.5 bg-slate-800 text-slate-300 font-mono rounded-md font-bold">
+                      {aiDevLogs.length}
+                    </span>
+                    {/* Status indicator badge */}
+                    {aiLoading ? (
+                      <span className="flex items-center gap-1 text-[10px] text-amber-300 font-bold bg-amber-950/70 px-2 py-0.5 rounded-full border border-amber-800/80 animate-pulse">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping"></span>
+                        執行中
+                      </span>
+                    ) : aiDevLogs.some(l => l.level === 'error') ? (
+                      <span className="flex items-center gap-1 text-[10px] text-rose-300 font-bold bg-rose-950/70 px-2 py-0.5 rounded-full border border-rose-800/80">
+                        <span className="w-1.5 h-1.5 rounded-full bg-rose-400"></span>
+                        有錯誤
+                      </span>
+                    ) : aiDevLogs.length > 0 ? (
+                      <span className="flex items-center gap-1 text-[10px] text-emerald-300 font-bold bg-emerald-950/70 px-2 py-0.5 rounded-full border border-emerald-800/80">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                        已完成
+                      </span>
+                    ) : (
+                      <span className="text-[10px] text-slate-500 font-normal">
+                        等待操作
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                    {aiDevLogs.length > 0 && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const text = aiDevLogs.map(l => `[${l.timestamp}] [${l.stage}] ${l.message}${l.details ? `\nDetails: ${l.details}` : ''}`).join('\n');
+                            navigator.clipboard.writeText(text);
+                            setAiDevLogsCopied(true);
+                            setTimeout(() => setAiDevLogsCopied(false), 2000);
+                          }}
+                          className="px-2 py-1 text-[10px] bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition flex items-center gap-1 cursor-pointer font-bold"
+                          title="複製全部 Log"
+                        >
+                          {aiDevLogsCopied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                          <span>{aiDevLogsCopied ? '已複製' : '複製'}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setAiDevLogs([])}
+                          className="p-1 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded-lg transition cursor-pointer"
+                          title="清除日誌"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setIsAiDevLogsOpen(!isAiDevLogsOpen)}
+                      className="p-1 text-slate-400 hover:text-slate-200 transition cursor-pointer"
+                    >
+                      <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${isAiDevLogsOpen ? 'rotate-180' : ''}`} />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Log terminal contents */}
+                {isAiDevLogsOpen && (
+                  <div className="p-3 bg-slate-950 font-mono text-[11px] leading-relaxed max-h-56 overflow-y-auto space-y-1.5 select-text divide-y divide-slate-900/60">
+                    {aiDevLogs.length === 0 ? (
+                      <div className="py-4 text-center text-slate-500 space-y-1">
+                        <p className="text-slate-400 font-bold">尚無開發者日誌</p>
+                        <p className="text-[10px] leading-relaxed">
+                          請拍攝/上傳照片或輸入食物名稱估算，將即時追蹤「照片讀取 ➔ 壓縮 ➔ 酬載檢驗 ➔ API 呼叫 ➔ 備援 ➔ 營養解析」完整流程。
+                        </p>
+                      </div>
+                    ) : (
+                      aiDevLogs.map((entry) => {
+                        const getStageColor = (stage: string) => {
+                          switch (stage) {
+                            case 'UPLOAD': return 'bg-sky-950 text-sky-300 border-sky-800';
+                            case 'COMPRESS': return 'bg-purple-950 text-purple-300 border-purple-800';
+                            case 'PREPARE': return 'bg-indigo-950 text-indigo-300 border-indigo-800';
+                            case 'REQUEST': return 'bg-amber-950 text-amber-300 border-amber-800';
+                            case 'FAILOVER': return 'bg-orange-950 text-orange-300 border-orange-700 animate-pulse';
+                            case 'PARSE': return 'bg-cyan-950 text-cyan-300 border-cyan-800';
+                            case 'SUCCESS': return 'bg-emerald-950 text-emerald-300 border-emerald-700';
+                            case 'ERROR': return 'bg-rose-950 text-rose-300 border-rose-700';
+                            default: return 'bg-slate-800 text-slate-300 border-slate-700';
+                          }
+                        };
+                        const getMessageColor = (level: string) => {
+                          switch (level) {
+                            case 'error': return 'text-rose-300 font-semibold';
+                            case 'success': return 'text-emerald-300 font-semibold';
+                            case 'warn': return 'text-amber-300';
+                            case 'process': return 'text-sky-300';
+                            default: return 'text-slate-300';
+                          }
+                        };
+                        return (
+                          <div key={entry.id} className="pt-1.5 flex flex-col gap-0.5">
+                            <div className="flex items-start gap-1.5">
+                              <span className="text-[10px] text-slate-500 shrink-0 select-none">
+                                {entry.timestamp}
+                              </span>
+                              <span className={`text-[9px] px-1.5 py-0.2 rounded border font-bold shrink-0 ${getStageColor(entry.stage)}`}>
+                                {entry.stage}
+                              </span>
+                              <span className={`break-all ${getMessageColor(entry.level)}`}>
+                                {entry.message}
+                              </span>
+                            </div>
+                            {entry.details && (
+                              <pre className="mt-0.5 ml-14 p-1.5 bg-slate-900 border border-slate-800 text-[10px] text-slate-400 rounded-lg overflow-x-auto whitespace-pre-wrap">
+                                {entry.details}
+                              </pre>
+                            )}
+                          </div>
+                        );
+                      })
+                    )}
+                    <div ref={aiDevLogsBottomRef} />
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
@@ -6053,6 +6411,11 @@ export const AddFoodModal: React.FC<AddFoodModalProps> = ({
           onCaptured={(base64, mime) => {
             setSelectedImageBase64(base64);
             setLastImageMimeType(mime);
+            addAiDevLog(
+              'UPLOAD',
+              `相機鏡頭即時拍攝完成，影像 Base64 大小約 ${(base64.length / 1024).toFixed(1)} KB`,
+              'process'
+            );
             performImageAnalysis(base64, mime);
           }}
         />

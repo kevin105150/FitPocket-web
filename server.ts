@@ -1643,6 +1643,12 @@ app.post('/api/ai/estimate-nutrition', async (req, res) => {
 
     parsed._modelUsed = modelUsed;
     parsed._developerQuota = authResult.developerQuota;
+    parsed._diagnostics = {
+      modelRequested: model || 'gemini-3.8-flash',
+      modelUsed,
+      isFallback: modelUsed !== (model || 'gemini-3.8-flash'),
+      timestamp: new Date().toISOString(),
+    };
     parsed._usage = {
       promptTokens: usageMetadata?.promptTokenCount || 0,
       candidatesTokens: usageMetadata?.candidatesTokenCount || 0,
@@ -1656,7 +1662,9 @@ app.post('/api/ai/estimate-nutrition', async (req, res) => {
     const status = error.status && error.status >= 400 && error.status < 600 ? error.status : 400;
     res.status(status).json({ 
       error: error.message || 'AI 辨識失敗',
-      status: status
+      status: status,
+      modelAttempted: req.body?.model || 'gemini-3.8-flash',
+      timestamp: new Date().toISOString(),
     });
   }
 });
@@ -1778,6 +1786,12 @@ app.post('/api/ai/estimate-image', async (req, res) => {
 
     parsed._modelUsed = modelUsed;
     parsed._developerQuota = authResult.developerQuota;
+    parsed._diagnostics = {
+      modelRequested: model || 'gemini-3.8-flash',
+      modelUsed,
+      isFallback: modelUsed !== (model || 'gemini-3.8-flash'),
+      timestamp: new Date().toISOString(),
+    };
     parsed._usage = {
       promptTokens: usageMetadata?.promptTokenCount || 0,
       candidatesTokens: usageMetadata?.candidatesTokenCount || 0,
@@ -1791,7 +1805,9 @@ app.post('/api/ai/estimate-image', async (req, res) => {
     const status = error.status && error.status >= 400 && error.status < 600 ? error.status : 400;
     res.status(status).json({ 
       error: error.message || '圖片辨識失敗',
-      status: status
+      status: status,
+      modelAttempted: req.body?.model || 'gemini-3.8-flash',
+      timestamp: new Date().toISOString(),
     });
   }
 });
