@@ -137,7 +137,15 @@ export interface DailyConfig {
   date: string; // YYYY-MM-DD
   carbCycle: CarbCycleType;
   customGoals?: Partial<NutritionGoalPreset>;
+  targetGoal?: NutritionGoalPreset; // Snapshot of target on that date (non-retroactive)
+  presetsSnapshot?: Record<CarbCycleType, NutritionGoalPreset>;
   activeMeals?: MealConfig[];
+  updatedAt: number;
+}
+
+export interface PresetHistoryEntry {
+  effectiveDate: string; // YYYY-MM-DD (takes effect on or after this date)
+  presets: Record<CarbCycleType, NutritionGoalPreset>;
   updatedAt: number;
 }
 

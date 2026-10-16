@@ -11,6 +11,7 @@ import {
   MealConfig,
   MealType,
   NutritionGoalPreset,
+  PresetHistoryEntry,
   UserProfile,
   WaterRecord,
   WeightRecord,
@@ -40,6 +41,7 @@ const STORAGE_KEYS = {
   WEIGHT_RECORDS: 'fitpocket_weight_records',
   WORKOUT_RECORDS: 'fitpocket_workout_records',
   CARB_PRESETS: 'fitpocket_carb_presets',
+  CARB_PRESET_HISTORY: 'fitpocket_carb_preset_history',
   ACTIVE_MEALS: 'fitpocket_active_meals',
   ACTIVE_CARB_CYCLE: 'fitpocket_active_carb_cycle',
   DAILY_CONFIGS: 'fitpocket_daily_configs',
@@ -178,6 +180,8 @@ export const StorageService = {
         console.error('Failed to load data from IndexedDB:', e);
       }
     }
+    // Notify all UI components that persistent data has fully loaded
+    notifyDataChange();
   },
 
   // Preset foods (cached in memory after first parse)
@@ -771,15 +775,142 @@ export const StorageService = {
   },
 
   // Carb cycle presets
-  getPresets(): Record<CarbCycleType, NutritionGoalPreset> {
-    return getItem<Record<CarbCycleType, NutritionGoalPreset>>(
+  // Carb cycle presets & revision history (Non-retroactive)
+  getPresetHistory(): PresetHistoryEntry[] {
+    return getItem<PresetHistoryEntry[]>(STORAGE_KEYS.CARB_PRESET_HISTORY, []);
+  },
+
+  savePresetHistory(history: PresetHistoryEntry[]): void {
+    setItem(STORAGE_KEYS.CARB_PRESET_HISTORY, history);
+    this.saveToCloud();
+  },
+
+  // Get presets, optionally for a specific date (non-retroactive)
+  getPresets(date?: string): Record<CarbCycleType, NutritionGoalPreset> {
+    const currentGlobal = getItem<Record<CarbCycleType, NutritionGoalPreset>>(
       STORAGE_KEYS.CARB_PRESETS,
       DEFAULT_PRESETS
     );
+
+    if (!date) {
+      return currentGlobal;
+    }
+
+    // 1. Check if DailyConfig has an explicit snapshot of presets for this date
+    const daily = this.getDailyConfig(date);
+    if (daily?.presetsSnapshot) {
+      return daily.presetsSnapshot;
+    }
+
+    // 2. Check presetHistory
+    const history = this.getPresetHistory();
+    if (history && history.length > 0) {
+      // Find the most recent entry with effectiveDate <= date
+      const validEntries = history
+        .filter((entry) => entry.effectiveDate <= date)
+        .sort((a, b) => b.effectiveDate.localeCompare(a.effectiveDate));
+
+      if (validEntries.length > 0) {
+        return validEntries[0].presets;
+      }
+
+      // If date is earlier than all history entries, use the baseline entry (1970-01-01)
+      const baseline = history.find((entry) => entry.effectiveDate === '1970-01-01');
+      if (baseline) {
+        return baseline.presets;
+      }
+      // If no baseline found, use DEFAULT_PRESETS for early historical dates
+      return DEFAULT_PRESETS;
+    }
+
+    return currentGlobal;
   },
-  savePresets(presets: Record<CarbCycleType, NutritionGoalPreset>): void {
-    setItem(STORAGE_KEYS.CARB_PRESETS, presets);
+
+  // Save presets. If applyToPast is false, it takes effect from effectiveDate onward (non-retroactive)
+  savePresets(
+    presets: Record<CarbCycleType, NutritionGoalPreset>,
+    effectiveDate?: string,
+    applyToPast = false
+  ): void {
+    const today = getTodayString();
+    const targetDate = effectiveDate || today;
+
+    if (applyToPast) {
+      // Overwrite current presets & clear/reset history to single global entry
+      setItem(STORAGE_KEYS.CARB_PRESETS, presets);
+      const newHistory: PresetHistoryEntry[] = [
+        { effectiveDate: '1970-01-01', presets, updatedAt: Date.now() },
+      ];
+      setItem(STORAGE_KEYS.CARB_PRESET_HISTORY, newHistory);
+      this.saveToCloud();
+      return;
+    }
+
+    // Non-retroactive: preserve history!
+    let history = this.getPresetHistory();
+    const currentGlobal = getItem<Record<CarbCycleType, NutritionGoalPreset>>(
+      STORAGE_KEYS.CARB_PRESETS,
+      DEFAULT_PRESETS
+    );
+
+    // If history has no baseline for 1970-01-01, preserve current presets as the past baseline
+    const hasBaseline = history.some((h) => h.effectiveDate === '1970-01-01');
+    if (!hasBaseline) {
+      history.unshift({
+        effectiveDate: '1970-01-01',
+        presets: currentGlobal,
+        updatedAt: 0,
+      });
+    }
+
+    // Check if an entry for targetDate already exists
+    const existingIndex = history.findIndex((h) => h.effectiveDate === targetDate);
+    if (existingIndex >= 0) {
+      history[existingIndex] = {
+        effectiveDate: targetDate,
+        presets,
+        updatedAt: Date.now(),
+      };
+    } else {
+      history.push({
+        effectiveDate: targetDate,
+        presets,
+        updatedAt: Date.now(),
+      });
+    }
+
+    // Keep sorted by effectiveDate ascending
+    history.sort((a, b) => a.effectiveDate.localeCompare(b.effectiveDate));
+    setItem(STORAGE_KEYS.CARB_PRESET_HISTORY, history);
+
+    // If targetDate is today or past, also update current active CARB_PRESETS
+    if (targetDate <= today) {
+      setItem(STORAGE_KEYS.CARB_PRESETS, presets);
+    }
+
     this.saveToCloud();
+  },
+
+  // Get specific carb cycle preset for a specific date
+  getPresetForDate(date: string, cycle: CarbCycleType): NutritionGoalPreset {
+    const datePresets = this.getPresets(date);
+    return datePresets[cycle] || this.getPresets()[cycle] || DEFAULT_PRESETS[cycle];
+  },
+
+  // Get comprehensive daily goal for a date (respecting non-retroactivity, daily custom goals, and cycle)
+  // PURE GETTER: ZERO side-effect writes to storage or cloud
+  getTargetGoalForDate(date: string, cycle?: CarbCycleType): NutritionGoalPreset {
+    const dailyConfig = this.getDailyConfig(date);
+    const activeCycle = cycle || dailyConfig?.carbCycle || this.getActiveCarbCycle();
+
+    const basePreset = this.getPresetForDate(date, activeCycle);
+    const resolvedGoal: NutritionGoalPreset = {
+      ...basePreset,
+      type: activeCycle,
+      ...(dailyConfig?.customGoals || {}),
+    };
+
+    return resolvedGoal;
   },
   
   // Timer presets
@@ -803,16 +934,45 @@ export const StorageService = {
 
   // Daily Configs (Date-specific settings)
   getDailyConfigs(): DailyConfig[] {
-    return getItem<DailyConfig[]>(STORAGE_KEYS.DAILY_CONFIGS, []);
+    const raw = getItem<any[]>(STORAGE_KEYS.DAILY_CONFIGS, []);
+    return raw.map((c) => {
+      const rawCycle = c.carbCycle || c.cycle || c.carbCycleType || c.type;
+      const cycleStr = rawCycle ? String(rawCycle).toUpperCase() : undefined;
+      const validCycle: CarbCycleType = (cycleStr && ['HIGH', 'MEDIUM', 'LOW', 'CUSTOM'].includes(cycleStr))
+        ? (cycleStr as CarbCycleType)
+        : 'MEDIUM';
+      return {
+        ...c,
+        carbCycle: validCycle,
+      };
+    });
   },
   getDailyConfig(date: string): DailyConfig | null {
     const all = this.getDailyConfigs();
-    return all.find(c => c.date === date) || null;
+    return all.find((c) => c.date === date) || null;
   },
   saveDailyConfig(config: DailyConfig): void {
     const all = this.getDailyConfigs();
-    const index = all.findIndex(c => c.date === config.date);
-    const updated = { ...config, updatedAt: Date.now() };
+    const index = all.findIndex((c) => c.date === config.date);
+    const existing = index >= 0 ? all[index] : null;
+    
+    const activeMeals = config.activeMeals || existing?.activeMeals;
+
+    // Normalize carbCycle to standard uppercase type
+    const rawCycle = config.carbCycle || existing?.carbCycle || this.getActiveCarbCycle();
+    const cycleStr = rawCycle ? String(rawCycle).toUpperCase() : 'MEDIUM';
+    const validCycle: CarbCycleType = ['HIGH', 'MEDIUM', 'LOW', 'CUSTOM'].includes(cycleStr)
+      ? (cycleStr as CarbCycleType)
+      : 'MEDIUM';
+
+    const updated: DailyConfig = {
+      ...existing,
+      ...config,
+      carbCycle: validCycle,
+      ...(activeMeals ? { activeMeals } : {}),
+      updatedAt: Date.now(),
+    };
+
     if (index >= 0) {
       all[index] = updated;
     } else {
@@ -1161,6 +1321,7 @@ export const StorageService = {
       weightRecords: this.getAllWeightRecords(),
       workoutRecords: this.getAllWorkoutRecords(),
       presets: this.getPresets(),
+      presetHistory: this.getPresetHistory(),
       activeCarbCycle: this.getActiveCarbCycle(),
       activeMeals: this.getActiveMeals(),
       userProfile: this.getUserProfile(),
@@ -1190,8 +1351,22 @@ export const StorageService = {
       if (data.waterGoal) setItem(STORAGE_KEYS.WATER_GOAL, data.waterGoal);
       if (data.weightRecords) setItem(STORAGE_KEYS.WEIGHT_RECORDS, data.weightRecords);
       if (data.workoutRecords) setItem(STORAGE_KEYS.WORKOUT_RECORDS, data.workoutRecords);
-      if (data.presets) setItem(STORAGE_KEYS.CARB_PRESETS, data.presets);
-      if (data.activeCarbCycle) setItem(STORAGE_KEYS.ACTIVE_CARB_CYCLE, data.activeCarbCycle);
+      if (data.presets) {
+        setItem(STORAGE_KEYS.CARB_PRESETS, data.presets);
+        // If data has no presetHistory (legacy backup), initialize history baseline with these presets!
+        if (!data.presetHistory) {
+          const legacyHistory: PresetHistoryEntry[] = [
+            { effectiveDate: '1970-01-01', presets: data.presets, updatedAt: 0 }
+          ];
+          setItem(STORAGE_KEYS.CARB_PRESET_HISTORY, legacyHistory);
+        }
+      }
+      if (data.presetHistory) setItem(STORAGE_KEYS.CARB_PRESET_HISTORY, data.presetHistory);
+      if (data.activeCarbCycle) {
+        const raw = String(data.activeCarbCycle).toUpperCase();
+        const valid = ['HIGH', 'MEDIUM', 'LOW', 'CUSTOM'].includes(raw) ? (raw as CarbCycleType) : 'MEDIUM';
+        setItem(STORAGE_KEYS.ACTIVE_CARB_CYCLE, valid);
+      }
       if (data.activeMeals) setItem(STORAGE_KEYS.ACTIVE_MEALS, data.activeMeals);
       if (data.userProfile) setItem(STORAGE_KEYS.USER_PROFILE, data.userProfile);
       if (data.exercises) setItem(STORAGE_KEYS.EXERCISES, data.exercises);
@@ -1201,7 +1376,23 @@ export const StorageService = {
       if (data.customBodyParts) setItem(STORAGE_KEYS.CUSTOM_BODY_PARTS, data.customBodyParts);
       if (data.geminiApiKey) setItem(STORAGE_KEYS.GEMINI_KEY, data.geminiApiKey);
       if (data.geminiModel) setItem(STORAGE_KEYS.GEMINI_MODEL, data.geminiModel);
-      if (data.dailyConfigs) setItem(STORAGE_KEYS.DAILY_CONFIGS, data.dailyConfigs);
+      
+      if (data.dailyConfigs) {
+        const normalized = (data.dailyConfigs as any[]).map((c: any) => {
+          const rawCycle = c.carbCycle || c.cycle || c.carbCycleType || c.type;
+          const cycleStr = rawCycle ? String(rawCycle).toUpperCase() : 'MEDIUM';
+          const validCycle: CarbCycleType = ['HIGH', 'MEDIUM', 'LOW', 'CUSTOM'].includes(cycleStr)
+            ? (cycleStr as CarbCycleType)
+            : 'MEDIUM';
+          return {
+            ...c,
+            carbCycle: validCycle,
+          };
+        });
+        setItem(STORAGE_KEYS.DAILY_CONFIGS, normalized);
+      } else {
+        setItem(STORAGE_KEYS.DAILY_CONFIGS, []);
+      }
       if (data.useNetCarbsMode !== undefined) setItem(STORAGE_KEYS.NET_CARBS_MODE, data.useNetCarbsMode);
       if (data.apiUsage) {
         setItem(STORAGE_KEYS.API_USAGE, data.apiUsage);
@@ -1353,9 +1544,20 @@ export const StorageService = {
         localChanged = true;
       }
 
-      // 5b. Daily Configs (Merge by date, newer updatedAt wins)
+      // 5b. Daily Configs (Merge by date, normalizing carbCycle and protecting incoming backup data)
       const localDaily = this.getDailyConfigs();
-      const incomingDaily = incoming.dailyConfigs || [];
+      const rawIncomingDaily = incoming.dailyConfigs || [];
+      const incomingDaily = rawIncomingDaily.map((c: any) => {
+        const rawCycle = c.carbCycle || c.cycle || c.carbCycleType || c.type;
+        const cycleStr = rawCycle ? String(rawCycle).toUpperCase() : undefined;
+        const validCycle: CarbCycleType = (cycleStr && ['HIGH', 'MEDIUM', 'LOW', 'CUSTOM'].includes(cycleStr))
+          ? (cycleStr as CarbCycleType)
+          : 'MEDIUM';
+        return {
+          ...c,
+          carbCycle: validCycle,
+        };
+      });
       const mergedDaily = this.mergeCollections(localDaily, incomingDaily, 'date', 'updatedAt');
       if (JSON.stringify(mergedDaily) !== JSON.stringify(localDaily)) {
         setItem(STORAGE_KEYS.DAILY_CONFIGS, mergedDaily);
@@ -1381,6 +1583,25 @@ export const StorageService = {
       if (incoming.presets && JSON.stringify(incoming.presets) !== JSON.stringify(this.getPresets())) {
         setItem(STORAGE_KEYS.CARB_PRESETS, incoming.presets);
         localChanged = true;
+      }
+      if (incoming.presetHistory) {
+        const localHistory = this.getPresetHistory();
+        const mergedHistory = this.mergeCollections(localHistory, incoming.presetHistory, 'effectiveDate', 'updatedAt');
+        if (JSON.stringify(mergedHistory) !== JSON.stringify(localHistory)) {
+          setItem(STORAGE_KEYS.CARB_PRESET_HISTORY, mergedHistory);
+          localChanged = true;
+        }
+      } else if (incoming.presets) {
+        // If incoming has no presetHistory (legacy backup), establish baseline from incoming presets
+        const localHistory = this.getPresetHistory();
+        const hasBaseline = localHistory.some((h) => h.effectiveDate === '1970-01-01');
+        if (!hasBaseline || localHistory.length === 0) {
+          const legacyHistory: PresetHistoryEntry[] = [
+            { effectiveDate: '1970-01-01', presets: incoming.presets, updatedAt: 0 }
+          ];
+          setItem(STORAGE_KEYS.CARB_PRESET_HISTORY, legacyHistory);
+          localChanged = true;
+        }
       }
       if (incoming.activeMeals && JSON.stringify(incoming.activeMeals) !== JSON.stringify(this.getActiveMeals())) {
         setItem(STORAGE_KEYS.ACTIVE_MEALS, incoming.activeMeals);

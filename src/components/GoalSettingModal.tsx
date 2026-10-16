@@ -1,20 +1,22 @@
 import React, { useState } from 'react';
-import { X, Save, RotateCcw } from 'lucide-react';
+import { X, Save, RotateCcw, ShieldCheck } from 'lucide-react';
 import { CarbCycleType, NutritionGoalPreset } from '../types';
 import { CARB_CYCLE_INFO, DEFAULT_PRESETS, getCarbCycleBadgeStyle } from '../data/defaults';
 import { MacroCalorieVerifier } from './MacroCalorieVerifier';
 import { useModalBackHandler } from '../hooks/useModalBackHandler';
 
 interface GoalSettingModalProps {
+  currentDate?: string;
   currentCycle: CarbCycleType;
   presets: Record<CarbCycleType, NutritionGoalPreset>;
   useNetCarbsMode?: boolean;
   onToggleNetCarbsMode?: (enabled: boolean) => void;
   onClose: () => void;
-  onSave: (presets: Record<CarbCycleType, NutritionGoalPreset>) => void;
+  onSave: (presets: Record<CarbCycleType, NutritionGoalPreset>, applyToPast?: boolean) => void;
 }
 
 export const GoalSettingModal: React.FC<GoalSettingModalProps> = ({
+  currentDate,
   currentCycle,
   presets,
   useNetCarbsMode = false,
@@ -25,6 +27,7 @@ export const GoalSettingModal: React.FC<GoalSettingModalProps> = ({
   useModalBackHandler(true, onClose);
 
   const [selectedCycle, setSelectedCycle] = useState<CarbCycleType>(currentCycle);
+  const [applyToPast, setApplyToPast] = useState(false);
   const [editingPresets, setEditingPresets] = useState<Record<CarbCycleType, Record<keyof NutritionGoalPreset, number | string>>>(
     JSON.parse(JSON.stringify(presets))
   );
@@ -63,7 +66,7 @@ export const GoalSettingModal: React.FC<GoalSettingModalProps> = ({
         potassium: Number(p.potassium) || 0,
       };
     }
-    onSave(finalPresets);
+    onSave(finalPresets, applyToPast);
     onClose();
   };
 
@@ -86,8 +89,24 @@ export const GoalSettingModal: React.FC<GoalSettingModalProps> = ({
           </button>
         </div>
 
+        {/* Non-retroactive scope notice */}
+        <div className="mx-6 mt-3.5 p-3 bg-sky-50/70 border border-sky-200/60 rounded-2xl">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1.5 text-xs font-bold text-sky-950">
+              <ShieldCheck className="w-4 h-4 text-sky-600 shrink-0" />
+              <span>目標生效範圍：{currentDate ? `自 ${currentDate} 起生效` : '自今日起生效'}</span>
+            </div>
+            <span className="text-[11px] font-bold bg-sky-100 text-sky-700 px-2.5 py-0.5 rounded-full">
+              不溯及既往
+            </span>
+          </div>
+          <p className="text-[11px] text-sky-700/90 mt-1 leading-relaxed">
+            修改後的新目標將自此日期開始套用，您在此日期之前的飲食記錄與歷史目標將完整保留，不會受影響。
+          </p>
+        </div>
+
         {/* Cycle selector pills */}
-        <div className="px-6 pt-4 pb-2">
+        <div className="px-6 pt-3.5 pb-2">
           <div className="grid grid-cols-4 gap-2">
             {carbCycles.map((c) => {
               const info = CARB_CYCLE_INFO[c];
@@ -238,6 +257,30 @@ export const GoalSettingModal: React.FC<GoalSettingModalProps> = ({
                 扣纖
               </button>
             </div>
+          </div>
+
+          {/* 歷史記錄保護（不溯及既往）開關 */}
+          <div className="p-3 bg-slate-50 border border-slate-200/80 rounded-2xl flex items-center justify-between gap-3">
+            <div>
+              <div className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>歷史記錄保護（不溯及既往）</span>
+              </div>
+              <div className="text-[11px] text-slate-500 mt-0.5">
+                {applyToPast
+                  ? '⚠️ 已關閉保護：將一併覆蓋所有過去歷史日期的目標'
+                  : '✅ 預設保護：過去日期的目標與進度數據不受影響，完整保留'}
+              </div>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer shrink-0">
+              <input
+                type="checkbox"
+                checked={!applyToPast}
+                onChange={(e) => setApplyToPast(!e.target.checked)}
+                className="sr-only peer"
+              />
+              <div className="w-10 h-5.5 bg-slate-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4.5 after:w-4.5 after:transition-all peer-checked:bg-emerald-600"></div>
+            </label>
           </div>
         </div>
 

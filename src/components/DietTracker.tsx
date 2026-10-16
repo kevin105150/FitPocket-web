@@ -39,6 +39,7 @@ import { PortionModal } from './PortionModal';
 import { CustomFoodModal } from './CustomFoodModal';
 import { GoalSettingModal } from './GoalSettingModal';
 import { useModalBackHandler } from '../hooks/useModalBackHandler';
+import { getTodayString } from '../utils/dateUtils';
 
 interface DietTrackerProps {
   currentDate: string;
@@ -369,7 +370,10 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
   // State
   const [foodRecords, setFoodRecords] = useState<FoodRecord[]>([]);
   const [activeMeals, setActiveMeals] = useState<MealConfig[]>(() => StorageService.getActiveMeals(currentDate));
-  const [activeCycle, setActiveCycle] = useState<CarbCycleType>('MEDIUM');
+  const [activeCycle, setActiveCycle] = useState<CarbCycleType>(() => {
+    const daily = StorageService.getDailyConfig(currentDate);
+    return daily?.carbCycle || StorageService.getActiveCarbCycle();
+  });
   const [presets, setPresets] = useState<Record<CarbCycleType, NutritionGoalPreset>>(
     StorageService.getPresets()
   );
@@ -591,15 +595,12 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
   const refreshRecords = () => {
     setFoodRecords(StorageService.getFoodRecordsByDate(currentDate));
     setActiveMeals(StorageService.getActiveMeals(currentDate));
-    setPresets(StorageService.getPresets());
+    setPresets(StorageService.getPresets(currentDate));
     
     // Load daily config if exists, fallback to global active cycle
     const dailyConfig = StorageService.getDailyConfig(currentDate);
-    if (dailyConfig) {
-      setActiveCycle(dailyConfig.carbCycle);
-    } else {
-      setActiveCycle(StorageService.getActiveCarbCycle());
-    }
+    const dayCycle = dailyConfig?.carbCycle || StorageService.getActiveCarbCycle();
+    setActiveCycle(dayCycle);
   };
 
   // Custom modal states for iframe safety (replacing window.prompt / window.confirm)
@@ -703,13 +704,10 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
     return () => unsubscribe();
   }, [currentDate]);
 
-  // Current active goal preset (merged with daily custom goals if any)
-  const basePreset = presets[activeCycle];
-  const dailyConfig = StorageService.getDailyConfig(currentDate);
-  const currentGoal: NutritionGoalPreset = {
-    ...basePreset,
-    ...(dailyConfig?.customGoals || {})
-  };
+  // Current active goal preset (merged with daily custom goals if any, non-retroactive)
+  const currentDailyConfig = StorageService.getDailyConfig(currentDate);
+  const effectiveCycle = currentDailyConfig?.carbCycle || activeCycle;
+  const currentGoal: NutritionGoalPreset = StorageService.getTargetGoalForDate(currentDate, effectiveCycle);
 
   // Calculate totals
   const totalCalories = foodRecords.reduce((sum, r) => sum + (r.calories || 0), 0);
@@ -727,12 +725,17 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
   // Change carb cycle
   const handleSelectCycle = (cycle: CarbCycleType) => {
     setActiveCycle(cycle);
-    // Save to daily config instead of global
+    // If selecting cycle on today, also keep default active cycle aligned
+    if (currentDate === getTodayString()) {
+      StorageService.setActiveCarbCycle(cycle);
+    }
+    // Save to daily config for this specific date
     const existing = StorageService.getDailyConfig(currentDate);
     StorageService.saveDailyConfig({
       date: currentDate,
       carbCycle: cycle,
       customGoals: existing?.customGoals,
+      activeMeals: existing?.activeMeals || activeMeals,
       updatedAt: Date.now()
     });
   };
@@ -985,10 +988,12 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
     refreshRecords();
   };
 
-  // Handle goal saved
-  const handleSaveGoals = (newPresets: Record<CarbCycleType, NutritionGoalPreset>) => {
+  // Handle goal saved (non-retroactive starting from today)
+  const handleSaveGoals = (newPresets: Record<CarbCycleType, NutritionGoalPreset>, applyToPast = false) => {
     setPresets(newPresets);
-    StorageService.savePresets(newPresets);
+    const today = getTodayString();
+    StorageService.savePresets(newPresets, today, applyToPast);
+    refreshRecords();
   };
 
   const toggleExpand = (type: string) => {
@@ -1094,7 +1099,7 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
           <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none py-0.5">
             {cycles.map((c) => {
               const info = CARB_CYCLE_INFO[c];
-              const isSelected = activeCycle === c;
+              const isSelected = effectiveCycle === c;
               const badgeStyle = getCarbCycleBadgeStyle(c, isSelected);
               return (
                 <button
@@ -1529,7 +1534,8 @@ export const DietTracker: React.FC<DietTrackerProps> = ({
 
       {showGoalModal && (
         <GoalSettingModal
-          currentCycle={activeCycle}
+          currentDate={getTodayString()}
+          currentCycle={effectiveCycle}
           presets={presets}
           useNetCarbsMode={useNetCarbsMode}
           onToggleNetCarbsMode={handleUpdateNetCarbsMode}

@@ -537,8 +537,9 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
 
     function updateActiveCycleForCurrentDate() {
       const dateConfig = (APP_DATA.dailyConfigs || []).find(d => d.date === currentDate);
-      if (dateConfig && dateConfig.carbCycle) {
-        activeCycle = dateConfig.carbCycle;
+      const rawCycle = dateConfig ? (dateConfig.carbCycle || dateConfig.cycle || dateConfig.carbCycleType) : null;
+      if (rawCycle) {
+        activeCycle = String(rawCycle).toUpperCase();
       } else {
         activeCycle = APP_DATA.activeCarbCycle || 'MEDIUM';
       }
@@ -711,15 +712,33 @@ export function generateFullAppExportHtml(exportData: any, options?: ExportOptio
     }
 
     function getCurrentGoal() {
-      const presets = APP_DATA.presets || {};
+      const dateConfig = (APP_DATA.dailyConfigs || []).find(d => d.date === currentDate);
+      if (dateConfig && dateConfig.targetGoal && (!dateConfig.carbCycle || dateConfig.targetGoal.type === activeCycle)) {
+        return dateConfig.targetGoal;
+      }
+
+      let presets = APP_DATA.presets || {};
+      if (Array.isArray(APP_DATA.presetHistory) && APP_DATA.presetHistory.length > 0) {
+        const valid = APP_DATA.presetHistory
+          .filter(h => h.effectiveDate <= currentDate)
+          .sort((a, b) => b.effectiveDate.localeCompare(a.effectiveDate));
+        if (valid.length > 0) {
+          presets = valid[0].presets;
+        } else {
+          const baseline = APP_DATA.presetHistory.find(h => h.effectiveDate === '1970-01-01');
+          if (baseline) presets = baseline.presets;
+        }
+      }
+
       const preset = presets[activeCycle] || {};
+      const custom = (dateConfig && dateConfig.customGoals) || {};
       const profile = APP_DATA.userProfile || {};
 
       return {
-        calories: Number(preset.calories || profile.targetCalories || 2000),
-        carbs: Number(preset.carbs || profile.targetCarbs || 250),
-        protein: Number(preset.protein || profile.targetProtein || 120),
-        fat: Number(preset.fat || profile.targetFat || 50),
+        calories: Number(custom.calories || preset.calories || profile.targetCalories || 2000),
+        carbs: Number(custom.carbs || preset.carbs || profile.targetCarbs || 250),
+        protein: Number(custom.protein || preset.protein || profile.targetProtein || 120),
+        fat: Number(custom.fat || preset.fat || profile.targetFat || 50),
       };
     }
 

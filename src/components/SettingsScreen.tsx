@@ -1002,9 +1002,10 @@ export const SettingsScreen: React.FC = () => {
       protein: Number(calculated.targetProtein) || 0,
       fat: Number(calculated.targetFat) || 0,
     };
+    const today = getTodayString();
     setPresets(newPresets);
-    StorageService.savePresets(newPresets);
-    flashMessage('已將計算建議套用至「自訂」目標！');
+    StorageService.savePresets(newPresets, today, false);
+    flashMessage('已將計算建議套用至「自訂」目標（自今日起生效，歷史記錄已保留）！');
   };
 
   // Save profile
@@ -3290,13 +3291,19 @@ export const SettingsScreen: React.FC = () => {
       {/* Goal Setting Modal */}
       {showGoalModal && (
         <GoalSettingModal
+          currentDate={getTodayString()}
           currentCycle={StorageService.getActiveCarbCycle()}
           presets={presets}
           onClose={() => setShowGoalModal(false)}
-          onSave={(newPresets) => {
-            StorageService.savePresets(newPresets);
+          onSave={(newPresets, applyToPast) => {
+            const today = getTodayString();
+            StorageService.savePresets(newPresets, today, applyToPast);
             setPresets(newPresets);
-            flashMessage('已成功儲存碳循環目標！');
+            flashMessage(
+              applyToPast
+                ? '已成功儲存碳循環目標並更新所有歷史記錄！'
+                : '已成功儲存碳循環目標（自今日起生效，歷史記錄已完整保留）！'
+            );
           }}
         />
       )}
